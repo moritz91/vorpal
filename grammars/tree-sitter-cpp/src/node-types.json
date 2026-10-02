@@ -596,6 +596,10 @@
         {
           "type": "ms_call_modifier",
           "named": true
+        },
+        {
+          "type": "sdk_call_modifier",
+          "named": true
         }
       ]
     }
@@ -2098,6 +2102,10 @@
           "named": true
         },
         {
+          "type": "sdk_call_modifier",
+          "named": true
+        },
+        {
           "type": "storage_class_specifier",
           "named": true
         },
@@ -2562,6 +2570,10 @@
         },
         {
           "type": "ms_declspec_modifier",
+          "named": true
+        },
+        {
+          "type": "sdk_call_modifier",
           "named": true
         },
         {
@@ -3307,6 +3319,10 @@
         },
         {
           "type": "pure_virtual_clause",
+          "named": true
+        },
+        {
+          "type": "sdk_call_modifier",
           "named": true
         },
         {
@@ -4544,6 +4560,10 @@
         },
         {
           "type": "ms_call_modifier",
+          "named": true
+        },
+        {
+          "type": "sdk_call_modifier",
           "named": true
         }
       ]
@@ -5825,6 +5845,21 @@
         },
         {
           "type": "initializer_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "sdk_call_modifier",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
           "named": true
         }
       ]

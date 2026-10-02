@@ -1,6 +1,9 @@
 use vorpal_ingest::OutlineExtractor;
+use vorpal_core::{Language, tree_sitter::LanguageExt};
+use vorpal_lang_registry::SgLang;
 
 fn clean_product(source: &str) -> vorpal_ingest::FileProduct {
+  assert!(!SgLang::from_path("macros.cc").unwrap().grep(source).root().has_error());
   let product = OutlineExtractor::new().unwrap().extract_product("macros.cc", source).unwrap();
   assert_eq!(product.error_nodes, 0, "errors at {:?}: {source}", product.error_spans);
   assert_eq!(product.error_bytes, 0);
@@ -10,6 +13,33 @@ fn clean_product(source: &str) -> vorpal_ingest::FileProduct {
     assert!((reference.end as usize) <= source.len());
   }
   product
+}
+
+#[test]
+fn cpp_sdk_convention_macros_preserve_declaration_names_and_ordinary_identifiers() {
+  let product = clean_product(r#"
+typedef int (WINAPI *Callback)(int);
+typedef float (F_CALL *Rolloff)(void*, float);
+int F_API apiDeclaration(void* context);
+int F_API exported(int value) { return target(value); }
+struct System { int F_API initialize(int); };
+int WINAPI(int value) { return value; }
+int ordinary() { return WINAPI(1); }
+HRESULT result;
+"#);
+  assert!(product.items.iter().any(|i| i.entry.name == "exported"));
+  assert!(product.items.iter().any(|i| i.entry.name == "WINAPI"));
+  assert!(product.refs.iter().any(|r| r.name == "target" && r.kind == 0));
+  assert!(product.refs.iter().any(|r| r.name == "WINAPI" && r.kind == 0));
+  assert!(!product.items.iter().any(|i| i.entry.name == "F_API"));
+}
+
+#[test]
+fn cpp_sdk_support_retains_real_syntax_errors() {
+  for source in ["template <typename T>", "int F_API broken(int value) {", "}"] {
+    let parsed = SgLang::from_path("sdk.cc").unwrap().grep(source);
+    assert!(parsed.root().has_error(), "silenced invalid source: {source}");
+  }
 }
 
 #[test]

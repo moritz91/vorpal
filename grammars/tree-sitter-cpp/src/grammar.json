@@ -2926,8 +2926,17 @@
           "type": "CHOICE",
           "members": [
             {
-              "type": "SYMBOL",
-              "name": "ms_call_modifier"
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "ms_call_modifier"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "sdk_call_modifier"
+                }
+              ]
             },
             {
               "type": "BLANK"
@@ -3016,6 +3025,18 @@
         {
           "type": "SYMBOL",
           "name": "_declaration_specifiers"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "sdk_call_modifier"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         },
         {
           "type": "SEQ",
@@ -3868,8 +3889,17 @@
             "type": "CHOICE",
             "members": [
               {
-                "type": "SYMBOL",
-                "name": "ms_call_modifier"
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "ms_call_modifier"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "sdk_call_modifier"
+                  }
+                ]
               },
               {
                 "type": "BLANK"
@@ -3901,8 +3931,17 @@
             "type": "CHOICE",
             "members": [
               {
-                "type": "SYMBOL",
-                "name": "ms_call_modifier"
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "ms_call_modifier"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "sdk_call_modifier"
+                  }
+                ]
               },
               {
                 "type": "BLANK"
@@ -3934,8 +3973,17 @@
             "type": "CHOICE",
             "members": [
               {
-                "type": "SYMBOL",
-                "name": "ms_call_modifier"
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "ms_call_modifier"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "sdk_call_modifier"
+                  }
+                ]
               },
               {
                 "type": "BLANK"
@@ -3967,8 +4015,17 @@
             "type": "CHOICE",
             "members": [
               {
-                "type": "SYMBOL",
-                "name": "ms_call_modifier"
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "ms_call_modifier"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "sdk_call_modifier"
+                  }
+                ]
               },
               {
                 "type": "BLANK"
@@ -5669,6 +5726,18 @@
         {
           "type": "SYMBOL",
           "name": "_declaration_specifiers"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "sdk_call_modifier"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         },
         {
           "type": "CHOICE",
@@ -17111,6 +17180,19 @@
           }
         ]
       }
+    },
+    "sdk_call_modifier": {
+      "type": "PREC_DYNAMIC",
+      "value": -1,
+      "content": {
+        "type": "ALIAS",
+        "named": true,
+        "value": "identifier",
+        "content": {
+          "type": "SYMBOL",
+          "name": "identifier"
+        }
+      }
     }
   },
   "extras": [
@@ -17262,6 +17344,38 @@
     [
       "_declaration_modifiers",
       "macro_type_argument"
+    ],
+    [
+      "sdk_call_modifier",
+      "_declarator"
+    ],
+    [
+      "_declarator",
+      "type_specifier",
+      "expression",
+      "sdk_call_modifier"
+    ],
+    [
+      "type_specifier",
+      "expression",
+      "sdk_call_modifier"
+    ],
+    [
+      "type_specifier",
+      "sdk_call_modifier"
+    ],
+    [
+      "_field_declarator",
+      "sdk_call_modifier"
+    ],
+    [
+      "_declarator",
+      "type_specifier",
+      "sdk_call_modifier"
+    ],
+    [
+      "_type_declarator",
+      "sdk_call_modifier"
     ]
   ],
   "precedences": [

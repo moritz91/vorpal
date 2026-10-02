@@ -93,6 +93,51 @@ operators = rules['field_expression']['members'][0]['content']['members'][1]['co
 arrow_star = {'type': 'STRING', 'value': '->*'}
 if arrow_star not in operators:
     operators.append(arrow_star)
+
+# SDKs hide calling conventions/export annotations behind object macros.
+# Accept identifiers only after a type or inside a parenthesized declarator;
+# prefer the original parse when an ordinary identifier interpretation is viable.
+sdk_modifier = {
+    'type': 'PREC_DYNAMIC', 'value': -1, 'content': {
+        'type': 'ALIAS', 'named': True, 'value': 'identifier',
+        'content': symbol('identifier'),
+    },
+}
+rules['sdk_call_modifier'] = sdk_modifier
+grammar['conflicts'] = [c for c in grammar['conflicts']
+    if c != ['expression', 'sdk_call_modifier']]
+for conflict in [['sdk_call_modifier', '_declarator'],
+                 ['_declarator', 'type_specifier', 'expression', 'sdk_call_modifier'],
+                 ['type_specifier', 'expression', 'sdk_call_modifier'],
+                 ['type_specifier', 'sdk_call_modifier'],
+                 ['_field_declarator', 'sdk_call_modifier'],
+                 ['_declarator', 'type_specifier', 'sdk_call_modifier'],
+                 ['_type_declarator', 'sdk_call_modifier']]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+for name in ['declaration', 'field_declaration']:
+    members = rules[name]['members']
+    if members[1] != optional(symbol('sdk_call_modifier')):
+        members.insert(1, optional(symbol('sdk_call_modifier')))
+
+def sdk_in_parentheses(node):
+    if node == symbol('ms_call_modifier'):
+        node.clear()
+        node.update(choice(symbol('ms_call_modifier'), symbol('sdk_call_modifier')))
+        return
+    if node == choice(symbol('ms_call_modifier'), symbol('sdk_call_modifier')):
+        return
+    for value in list(node.values()):
+        if isinstance(value, dict): sdk_in_parentheses(value)
+        elif isinstance(value, list):
+            for child in value:
+                if isinstance(child, dict): sdk_in_parentheses(child)
+for name in ['parenthesized_declarator', 'parenthesized_field_declarator',
+             'parenthesized_type_declarator', 'abstract_parenthesized_declarator']:
+    sdk_in_parentheses(rules[name])
+definition = rules['function_definition']['members']
+type_position = definition.index(symbol('_declaration_specifiers'))
+definition[type_position + 1] = optional(choice(symbol('ms_call_modifier'), symbol('sdk_call_modifier')))
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 
 if '--finalize' in sys.argv:

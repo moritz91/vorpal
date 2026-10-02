@@ -19,6 +19,9 @@ The vendored 0.23.4 grammar carries explicit productions for:
 - Quoted and angle-bracket header arguments to `__has_include`.
 - `typeid` with either a type or an expression.
 - Pointer-member `->*` expressions and allocation of cv-qualified pointer arrays.
+- SDK convention/export macros after return types and in parenthesized callback
+  declarators, including `F_API`, `F_CALL` and `WINAPI`. Ordinary identifier
+  interpretations are preferred when both readings are viable.
 
 No source preprocessing or byte rewriting is performed. Definition and reference
 spans still refer to the original source. Calls through a pointer-to-member do
@@ -58,8 +61,15 @@ protocol. All 14 published resolver evaluations pass on native Windows, includin
 the eight cases that previously failed there. Grammar provenance uses portable
 repository paths and can now be checked on both operating systems.
 
-Remaining C++ boundaries in that audit include SDK declaration/calling-convention
-macros (`WINAPI`, `F_API`), macro statements without semicolons, conditional
+The SDK follow-up reduced that subset from 40 to 29 error-bearing files (636 ERROR
+nodes, 537882 damaged bytes). All nine audited FMOD headers and both Windows
+calling-convention cases now parse without ERROR nodes. The corpus and native
+Windows parser regressions pass; invalid fragments still have syntax errors,
+including missing-token errors reported by the parser. Header prototypes retain
+the existing outline policy; parsing them cleanly does not automatically add
+external function definitions to the graph.
+
+Remaining C++ boundaries in that audit include macro statements without semicolons, conditional
 preprocessor branches inside initializer lists, and some complex abstract/member
 declarators. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as
