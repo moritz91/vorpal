@@ -135,7 +135,7 @@ impl OutlineFlagFilter {
   fn matches_predicate(self, predicate: Option<&SerializablePredicate>, default: bool) -> bool {
     match predicate {
       Some(SerializablePredicate::Literal(value)) => self.matches_value(*value),
-      Some(SerializablePredicate::Rule(_)) => true,
+      Some(SerializablePredicate::Rule(_) | SerializablePredicate::CppAccess(_)) => true,
       None => self.matches_value(default),
     }
   }

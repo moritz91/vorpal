@@ -1107,10 +1107,23 @@ impl OutlineExtractor {
     // poisoning any name bound to disagreeing types — conservative by design. Binding order
     // never matters (a use-before-assign types identically), so the map is order-free.
     let mut typed: HashMap<&str, Option<(&str, crate::typefacts::BindOrigin)>> = HashMap::new();
+    let cpp = matches!(lang, SgLang::Builtin(vorpal_language::SupportLang::Cpp));
+    let mut cpp_local: HashMap<(u32, &str), Option<(&str, crate::typefacts::BindOrigin)>> = HashMap::new();
+    let mut binding_cursor = crate::references::SpanCursor::new(&spans);
     for binding in &bindings {
       // Return bindings key a FUNCTION's name to its return type — they feed the chained-
       // call ledger below and must never type a same-named receiver variable.
       if binding.origin == crate::typefacts::BindOrigin::Return {
+        continue;
+      }
+      if cpp && binding.ty.as_deref().is_some_and(|ty| ty.starts_with(crate::typefacts::CPP_ALIAS_PREFIX)) { continue; }
+      if cpp && binding.origin != crate::typefacts::BindOrigin::Field {
+        if let Some(from) = binding_cursor.enclosing(binding.start as usize) {
+          let value = binding.ty.as_deref().map(|ty| (ty, binding.origin));
+          cpp_local.entry((from.raw() as u32, binding.name.as_ref()))
+            .and_modify(|slot| { if *slot != value { *slot = None; } })
+            .or_insert(value);
+        }
         continue;
       }
       let Some(ty) = binding.ty.as_deref() else {
@@ -1128,6 +1141,18 @@ impl OutlineExtractor {
           }
         })
         .or_insert(Some((ty, binding.origin)));
+    }
+
+    if cpp {
+      let mut cursor = crate::references::SpanCursor::new(&spans);
+      for binding in &bindings {
+        let Some(alias) = binding.ty.as_deref().and_then(|ty| ty.strip_prefix(crate::typefacts::CPP_ALIAS_PREFIX)) else { continue; };
+        let Some(from) = cursor.enclosing(binding.start as usize) else { continue; };
+        let key = (from.raw() as u32, binding.name.as_ref());
+        let value = cpp_local.get(&(from.raw() as u32, alias)).copied().flatten()
+          .or_else(|| typed.get(alias).copied().flatten());
+        cpp_local.entry(key).and_modify(|slot| { if *slot != value { *slot = None; } }).or_insert(value);
+      }
     }
 
     // Per-entity parameter lists: every Param binding attributed to its innermost enclosing
@@ -1168,7 +1193,10 @@ impl OutlineExtractor {
         let receiver_typing = r
           .receiver
           .as_deref()
-          .and_then(|name| typed.get(name).copied().flatten());
+          .and_then(|name| {
+            if cpp && let Some(value) = cpp_local.get(&(r.from.raw() as u32, name)) { return *value; }
+            typed.get(name).copied().flatten()
+          });
         product::RefParts {
           from_entity_index: r.from.raw() as u32,
           name: r.name,

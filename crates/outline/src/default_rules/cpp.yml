@@ -139,7 +139,7 @@ rule:
             kind: field_identifier
             pattern: $NAME
 name: $NAME
-isPublic: false
+isPublic: cpp-access
 ---
 
 id: cpp-member-constructor
@@ -156,7 +156,7 @@ rule:
       field: declarator
       pattern: $NAME
 name: $NAME
-isPublic: false
+isPublic: cpp-access
 ---
 
 id: cpp-member-field
@@ -194,7 +194,7 @@ rule:
               field: declarator
               kind: field_identifier
 name: $NAME
-isPublic: false
+isPublic: cpp-access
 ---
 
 id: cpp-nested-class

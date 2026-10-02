@@ -10,7 +10,7 @@
 //! judgment (G-M2), made against real candidates. Disagreeing bindings for one name poison it
 //! to "no type": conservative by design.
 //!
-//! Capture languages: Rust, Python, TypeScript, TSX, Go, Java. `TYPEFACTS_VERSION` folds into the
+//! Capture languages: Rust, Python, TypeScript, TSX, Go, Java, C++. `TYPEFACTS_VERSION` folds into the
 //! extraction identity, so ANY change to these tables re-keys products without a format bump.
 
 use std::borrow::Cow;
@@ -21,7 +21,8 @@ use vorpal_language::SupportLang;
 
 /// Bump on ANY semantic change to the capture tables below — it folds into the extraction
 /// identity, so stale products can never replay into a build with different capture rules.
-pub const TYPEFACTS_VERSION: u64 = 4;
+pub const TYPEFACTS_VERSION: u64 = 5;
+pub(crate) const CPP_ALIAS_PREFIX: &str = "\u{1}cpp-alias:";
 
 /// Where a binding's type knowledge came from — persisted with the product, mapped onto the
 /// receiver-typed `ResolveReason`s in G-M2. Discriminants are the persisted tags.
@@ -93,6 +94,8 @@ pub(crate) enum BindMode {
   /// A function/method declaration: bind the function's NAME to its declared return type
   /// (`type_field`); no return annotation → no binding.
   ReturnType,
+  CppDeclarator,
+  CppAssignment,
 }
 
 pub(crate) struct TypeSpec {
@@ -322,7 +325,17 @@ const JAVA_TF: TypeSpec = TypeSpec {
   ],
 };
 
-/// The capture tables for a language, if it has any (launch set: Rust, Python, TS, TSX).
+const CPP_TF: TypeSpec = TypeSpec {
+  binds: &[
+    BindSpec { kind: "assignment_expression", origin: BindOrigin::Constructed, name_field: "left", type_field: None, value_field: Some("right"), mode: BindMode::CppAssignment },
+    BindSpec { kind: "declaration", origin: BindOrigin::Annotated, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
+    BindSpec { kind: "parameter_declaration", origin: BindOrigin::Param, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
+    BindSpec { kind: "field_declaration", origin: BindOrigin::Field, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
+    BindSpec { kind: "function_definition", origin: BindOrigin::Return, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
+  ],
+};
+
+/// The capture tables for a language, if it has any.
 pub(crate) fn type_spec(lang: SgLang) -> Option<&'static TypeSpec> {
   let SgLang::Builtin(lang) = lang else {
     return None;
@@ -333,6 +346,7 @@ pub(crate) fn type_spec(lang: SgLang) -> Option<&'static TypeSpec> {
     SupportLang::TypeScript | SupportLang::Tsx => Some(&TS_TF),
     SupportLang::Go => Some(&GO_TF),
     SupportLang::Java => Some(&JAVA_TF),
+    SupportLang::Cpp => Some(&CPP_TF),
     _ => None,
   }
 }
@@ -387,6 +401,18 @@ pub(crate) fn capture_at<'t>(
   node: &crate::references::SgNodeAlias<'t>,
   out: &mut Vec<RawBinding<'t>>,
 ) {
+  if bind.mode == BindMode::CppAssignment {
+    if node.field("operator").is_none_or(|operator| operator.text() != "=") { return; }
+    let (Some(left), Some(right)) = (node.field("left"), node.field("right")) else { return; };
+    let (name, alias) = (left.text(), right.text());
+    if is_simple_name(&name) && is_simple_name(&alias) {
+      out.push(RawBinding { name, ty: Some(Cow::Owned(format!("{CPP_ALIAS_PREFIX}{alias}"))), origin: BindOrigin::Constructed, start: node.range().start as u32 });
+    }
+    return;
+  }
+  if bind.mode == BindMode::CppDeclarator {
+    return capture_cpp_declarators(bind, node, out);
+  }
   if bind.mode == BindMode::PyParamList {
     return capture_py_params(node, out);
   }
@@ -442,6 +468,64 @@ pub(crate) fn capture_at<'t>(
     }),
     None => {}
   }
+}
+
+fn capture_cpp_declarators<'t>(
+  bind: &'static BindSpec,
+  node: &crate::references::SgNodeAlias<'t>,
+  out: &mut Vec<RawBinding<'t>>,
+) {
+  let declared_type = node.field("type").and_then(|ty| clean_type_text(ty.text()));
+  for mut declarator in node.children().filter(|child| {
+    matches!(child.kind().as_ref(), "identifier" | "field_identifier" | "qualified_identifier" | "init_declarator" | "pointer_declarator" | "reference_declarator" | "function_declarator")
+  }) {
+    let value = declarator.field("value");
+    let mut origin = bind.origin;
+    for _ in 0..12 {
+      if declarator.kind().as_ref() == "function_declarator" {
+        origin = BindOrigin::Return;
+      }
+      let inner = declarator.field("declarator").or_else(|| {
+        (declarator.kind().as_ref() == "reference_declarator")
+          .then(|| declarator.children().find(|child| child.is_named())).flatten()
+      });
+      let Some(inner) = inner else { break; };
+      declarator = inner;
+    }
+    if !matches!(declarator.kind().as_ref(), "identifier" | "field_identifier" | "qualified_identifier") {
+      continue; // Arrays and function pointers are not receivers of the declared type.
+    }
+    let name = declarator.text();
+    let name = name.rsplit("::").next().unwrap_or(&name);
+    if !is_simple_name(name) { continue; }
+    let (ty, origin) = match declared_type.as_deref() {
+      Some("auto" | "decltype(auto)") | None => {
+        let ty = value.as_ref().and_then(|value| cpp_initializer(value, 0));
+        (ty, if matches!(origin, BindOrigin::Return | BindOrigin::Param) { origin } else { BindOrigin::Constructed })
+      }
+      Some(ty) => (Some(Cow::Owned(ty.rsplit("::").next().unwrap_or(ty).to_string())), origin),
+    };
+    out.push(RawBinding { name: Cow::Owned(name.to_string()), ty, origin, start: node.range().start as u32 });
+  }
+}
+
+fn cpp_initializer<'t>(node: &crate::references::SgNodeAlias<'t>, depth: usize) -> Option<Cow<'t, str>> {
+  if depth > 4 { return None; }
+  if node.kind().as_ref() == "conditional_expression" {
+    let alternative = node.field("alternative")?;
+    let consequence = node.field("consequence")?;
+    if alternative.text() == "nullptr" { return cpp_initializer(&consequence, depth + 1); }
+    let a = cpp_initializer(&alternative, depth + 1)?;
+    let b = cpp_initializer(&consequence, depth + 1)?;
+    return (a == b).then_some(a);
+  }
+  if node.kind().as_ref() == "call_expression" {
+    let callee = node.field("function")?;
+    if callee.kind().as_ref() == "field_expression" {
+      return callee.field("field").map(|field| field.text()).filter(|name| is_simple_name(name));
+    }
+  }
+  constructor_name(node)
 }
 
 fn is_simple_name(text: &str) -> bool {

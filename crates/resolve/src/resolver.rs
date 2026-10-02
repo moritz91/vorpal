@@ -488,6 +488,12 @@ impl Resolver {
             .filter(|s| s.owner == Some(receiver_type))
             .copied(),
         );
+        // C++ keeps header declarations and out-of-class bodies as separate graph nodes.
+        // A typed receiver may select the one body of that owner; overloads stay ambiguous.
+        let cpp = matches!(std::path::Path::new(interner.text_of(reference.from_path)).extension().and_then(|s| s.to_str()), Some("cc" | "cpp" | "cxx" | "hpp" | "h"));
+        if cpp && !prefer_cpp_body(refined) {
+          return Resolution { target: None, edge, confidence: Confidence::NONE, candidates: refined.len(), reason: ResolveReason::None, alternatives: ([0; MAX_RETAINED_ALTERNATIVES], 0) };
+        }
         match refined.len() {
           0 => {
             // Chained-call fallback (G-M5): the "type" may really be a CALLEE NAME
@@ -498,6 +504,9 @@ impl Resolver {
               refined.extend(
                 candidates.iter().filter(|s| s.owner == Some(ret)).copied(),
               );
+              if cpp && !prefer_cpp_body(refined) {
+                return Resolution { target: None, edge, confidence: Confidence::NONE, candidates: refined.len(), reason: ResolveReason::None, alternatives: ([0; MAX_RETAINED_ALTERNATIVES], 0) };
+              }
               if refined.len() == 1 {
                 let target = refined[0];
                 return Resolution {
@@ -569,6 +578,17 @@ impl Resolver {
       visible,
     )
   }
+}
+
+fn prefer_cpp_body(symbols: &mut Vec<Symbol<'_>>) -> bool {
+  let mut bodies = symbols.iter().filter(|s| s.kind == SymbolKind::Function).copied();
+  let body = bodies.next();
+  if bodies.next().is_some() { return false; }
+  if let Some(body) = body && symbols.iter().all(|s| matches!(s.kind, SymbolKind::Function | SymbolKind::Method)) {
+    symbols.clear();
+    symbols.push(body);
+  }
+  true
 }
 
 /// Reusable candidate buffers for [`Resolver::resolve_with`] — cleared per reference, sized

@@ -12,6 +12,17 @@ fn product(path: &str, src: &str) -> vorpal_ingest::FileProduct {
 }
 
 #[test]
+fn cpp_pointer_reference_and_auto_receivers_have_types() {
+  let p = product("typed.cc", "class Holder { Cache* stored; };\nvoid run(Cache* p, Cache& r) { Cache* a = p; Cache b; auto* c = makeCache(); p.open(); r.open(); a.open(); b.open(); c.open(); }\n");
+  for receiver in ["p", "r", "a", "b"] {
+    let call = p.refs.iter().find(|r| r.receiver.as_deref() == Some(receiver)).unwrap();
+    assert_eq!(call.receiver_type.as_deref(), Some("Cache"), "{receiver}: {call:?}");
+  }
+  let call = p.refs.iter().find(|r| r.receiver.as_deref() == Some("c")).unwrap();
+  assert_eq!(call.receiver_type.as_deref(), Some("makeCache"), "{call:?}");
+}
+
+#[test]
 fn rust_receiver_typing_and_params() {
   let src = r#"
 struct Widget { size: u32 }

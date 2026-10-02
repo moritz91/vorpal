@@ -97,6 +97,7 @@ impl<'i> SymbolTable<'i> {
   pub fn insert(&mut self, interner: &'i Interner, name: &str, symbol: Symbol<'i>) {
     debug_assert!(self.grouped.is_empty(), "insert after finalize");
     self.pending.push((interner.intern(name), symbol));
+    self.insert_cpp_member_alias(interner, name, symbol, false);
   }
 
   /// Pre-size the pair vector for a known upper bound of inserts — sharded builds know their
@@ -121,6 +122,21 @@ impl<'i> SymbolTable<'i> {
     debug_assert!(self.grouped.is_empty(), "insert after finalize");
     if let Some(id) = interner.peek(name) {
       self.pending.push((id, symbol));
+    }
+    self.insert_cpp_member_alias(interner, name, symbol, true);
+  }
+
+  fn insert_cpp_member_alias(&mut self, interner: &'i Interner, name: &str, symbol: Symbol<'i>, referenced_only: bool) {
+    let path = interner.text_of(symbol.path);
+    if symbol.kind != SymbolKind::Function || !matches!(std::path::Path::new(path).extension().and_then(|s| s.to_str()), Some("cc" | "cpp" | "cxx" | "hpp" | "h")) {
+      return;
+    }
+    let Some((owner, member)) = name.rsplit_once("::") else { return; };
+    if member.is_empty() || member.contains('<') || member.contains('>') { return; }
+    let key = if referenced_only { interner.peek(member) } else { Some(interner.intern(member)) };
+    if let Some(key) = key {
+      let owner = owner.rsplit("::").next().unwrap_or(owner);
+      self.pending.push((key, Symbol { owner: Some(interner.intern(owner)), ..symbol }));
     }
   }
 

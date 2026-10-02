@@ -165,13 +165,22 @@ pub struct SerializableMemberRule<L> {
 ///
 /// A literal boolean sets the output flag directly. A rule object is evaluated
 /// against the matched candidate node and sets the output flag from the match result.
+/// `cpp-access` evaluates the nearest C++ access label, including class/struct defaults.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SerializablePredicate {
   /// Literal boolean value.
   Literal(bool),
+  /// C++ visibility follows the nearest access label, or the class/struct default.
+  CppAccess(CppAccessPredicate),
   /// vorpal predicate evaluated against the extracted candidate node.
   Rule(Box<SerializableRule>),
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum CppAccessPredicate {
+  #[serde(rename = "cpp-access")]
+  Public,
 }
 
 /// Shared parsed fields for every runnable outline extractor.
@@ -239,6 +248,7 @@ impl<L: Language> ExtractorCommon<L> {
     };
     let ret = match predicate {
       SerializablePredicate::Literal(value) => OutlinePredicate::Literal(value),
+      SerializablePredicate::CppAccess(_) => OutlinePredicate::CppAccess,
       SerializablePredicate::Rule(rule) => {
         let env = self.rule.matcher.get_env(self.rule.language.clone());
         OutlinePredicate::Rule(env.deserialize_rule(*rule)?)
@@ -331,6 +341,7 @@ impl NameTemplate {
 // imported/exported will be default accordingly to role
 enum OutlinePredicate {
   Literal(bool),
+  CppAccess,
   Rule(Rule),
 }
 
@@ -338,6 +349,15 @@ impl OutlinePredicate {
   fn evaluate<D: Doc>(&self, node_match: &mut NodeMatch<D>) -> bool {
     match self {
       Self::Literal(value) => *value,
+      Self::CppAccess => {
+        let node = node_match.get_node();
+        if let Some(label) = node.prev_all().find(|s| s.kind().as_ref() == "access_specifier") {
+          return label.text().trim().trim_end_matches(':') == "public";
+        }
+        node.parent().and_then(|body| body.parent()).is_some_and(|owner| {
+          matches!(owner.kind().as_ref(), "struct_specifier" | "union_specifier")
+        })
+      }
       Self::Rule(rule) => {
         // The predicate must see the main rule's bindings (metavar
         // consistency) but never keeps its own writes — `probe` runs it on

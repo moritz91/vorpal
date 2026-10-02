@@ -685,6 +685,23 @@ fn resolve_session(
     .map(|name| universe.candidates_named(name))
     .collect();
   for (name, facts_list) in names_vec.iter().zip(facts_per_name) {
+    // The bulk table also indexes qualified C++ bodies under their member name.
+    // Enumerate those bodies from each declaration's owner so a scoped relink sees
+    // the same candidate population as a fresh build.
+    let mut cpp_bodies = Vec::new();
+    for facts in &facts_list {
+      if facts.kind == SymbolKind::Method
+        && matches!(std::path::Path::new(&facts.path).extension().and_then(|s| s.to_str()), Some("hpp" | "h" | "cc" | "cpp" | "cxx"))
+        && let Some(owner) = facts.owner.as_deref()
+      {
+        let qualified = format!("{owner}::{name}");
+        for body in universe.candidates_named(&qualified) {
+          if body.kind == SymbolKind::Function && !cpp_bodies.iter().any(|(_, known): &(String, CandidateFacts)| known.id == body.id) {
+            cpp_bodies.push((qualified.clone(), body));
+          }
+        }
+      }
+    }
     for facts in facts_list {
       // Owner parity: peek-or-sentinel, exactly like the bulk build — an owner name no
       // reference interned can never match a qualifier, but member-ness must survive.
@@ -702,6 +719,11 @@ fn resolve_session(
           owner,
         },
       );
+    }
+    for (qualified, facts) in cpp_bodies {
+      table.insert(interner, &qualified, vorpal_resolve::Symbol {
+        id: NodeId::new(facts.id), kind: facts.kind, path: interner.intern(&facts.path), exported: facts.exported, owner: None,
+      });
     }
   }
   table.finalize();
