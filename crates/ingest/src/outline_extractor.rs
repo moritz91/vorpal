@@ -109,8 +109,13 @@ impl ExtractorSet {
 /// parseable language line — impossible for the shipped set, pinned by tests)
 /// sends the caller to the eager path, so laziness can never drop a rule.
 fn bucket_default_docs() -> Option<HashMap<SgLang, Vec<&'static str>>> {
-  let mut buckets: HashMap<SgLang, Vec<&'static str>> = HashMap::new();
-  for doc in DEFAULT_OUTLINE_RULES.split("\n---\n") {
+  bucket_docs(DEFAULT_OUTLINE_RULES)
+}
+
+fn bucket_docs(rules: &str) -> Option<HashMap<SgLang, Vec<&str>>> {
+  let mut buckets: HashMap<SgLang, Vec<&str>> = HashMap::new();
+  // Split before the marker's line ending so both LF and CRLF checkouts work.
+  for doc in rules.split("\n---") {
     if doc.trim().is_empty() {
       continue;
     }
@@ -1320,6 +1325,17 @@ impl FileExtractor for OutlineExtractor {
 mod identity_tests {
   use super::OutlineExtractor;
   use crate::extraction_identity as id;
+
+  #[test]
+  fn bundled_rule_buckets_are_independent_of_line_endings() {
+    let lf = vorpal_outline::DEFAULT_OUTLINE_RULES.replace("\r\n", "\n");
+    let crlf = lf.replace('\n', "\r\n");
+    let counts = |source: &str| {
+      super::bucket_docs(source).unwrap().into_iter()
+        .map(|(lang, docs)| (lang, docs.len())).collect::<std::collections::HashMap<_, _>>()
+    };
+    assert_eq!(counts(&lf), counts(&crlf));
+  }
 
   #[test]
   fn extraction_identity_distinguishes_grammar_and_rules() {
