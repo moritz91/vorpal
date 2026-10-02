@@ -42,8 +42,9 @@ git push origin v0.10.2+moritz.1
 These commands publish remotely; version preparation alone does not execute them.
 The tag must match all checked manifests and use `<upstream-version>+moritz.<build>`.
 The release waits for the Linux workspace tests, targeted Windows regression
-tests, eight CLI platform builds and the Linux agent bundles. Builds use the
-committed lockfile. The workflow publishes a regular GitHub release with raw
+tests, eight CLI platform builds and the Linux agent bundles. Native optimized
+binaries must also pass an indexing smoke test, including the extraction self-check.
+Builds use the committed lockfile. The workflow publishes a regular GitHub release with raw
 CLI binaries, optional agent signatures and `SHA256SUMS`. No signing secret is
 needed for CLI binaries; `VORPAL_AGENT_SIGNING_KEY` enables signed fleet agents.
 

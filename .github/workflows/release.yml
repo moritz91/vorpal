@@ -79,6 +79,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-outline --test c_family_outline_rules
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p vorpal-ingest --no-default-features --lib bundled_rule_buckets_are_independent_of_line_endings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   build:
     name: Build ${{ matrix.target }}
@@ -143,6 +145,27 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: Copy-Item "target/${{ matrix.target }}/release/vorpal.exe" "${{ matrix.asset }}"
+      - name: Index smoke test (native unix binary)
+        if: runner.os != 'Windows' && matrix.target != 'x86_64-apple-darwin'
+        run: |
+          expected=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          test "$(./${{ matrix.asset }} --version)" = "vorpal $expected"
+          mkdir -p smoke/src
+          printf 'int canary() { return 1; }\n' > smoke/src/canary.cpp
+          printf 'export function canary(): void {}\n' > smoke/src/canary.tsx
+          ./${{ matrix.asset }} index smoke --verify
+      - name: Index smoke test (native windows binary)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          $expected = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $actual = & "./${{ matrix.asset }}" --version
+          if ($LASTEXITCODE -ne 0 -or $actual -ne "vorpal $expected") { throw 'Wrong CLI version' }
+          New-Item -ItemType Directory -Path smoke/src -Force | Out-Null
+          Set-Content smoke/src/canary.cpp 'int canary() { return 1; }'
+          Set-Content smoke/src/canary.tsx 'export function canary(): void {}'
+          & "./${{ matrix.asset }}" index smoke --verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
