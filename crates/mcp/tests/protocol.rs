@@ -26,6 +26,42 @@ fn call_tool(server: &mut Server, id: u64, tool: &str, args: Value) -> (String, 
   (text.to_owned(), result["isError"].as_bool().unwrap_or(true))
 }
 
+#[test]
+fn prefix_filters_resolve_against_index_root_for_every_search_tool() {
+  let (root, _) = temp_tree("prefix-root");
+  let src = root.join("nested");
+  fs::create_dir_all(&src).unwrap();
+  fs::write(src.join("inside.rs"), "pub fn prefix_target() {}\n").unwrap();
+  fs::write(root.join("outside.rs"), "pub fn prefix_target_outside() {}\n").unwrap();
+  fs::create_dir_all(root.join("nested-other")).unwrap();
+  fs::write(root.join("nested-other/other.rs"), "pub fn prefix_target_other() {}\n").unwrap();
+  let idx = root.join(".vorpal/index");
+  vorpal_index::build_index(&root, &idx).unwrap();
+  let mut server = Server::new(idx);
+  let cases = [
+    ("text_search", json!({"pattern": "prefix_target"})),
+    ("code_search", json!({"pattern": "pub fn $F() {}", "lang": "rust"})),
+    ("search", json!({"query": "prefix_target", "k": 20})),
+    ("dead_code", json!({"kind": "function"})),
+  ];
+  for (i, (tool, mut args)) in cases.into_iter().enumerate() {
+    args["prefix"] = json!("nested/");
+    let relative = structured(&mut server, 100 + i as u64 * 2, tool, args.clone());
+    args["prefix"] = json!(format!("{}{}", src.display(), std::path::MAIN_SEPARATOR));
+    let absolute = structured(&mut server, 101 + i as u64 * 2, tool, args);
+    assert!(relative["total"].as_u64().unwrap() > 0, "{tool}: {relative}");
+    assert_eq!(relative["total"], absolute["total"], "{tool}");
+    assert_eq!(relative["records"], absolute["records"], "{tool}");
+    assert!(relative["records"].as_array().unwrap().iter().all(|row| !row["path"].as_str().unwrap().contains("nested-other")), "{tool}: {relative}");
+  }
+  let (text, error) = call_tool(&mut server, 200, "text_search", json!({"pattern": "prefix_target", "prefix": 42}));
+  assert!(error && text.contains("prefix must be a string"), "{text}");
+  let mut custom = Server::new(root.join("custom-index"));
+  let (text, error) = call_tool(&mut custom, 201, "text_search", json!({"pattern": "prefix_target", "prefix": "nested/"}));
+  assert!(error && text.contains("no source root"), "{text}");
+  fs::remove_dir_all(root.parent().unwrap()).unwrap();
+}
+
 /// A source tree with a cross-file call and an import.
 fn temp_tree(tag: &str) -> (PathBuf, PathBuf) {
   let base = std::env::temp_dir().join(format!("vorpal-mcp-{tag}-{}", std::process::id()));

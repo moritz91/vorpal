@@ -2137,7 +2137,7 @@ impl Server {
         let pattern = str_arg("pattern")?;
         let case_insensitive = args.get("case_insensitive").and_then(Value::as_bool).unwrap_or(false);
         let lang = args.get("lang").and_then(Value::as_str).map(str::to_string);
-        let prefix = args.get("prefix").and_then(Value::as_str).map(str::to_string);
+        let prefix = self.path_prefix(args)?;
         let max_results = args.get("max_results").and_then(Value::as_u64).unwrap_or(1000) as usize;
         let scoped = self.scope_for_call(args, self.radius.anchor_path.as_deref())?;
         self.kg()?;
@@ -2179,7 +2179,7 @@ impl Server {
         let pattern = str_arg("pattern")?;
         let k = args.get("k").and_then(Value::as_u64).unwrap_or(20) as usize;
         let lang = args.get("lang").and_then(Value::as_str).map(str::to_string);
-        let prefix = args.get("prefix").and_then(Value::as_str).map(str::to_string);
+        let prefix = self.path_prefix(args)?;
         let scoped = self.scope_for_call(args, self.radius.anchor_path.as_deref())?;
         self.kg()?;
         let dir = self.kg_dir.clone();
@@ -2507,7 +2507,7 @@ impl Server {
         // Structured pre-ranking filters (IMPROVEMENTS #9): k results means k MATCHING
         // results — filters apply to every channel before fusion, never as a post-cut.
         let filter = vorpal_index::SearchFilter {
-          path_prefix: args.get("prefix").and_then(Value::as_str).map(str::to_string),
+          path_prefix: self.path_prefix(args)?,
           path_suffix: args.get("path").and_then(Value::as_str).map(str::to_string),
           kind: args.get("kind").and_then(Value::as_str).map(str::to_string),
           lang: args.get("lang").and_then(Value::as_str).map(str::to_string),
@@ -2737,7 +2737,7 @@ impl Server {
       "dead_code" => {
         let filter = vorpal_index::records::DeadFilter {
           kind: args.get("kind").and_then(Value::as_str).map(str::to_string),
-          path_prefix: args.get("prefix").and_then(Value::as_str).map(str::to_string),
+          path_prefix: self.path_prefix(args)?,
           path_suffix: args.get("path").and_then(Value::as_str).map(str::to_string),
           exported_only: args.get("exported").and_then(Value::as_bool).unwrap_or(false),
           exclude_tests: args.get("exclude_tests").and_then(Value::as_bool).unwrap_or(false),
@@ -3158,6 +3158,14 @@ impl Server {
 
   /// The source root scope entries resolve against: the watched tree, else the root a
   /// default-layout index dir implies — canonical, as node paths are.
+  fn path_prefix(&self, args: &Value) -> Result<Option<String>, ToolError> {
+    let Some(value) = args.get("prefix") else { return Ok(None); };
+    let prefix = value.as_str().ok_or_else(|| ToolError::coded("bad-argument", "prefix must be a string"))?;
+    vorpal_index::scope::resolve_path_prefix(prefix, self.source_root().as_deref())
+      .map(Some)
+      .map_err(|error| ToolError::coded("bad-argument", error))
+  }
+
   fn source_root(&self) -> Option<PathBuf> {
     let root = self
       .watch
@@ -3418,7 +3426,7 @@ pub(crate) fn tool_declarations(profile: Profile) -> Vec<Value> {
       with(&with(&page, within.clone()), json!({
         "pattern": {"type": "string", "description": "ast-grep pattern"},
         "lang": {"type": "string"},
-        "prefix": {"type": "string"},
+        "prefix": {"type": "string", "description": "Path prefix relative to the indexed source root, or absolute. Partial filenames are allowed; use a trailing separator to restrict a directory. Relative prefixes require a known source root."},
         "k": {"type": "integer"},
         "selector": {"type": "string"},
         "context": {"type": "string"}
@@ -3432,7 +3440,7 @@ pub(crate) fn tool_declarations(profile: Profile) -> Vec<Value> {
         "pattern": {"type": "string"},
         "case_insensitive": {"type": "boolean"},
         "lang": {"type": "string"},
-        "prefix": {"type": "string"},
+        "prefix": {"type": "string", "description": "Path prefix relative to the indexed source root, or absolute. Partial filenames are allowed; use a trailing separator to restrict a directory. Relative prefixes require a known source root."},
         "symbol": {"type": "string"},
         "max_results": {"type": "integer"}
       })),
@@ -3463,7 +3471,7 @@ pub(crate) fn tool_declarations(profile: Profile) -> Vec<Value> {
       "dead_code",
       "Definitions with no semantic in-edges anywhere.",
       with(&page, json!({
-        "prefix": {"type": "string"},
+        "prefix": {"type": "string", "description": "Path prefix relative to the indexed source root, or absolute. Partial filenames are allowed; use a trailing separator to restrict a directory. Relative prefixes require a known source root."},
         "path": {"type": "string", "description": "suffix"},
         "kind": {"type": "string"},
         "exported": {"type": "boolean"},
@@ -3584,7 +3592,7 @@ pub(crate) fn tool_declarations(profile: Profile) -> Vec<Value> {
         "kind": {"type": "string"},
         "lang": {"type": "string"},
         "path": {"type": "string", "description": "suffix"},
-        "prefix": {"type": "string"},
+        "prefix": {"type": "string", "description": "Path prefix relative to the indexed source root, or absolute. Partial filenames are allowed; use a trailing separator to restrict a directory. Relative prefixes require a known source root."},
         "exported": {"type": "boolean"},
         "exclude_tests": {"type": "boolean"}
       })),

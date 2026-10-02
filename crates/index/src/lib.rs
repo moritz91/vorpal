@@ -4551,8 +4551,8 @@ impl<'f> CompiledSearchFilter<'f> {
       match Path::new(prefix).canonicalize() {
         Ok(canonical) => {
           let mut spelled = canonical.to_string_lossy().into_owned();
-          if prefix.ends_with('/') && !spelled.ends_with('/') {
-            spelled.push('/');
+          if prefix.ends_with(std::path::is_separator) && !spelled.ends_with(std::path::is_separator) {
+            spelled.push(std::path::MAIN_SEPARATOR);
           }
           if spelled == prefix {
             std::borrow::Cow::Borrowed(prefix)

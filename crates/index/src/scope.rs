@@ -19,6 +19,43 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use vorpal_kg::{Kg, NodeId};
 
+/// Resolve a string prefix against the index root, independent of the daemon's cwd.
+/// Prefixes may end in a partial filename; canonicalize the existing ancestor and retain
+/// the missing suffix. A trailing separator remains significant for string matching.
+pub fn resolve_path_prefix(prefix: &str, root: Option<&Path>) -> Result<String, String> {
+  if prefix.is_empty() {
+    return Err("prefix is empty".to_string());
+  }
+  let path = Path::new(prefix);
+  let absolute = if path.is_absolute() {
+    path.to_path_buf()
+  } else {
+    root.ok_or_else(|| {
+      format!("prefix '{prefix}' is relative and this index has no source root — pass an absolute path")
+    })?.join(path)
+  };
+  let mut ancestor = absolute.as_path();
+  let mut suffix = Vec::new();
+  let mut resolved = loop {
+    if let Ok(canonical) = ancestor.canonicalize() {
+      break canonical;
+    }
+    let Some(name) = ancestor.file_name() else {
+      return Err(format!("prefix '{prefix}' has no accessible ancestor"));
+    };
+    suffix.push(name.to_os_string());
+    ancestor = ancestor.parent().ok_or_else(|| format!("cannot resolve prefix '{prefix}'"))?;
+  };
+  for component in suffix.iter().rev() {
+    resolved.push(component);
+  }
+  let mut spelled = resolved.to_string_lossy().into_owned();
+  if prefix.ends_with(std::path::is_separator) && !spelled.ends_with(std::path::is_separator) {
+    spelled.push(std::path::MAIN_SEPARATOR);
+  }
+  Ok(spelled)
+}
+
 /// A resolved scope: the entries as given (echoed back on every scoped answer) and the
 /// absolute prefixes they resolve to, trailing slashes removed.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
