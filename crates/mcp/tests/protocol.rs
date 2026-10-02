@@ -59,7 +59,11 @@ fn prefix_filters_resolve_against_index_root_for_every_search_tool() {
   let mut custom = Server::new(root.join("custom-index"));
   let (text, error) = call_tool(&mut custom, 201, "text_search", json!({"pattern": "prefix_target", "prefix": "nested/"}));
   assert!(error && text.contains("no source root"), "{text}");
-  fs::remove_dir_all(root.parent().unwrap()).unwrap();
+  drop(custom);
+  drop(server);
+  // Tier warming may finish after Server::drop; cleanup is best-effort, just as
+  // in temp_tree. Its filesystem race must not fail the prefix behavior checks.
+  let _ = fs::remove_dir_all(root.parent().unwrap());
 }
 
 /// A source tree with a cross-file call and an import.
