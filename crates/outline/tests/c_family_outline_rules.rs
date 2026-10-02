@@ -77,11 +77,11 @@ int helper(int value) { return value; }
 - Module import private <vector>
 - Module item exported demo
 - Class item exported Parser
-  - Constructor private Parser
-  - Method private parse
+  - Constructor public Parser
+  - Method public parse
   - Field private count
 - Struct item exported Config
-  - Field private value
+  - Field public value
 - Enum item exported Mode
   - EnumMember public Fast
   - EnumMember public Slow
@@ -160,11 +160,11 @@ int free_fn() { return 1; }
 "#,
     r#"
 - Class item exported Widget
-  - Field private plain
-  - Field private cursor
-  - Method private ptr_method
-  - Method private plain_method
-  - Field private cb
+  - Field public plain
+  - Field public cursor
+  - Method public ptr_method
+  - Method public plain_method
+  - Field public cb
 - Function item exported free_ptr_fn
 - Function item exported free_fn
 "#,
