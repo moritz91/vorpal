@@ -1,0 +1,3 @@
+# Provenance hashes the exact vendored bytes, including upstream line endings.
+# Prevent Windows core.autocrlf from rewriting grammar sources during checkout.
+/grammars/** -text
