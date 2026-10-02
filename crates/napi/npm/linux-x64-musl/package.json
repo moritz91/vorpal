@@ -1,6 +1,6 @@
 {
   "name": "@hyper-light/vorpal-node-linux-x64-musl",
-  "version": "0.10.2",
+  "version": "0.10.2+moritz.1",
   "os": [
     "linux"
   ],
@@ -30,5 +30,6 @@
     "registry": "https://registry.npmjs.org/",
     "access": "public"
   },
-  "repository": "https://github.com/hyper-light/vorpal"
+  "repository": "https://github.com/moritz91/vorpal",
+  "private": true
 }

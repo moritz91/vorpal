@@ -1,10 +1,10 @@
 {
   "name": "@hyper-light/vorpal-node",
-  "version": "0.10.2",
+  "version": "0.10.2+moritz.1",
   "description": "Search and Rewrite code at large scale using precise AST pattern",
   "homepage": "https://vorpal.github.io",
   "main": "index.js",
-  "repository": "https://github.com/hyper-light/vorpal",
+  "repository": "https://github.com/moritz91/vorpal",
   "license": "MIT",
   "keywords": [
     "ast",
@@ -74,5 +74,6 @@
     "environmentVariables": {
       "TS_NODE_PROJECT": "./tsconfig.json"
     }
-  }
+  },
+  "private": true
 }

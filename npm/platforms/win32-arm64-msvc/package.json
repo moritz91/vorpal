@@ -1,6 +1,6 @@
 {
   "name": "@hyper-light/vorpal-cli-win32-arm64-msvc",
-  "version": "0.10.2",
+  "version": "0.10.2+moritz.1",
   "os": [
     "win32"
   ],
@@ -26,5 +26,6 @@
     "registry": "https://registry.npmjs.org/",
     "access": "public"
   },
-  "repository": "https://github.com/hyper-light/vorpal"
+  "repository": "https://github.com/moritz91/vorpal",
+  "private": true
 }

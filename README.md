@@ -11,6 +11,10 @@
 <h1 align="center">vorpal</h1>
 <p align="center"><em>Code analysis and search, swift and sharp.</em></p>
 
+This is the **moritz91 fork**, based on upstream v0.10.2, with C++ call resolution
+and MCP path-filter fixes. Fork binaries use `+moritz.<build>` version metadata.
+See [fork releases](docs/FORK_RELEASES.md) for versioning, publication and verification.
+
 Vorpal indexes a codebase into a knowledge graph and answers questions about it: who calls
 this, what implements that, where is the code that does X. It is one binary with 49
 tree-sitter grammars compiled in, a structural search and rewrite engine built on [ast-grep],
@@ -41,12 +45,12 @@ $ vorpal mcp          # serve all of the above to agents over MCP (stdio)
 
 ### Prebuilt binary (recommended)
 
-Every [release](https://github.com/hyper-light/vorpal/releases) attaches one binary per
+Every [release](https://github.com/moritz91/vorpal/releases) attaches one binary per
 platform. Download it and make it executable; there is no archive to unpack.
 
 ```sh
 # macOS (Apple Silicon); other platforms in the table below
-curl -L -o vorpal https://github.com/hyper-light/vorpal/releases/latest/download/vorpal-macos-arm64
+curl -L -o vorpal https://github.com/moritz91/vorpal/releases/latest/download/vorpal-macos-arm64
 chmod +x vorpal && sudo mv vorpal /usr/local/bin/
 vorpal --help
 ```
@@ -62,7 +66,9 @@ vorpal --help
 | Windows x64 | `vorpal-windows-x64.exe` |
 | Windows ARM64 | `vorpal-windows-arm64.exe` |
 
-### npm (cross-platform, global CLI)
+### npm (upstream distribution)
+
+The npm command installs upstream Vorpal. Use the GitHub binaries above for this fork.
 
 ```sh
 npm install -g @hyper-light/vorpal-cli   # installs the vorpal binary for your platform
@@ -71,7 +77,7 @@ npm install -g @hyper-light/vorpal-cli   # installs the vorpal binary for your p
 ### From source (any platform, Rust 1.98+)
 
 ```sh
-git clone https://github.com/hyper-light/vorpal && cd vorpal
+git clone https://github.com/moritz91/vorpal && cd vorpal
 cargo build --release -p vorpal
 sudo mv target/release/vorpal /usr/local/bin/   # or add to PATH
 ```

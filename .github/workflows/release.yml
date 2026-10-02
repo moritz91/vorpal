@@ -1,25 +1,28 @@
 # CLI release: build the `vorpal` binary for every supported platform and attach each one to
 # the GitHub Release DIRECTLY — one raw binary per platform, named `vorpal-<os>-<arch>` (Windows:
 # `vorpal-windows-<arch>.exe`), no archive to unpack. cargo-binstall's per-target overrides in
-# crates/cli/Cargo.toml expect exactly these names. Also publishes the @hyper-light/vorpal-cli
-# wrapper + its per-platform binary packages.
+# crates/cli/Cargo.toml expect exactly these names. GitHub-only moritz91 fork releases.
 #
-# Triggers: pushing a tag `v<version>` does the full release; workflow_dispatch runs the build
-# matrix only (a dry run — nothing is released or published without a tag).
+# Triggers: pushing `v<upstream-version>+moritz.<build>` does the full release.
+# workflow_dispatch builds and tests only; it never publishes.
 #
-# No repository secrets for npm: publishing is npm TRUSTED PUBLISHING (OIDC) — each package
-# was created once by a local maintainer stub publish (npm/cli#8544: a trusted publisher can
-# only be attached to an existing package), then registered on npmjs.com against this repo +
-# release.yml. GITHUB_TOKEN is provided automatically. VORPAL_AGENT_SIGNING_KEY is optional.
+# GITHUB_TOKEN is provided automatically. VORPAL_AGENT_SIGNING_KEY is optional.
 #
 # Platform coverage: aarch64/arm64 + x86_64/amd64 across macOS, Linux glibc (Debian, Fedora,
-# Ubuntu, Arch, …), Linux musl (Alpine), and Windows (plus 32-bit Windows).
-name: Release CLI
+# Ubuntu, Arch, …), Linux musl (Alpine), and Windows.
+name: Release fork CLI
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*\+moritz.*']
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -34,18 +37,21 @@ env:
 jobs:
   guard:
     name: Version guard
+    if: github.repository == 'moritz91/vorpal'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Tag must match the workspace version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Check synchronized fork release metadata
         run: |
-          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
-          test "v${version}" = "${GITHUB_REF_NAME}" \
-            || { echo "tag ${GITHUB_REF_NAME} != workspace version v${version}"; exit 1; }
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            python3 scripts/fork_release.py --tag "$GITHUB_REF_NAME"
+          else
+            python3 scripts/fork_release.py
+          fi
 
   test:
     name: Test gate
+    needs: guard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -53,7 +59,26 @@ jobs:
         with:
           toolchain: 1.98.0  # keep in sync with rust-toolchain.toml
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
+      - run: cargo test --locked --workspace
+
+  windows-regressions:
+    name: Windows regression gate
+    needs: guard
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@v2
+      - shell: pwsh
+        run: |
+          cargo test --locked -p vorpal-index --no-default-features --test cpp_member_calls --test path_prefix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p vorpal-mcp --test protocol prefix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p vorpal-outline --test c_family_outline_rules
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   build:
     name: Build ${{ matrix.target }}
@@ -82,7 +107,7 @@ jobs:
           key: ${{ matrix.target }}
       - name: Build
         if: ${{ !matrix.musl }}
-        run: cargo build --release -p vorpal --target ${{ matrix.target }}
+        run: cargo build --locked --release -p vorpal --no-default-features --target ${{ matrix.target }}
       - name: Build (alpine container, native musl)
         if: matrix.musl
         run: |
@@ -96,7 +121,7 @@ jobs:
             set -e
             apk add --no-cache build-base
             export RUSTFLAGS="-C target-feature=+crt-static"
-            cargo build --release -p vorpal --target ${{ matrix.target }}
+            cargo build --locked --release -p vorpal --target ${{ matrix.target }}
           '
           # The container wrote target/ as root; later steps (stage, cache) run as the
           # runner user.
@@ -154,7 +179,7 @@ jobs:
         id: pubkey
         run: |
           if [ -n "${SIGNING_KEY}" ]; then
-            pub=$(cargo run -q -p vorpal-loader --features keygen --bin vorpal-sign -- pubkey --key-hex "${SIGNING_KEY}")
+            pub=$(cargo run --locked -q -p vorpal-loader --features keygen --bin vorpal-sign -- pubkey --key-hex "${SIGNING_KEY}")
             echo "hex=${pub}" >> "$GITHUB_OUTPUT"
           fi
       - name: Build the loader + agent (alpine container, native musl; pubkey embedded when available)
@@ -169,8 +194,8 @@ jobs:
               set -e
               apk add --no-cache build-base
               export RUSTFLAGS="-C target-feature=+crt-static"
-              cargo build --release -p vorpal-loader --bin vorpal-loader --target ${{ matrix.target }}
-              cargo build --release -p vorpal --bin vorpal --target ${{ matrix.target }}
+              cargo build --locked --release -p vorpal-loader --bin vorpal-loader --target ${{ matrix.target }}
+              cargo build --locked --release -p vorpal --bin vorpal --target ${{ matrix.target }}
             '
           # The container wrote target/ as root; the signing step runs host cargo next.
           sudo chown -R "$(id -u):$(id -g)" target
@@ -190,12 +215,12 @@ jobs:
           set -euo pipefail
           agent="target/${{ matrix.target }}/release/vorpal"
           if [ -n "${SIGNING_KEY}" ]; then
-            cargo run -q -p vorpal-loader --features keygen --bin vorpal-sign -- sign \
+            cargo run --locked -q -p vorpal-loader --features keygen --bin vorpal-sign -- sign \
               --key-hex "${SIGNING_KEY}" --agent "$agent" \
               --out "agent-${{ matrix.target }}.vld" \
               --manifest "agent-${{ matrix.target }}.json"
           else
-            hash=$(cargo run -q -p vorpal-loader --features keygen --bin vorpal-sign -- hash --agent "$agent")
+            hash=$(cargo run --locked -q -p vorpal-loader --features keygen --bin vorpal-sign -- hash --agent "$agent")
             printf '{\n  "target": "%s",\n  "blake3": "%s",\n  "signed": false\n}\n' \
               "${{ matrix.target }}" "$hash" > "agent-${{ matrix.target }}.json"
           fi
@@ -211,8 +236,8 @@ jobs:
 
   release:
     name: GitHub Release
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [build, agent-bundle, test]
+    if: github.repository == 'moritz91/vorpal' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [guard, build, agent-bundle, test, windows-regressions]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -220,72 +245,18 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
+      - name: Stage assets and SHA-256 checksums
+        run: |
+          mkdir release-assets
+          find artifacts -type f \( -name 'vorpal-*' -o -name 'agent-*.json' -o -name 'agent-*.vld' \) -exec cp -t release-assets {} +
+          cd release-assets
+          sha256sum * > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
-          # The CLI binaries, plus the fleet stage-0 loaders, signed agents, and blake3 pins.
-          # One pattern per asset: `vorpal-*` already matches the loaders, and a file
-          # matched twice is uploaded twice concurrently — the second upload's metadata
-          # update 404s (the first replaced it) and the release stays a draft short one
-          # asset (v0.8.1: the aarch64 loader).
-          files: |
-            artifacts/**/vorpal-*
-            artifacts/**/agent-*.json
-            artifacts/**/agent-*.vld
+          # Flattened CLI and agent assets plus SHA256SUMS; optional signatures are
+          # included only when a signing key exists.
+          files: release-assets/*
           generate_release_notes: true
-
-  publish-cli-npm:
-    name: Publish @hyper-light/vorpal-cli to npm
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [build, test]
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write   # OIDC: npm trusted publishing — no token, no 2FA
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          registry-url: 'https://registry.npmjs.org'
-      - name: Ensure npm supports trusted publishing (>= 11.5.1)
-        run: npm install -g npm@latest
-      - uses: actions/download-artifact@v8
-        with:
-          path: artifacts
-      - name: Place binaries into platform packages
-        run: |
-          set -euo pipefail
-          for pair in \
-            vorpal-macos-arm64=darwin-arm64 \
-            vorpal-linux-x64=linux-x64-gnu \
-            vorpal-linux-arm64=linux-arm64-gnu \
-            vorpal-linux-x64-musl=linux-x64-musl \
-            vorpal-linux-arm64-musl=linux-arm64-musl \
-            vorpal-windows-x64.exe=win32-x64-msvc \
-            vorpal-windows-arm64.exe=win32-arm64-msvc; do
-            asset="${pair%%=*}"
-            platform="${pair##*=}"
-            binary="artifacts/${asset}/${asset}"
-            case "$platform" in
-              win32-*) cp "$binary" "npm/platforms/${platform}/vorpal.exe" ;;
-              *)       cp "$binary" "npm/platforms/${platform}/vorpal" \
-                         && chmod +x "npm/platforms/${platform}/vorpal" ;;
-            esac
-          done
-      - name: Publish platform packages
-        run: |
-          set -euo pipefail
-          for dir in npm/platforms/*/; do
-            (cd "$dir" \
-              && name=$(node -p "require('./package.json').name") && ver=$(node -p "require('./package.json').version") \
-              && if npm view "$name@$ver" version >/dev/null 2>&1; then echo "$name@$ver already live; skipping"; else npm publish --access public; fi)
-          done
-      - name: Publish @hyper-light/vorpal-cli wrapper (skip a version that is already live)
-        working-directory: npm
-        run: |
-          name=$(node -p "require('./package.json').name"); ver=$(node -p "require('./package.json').version")
-          if npm view "$name@$ver" version >/dev/null 2>&1; then
-            echo "$name@$ver is already on the registry; skipping (a re-run after a moved tag)"
-          else
-            npm publish --access public
-          fi
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true

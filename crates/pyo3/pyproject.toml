@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "vorpal-py"
 requires-python = ">=3.9"
-version = "0.10.2"
+version = "0.10.2+moritz.1"
 description = "Structural Search and Rewrite code at large scale using precise AST pattern."
 authors = [{ name = "Herrington Darkholme", email = "2883231+HerringtonDarkholme@users.noreply.github.com" }]
 maintainers = [{ name = "Herrington Darkholme", email = "2883231+HerringtonDarkholme@users.noreply.github.com" }]
@@ -32,9 +32,9 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/hyper-light/vorpal"
+Repository = "https://github.com/moritz91/vorpal"
 Documentation = "https://vorpal.github.io/"
-Changelog = "https://github.com/hyper-light/vorpal/blob/main/CHANGELOG.md"
+Changelog = "https://github.com/moritz91/vorpal/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = [

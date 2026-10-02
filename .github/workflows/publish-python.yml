@@ -1,3 +1,4 @@
+# Registry workflows are upstream-only; the moritz91 fork ships GitHub CLI assets.
 # Python bindings: build vorpal-py wheels (abi3, one wheel per platform covering
 # CPython >= 3.9) for manylinux, musllinux (Alpine), macOS, and Windows, plus an sdist,
 # and publish to PyPI.
@@ -21,6 +22,7 @@ env:
 jobs:
   wheels:
     name: wheel ${{ matrix.name }}
+    if: github.repository == 'hyper-light/vorpal'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -52,6 +54,7 @@ jobs:
 
   sdist:
     name: sdist
+    if: github.repository == 'hyper-light/vorpal'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -68,7 +71,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.repository == 'hyper-light/vorpal' && (startsWith(github.ref, 'refs/tags/'))
     needs: [wheels, sdist]
     runs-on: ubuntu-latest
     steps:

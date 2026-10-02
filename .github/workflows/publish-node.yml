@@ -1,3 +1,4 @@
+# Registry workflows are upstream-only; the moritz91 fork ships GitHub CLI assets.
 # Node bindings: build the @hyper-light/vorpal-node native module for every platform, publish the
 # per-platform packages and the main package to npm, plus @hyper-light/vorpal-wasm.
 #
@@ -23,6 +24,7 @@ jobs:
   # runners — no cross toolchains.
   build:
     name: napi ${{ matrix.target }}
+    if: github.repository == 'hyper-light/vorpal'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -65,6 +67,7 @@ jobs:
   # are x64-only" rule on the arm64 runner.
   build-musl:
     name: napi ${{ matrix.target }}
+    if: github.repository == 'hyper-light/vorpal'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -98,7 +101,7 @@ jobs:
 
   publish:
     name: Publish @hyper-light/vorpal-node
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.repository == 'hyper-light/vorpal' && (startsWith(github.ref, 'refs/tags/'))
     needs: [build, build-musl]
     runs-on: ubuntu-latest
     permissions:
@@ -126,7 +129,7 @@ jobs:
 
   wasm:
     name: Publish @hyper-light/vorpal-wasm
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.repository == 'hyper-light/vorpal' && (startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
     permissions:
       id-token: write   # OIDC: npm trusted publishing — no token, no 2FA
