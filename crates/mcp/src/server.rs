@@ -3426,7 +3426,7 @@ pub(crate) fn tool_declarations(profile: Profile) -> Vec<Value> {
       with(&with(&page, within.clone()), json!({
         "pattern": {"type": "string", "description": "ast-grep pattern"},
         "lang": {"type": "string"},
-        "prefix": {"type": "string", "description": "Path prefix relative to the indexed source root, or absolute. Partial filenames are allowed; use a trailing separator to restrict a directory. Relative prefixes require a known source root."},
+        "prefix": {"type": "string"},
         "k": {"type": "integer"},
         "selector": {"type": "string"},
         "context": {"type": "string"}
@@ -3440,7 +3440,7 @@ pub(crate) fn tool_declarations(profile: Profile) -> Vec<Value> {
         "pattern": {"type": "string"},
         "case_insensitive": {"type": "boolean"},
         "lang": {"type": "string"},
-        "prefix": {"type": "string", "description": "Path prefix relative to the indexed source root, or absolute. Partial filenames are allowed; use a trailing separator to restrict a directory. Relative prefixes require a known source root."},
+        "prefix": {"type": "string"},
         "symbol": {"type": "string"},
         "max_results": {"type": "integer"}
       })),
@@ -3471,7 +3471,7 @@ pub(crate) fn tool_declarations(profile: Profile) -> Vec<Value> {
       "dead_code",
       "Definitions with no semantic in-edges anywhere.",
       with(&page, json!({
-        "prefix": {"type": "string", "description": "Path prefix relative to the indexed source root, or absolute. Partial filenames are allowed; use a trailing separator to restrict a directory. Relative prefixes require a known source root."},
+        "prefix": {"type": "string"},
         "path": {"type": "string", "description": "suffix"},
         "kind": {"type": "string"},
         "exported": {"type": "boolean"},
@@ -3592,7 +3592,7 @@ pub(crate) fn tool_declarations(profile: Profile) -> Vec<Value> {
         "kind": {"type": "string"},
         "lang": {"type": "string"},
         "path": {"type": "string", "description": "suffix"},
-        "prefix": {"type": "string", "description": "Path prefix relative to the indexed source root, or absolute. Partial filenames are allowed; use a trailing separator to restrict a directory. Relative prefixes require a known source root."},
+        "prefix": {"type": "string"},
         "exported": {"type": "boolean"},
         "exclude_tests": {"type": "boolean"}
       })),

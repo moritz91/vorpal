@@ -266,6 +266,13 @@ session asked about, and how many files and top-level directories its answers ha
 since, so drift is visible while it happens. Both the text and `structuredContent` carry
 `outsideScope` and `frontier`.
 
+The `prefix` argument on `search`, `text_search`, `code_search`, and `dead_code`
+accepts an absolute path or a path relative to the indexed source root, independent
+of the server's working directory. Partial filenames are allowed; use a trailing
+separator, such as `src/`, to restrict a directory. Relative prefixes require a
+known source root (a watched tree or the default `<src>/.vorpal/index` layout).
+A missing root, an empty prefix, or a non-string prefix returns an explicit error.
+
 | Tool | What it does |
 |---|---|
 | `scope` | Set (any scope field), show (no arguments), or clear (`clear: true`) the session's default scope. Returns the entries as given, the absolute prefixes they resolved to, deferred `@…` entries, and the population covered. |
