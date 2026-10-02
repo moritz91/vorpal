@@ -67,6 +67,27 @@ fn prefix_filters_resolve_against_index_root_for_every_search_tool() {
 }
 
 /// A source tree with a cross-file call and an import.
+#[test]
+fn graph_path_suffixes_accept_both_separator_spellings() {
+  let (src, idx) = temp_tree("graph-suffix");
+  fs::create_dir_all(src.join("nested")).unwrap();
+  fs::rename(src.join("b.rs"), src.join("nested/b.rs")).unwrap();
+  vorpal_index::build_index(&src, &idx).unwrap();
+  let mut server = Server::new(idx);
+  for (number, path) in ["nested/b.rs", "nested\\b.rs"].iter().enumerate() {
+    let response = request(&mut server, number as u64 + 1, "tools/call", json!({
+      "name": "graph", "arguments": {"name": "target", "relation": "callers", "path": path}
+    }));
+    assert_eq!(response["result"]["isError"], false, "{response}");
+    let records = &response["result"]["structuredContent"];
+    assert_eq!(records["total"], 1, "{response}");
+    assert_eq!(records["records"][0]["name"], "caller", "{response}");
+  }
+  drop(server);
+  let _ = fs::remove_dir_all(src.parent().unwrap());
+}
+
+/// A source tree with a cross-file call and an import.
 fn temp_tree(tag: &str) -> (PathBuf, PathBuf) {
   let base = std::env::temp_dir().join(format!("vorpal-mcp-{tag}-{}", std::process::id()));
   let src = base.join("src");

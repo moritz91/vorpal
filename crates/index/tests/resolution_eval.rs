@@ -41,7 +41,7 @@ struct Fixture {
 
 /// Basename-normalize a node name (file nodes are full paths; definitions are identifiers).
 fn short(name: &str) -> String {
-  name.rsplit('/').next().unwrap_or(name).to_string()
+  name.rsplit(['/', '\\']).next().unwrap_or(name).to_string()
 }
 
 fn run(fixture: &Fixture) {

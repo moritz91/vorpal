@@ -719,13 +719,13 @@ fn qualifier_matches<'i>(
 /// Whether `path` is the file of module `q`: its stem is `q`, or it is a directory-carrier file
 /// (`mod.rs` / `lib.rs` / `main.rs` / `index.*` / `__init__.py`) inside a directory named `q`.
 fn module_stem_matches(path: &str, q: &str) -> bool {
-  let file = path.rsplit('/').next().unwrap_or(path);
+  let file = path.rsplit(['/', '\\']).next().unwrap_or(path);
   let stem = file.rsplit_once('.').map(|(s, _)| s).unwrap_or(file);
   if stem == q {
     return true;
   }
   matches!(stem, "mod" | "lib" | "main" | "index" | "__init__")
-    && parent_dir(path).rsplit('/').next() == Some(q)
+    && parent_dir(path).rsplit(['/', '\\']).next() == Some(q)
 }
 
 /// Language-structural visibility for non-exported definitions — only where the language's
@@ -746,14 +746,14 @@ fn privately_visible(def_path: &str, from_path: &str) -> bool {
     if !from_path.ends_with(".rs") {
       return false;
     }
-    let subtree_root = match stem_path.rsplit('/').next().unwrap_or(stem_path) {
+    let subtree_root = match stem_path.rsplit(['/', '\\']).next().unwrap_or(stem_path) {
       "mod" | "lib" | "main" => parent_dir(def_path),
       _ => stem_path,
     };
     return !subtree_root.is_empty()
       && from_path
         .strip_prefix(subtree_root)
-        .is_some_and(|rest| rest.starts_with('/'));
+        .is_some_and(|rest| rest.starts_with(['/', '\\']));
   }
   if def_path.ends_with(".java") && from_path.ends_with(".java") {
     return parent_dir(def_path) == parent_dir(from_path);
@@ -843,7 +843,7 @@ pub fn include_edges<'i>(
 }
 
 fn parent_dir(path: &str) -> &str {
-  path.rfind('/').map(|i| &path[..i]).unwrap_or("")
+  path.rfind(['/', '\\']).map(|i| &path[..i]).unwrap_or("")
 }
 
 /// Join a relative segment path onto a directory, resolving `.` and `..` textually, into
@@ -855,33 +855,34 @@ fn parent_dir(path: &str) -> &str {
 /// allocated two-to-three times per import probe, ~a million times per kernel-scale link.
 fn join_normalize_into(dir: &str, rel: &str, out: &mut String) {
   out.clear();
-  let absolute = rel.starts_with('/');
+  let absolute = rel.starts_with(['/', '\\']);
+  let separator = if dir.contains('\\') { '\\' } else { '/' };
   if !absolute && !dir.is_empty() {
     out.push_str(dir);
   }
-  for segment in rel.split('/') {
+  for segment in rel.split(['/', '\\']) {
     match segment {
       "" | "." => {}
-      ".." => match out.rfind('/') {
+      ".." => match out.rfind(['/', '\\']) {
         Some(at) => out.truncate(at),
         None => out.clear(),
       },
       other => {
         if !out.is_empty() {
-          out.push('/');
+          out.push(separator);
         }
         out.push_str(other);
       }
     }
   }
   if absolute {
-    out.insert(0, '/');
+    out.insert(0, separator);
   }
 }
 
 fn extension(path: &str) -> Option<&str> {
   path
-    .rsplit('/')
+    .rsplit(['/', '\\'])
     .next()
     .and_then(|file| file.rsplit_once('.').map(|(_, ext)| ext))
 }
@@ -1347,6 +1348,21 @@ mod tests {
   use crate::reference::{RefForm, RefKind, Reference};
   use crate::table::{Symbol, SymbolTable};
   use vorpal_kg::SymbolKind;
+
+  #[test]
+  fn windows_import_paths_accept_either_separator_without_changing_stored_paths() {
+    let mut out = String::new();
+    for relative in ["../include/api.h", "..\\include\\api.h"] {
+      join_normalize_into(r"C:\repo\src", relative, &mut out);
+      assert_eq!(out, r"C:\repo\include\api.h");
+      join_normalize_into("/repo/src", relative, &mut out);
+      assert_eq!(out, "/repo/include/api.h");
+    }
+    join_normalize_into(r"\\server\share\src", "../api.h", &mut out);
+    assert_eq!(out, r"\\server\share\api.h");
+    assert_eq!(parent_dir(r"C:\repo\src\main.cc"), r"C:\repo\src");
+    assert_eq!(extension(r"C:\repo.dir\src\main.cc"), Some("cc"));
+  }
 
   /// One shared session for the whole test binary: tests only ever intern a bounded
   /// vocabulary, and `'static` ids keep the assertions free of lifetime plumbing.

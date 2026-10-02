@@ -308,6 +308,10 @@
         "named": true
       },
       {
+        "type": "typeid_expression",
+        "named": true
+      },
+      {
         "type": "unary_expression",
         "named": true
       },
@@ -738,7 +742,15 @@
           "named": true
         },
         {
+          "type": "macro_type_argument",
+          "named": true
+        },
+        {
           "type": "preproc_defined",
+          "named": true
+        },
+        {
+          "type": "system_lib_string",
           "named": true
         }
       ]
@@ -2698,6 +2710,10 @@
             "named": false
           },
           {
+            "type": "->*",
+            "named": false
+          },
+          {
             "type": ".",
             "named": false
           },
@@ -3567,6 +3583,21 @@
     }
   },
   {
+    "type": "identifier",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "alignas_qualifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "if_statement",
     "named": true,
     "fields": {
@@ -3915,6 +3946,33 @@
     }
   },
   {
+    "type": "macro_type_argument",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "abstract_pointer_declarator",
+          "named": true
+        },
+        {
+          "type": "abstract_reference_declarator",
+          "named": true
+        },
+        {
+          "type": "type_qualifier",
+          "named": true
+        },
+        {
+          "type": "type_specifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "ms_based_modifier",
     "named": true,
     "fields": {},
@@ -4076,7 +4134,7 @@
     "fields": {
       "length": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "expression",
@@ -4086,11 +4144,15 @@
       }
     },
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": false,
       "types": [
         {
           "type": "new_declarator",
+          "named": true
+        },
+        {
+          "type": "type_qualifier",
           "named": true
         }
       ]
@@ -4144,6 +4206,16 @@
           }
         ]
       }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "type_qualifier",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -6808,6 +6880,32 @@
     }
   },
   {
+    "type": "typeid_expression",
+    "named": true,
+    "fields": {
+      "type": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_descriptor",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "unary_expression",
     "named": true,
     "fields": {
@@ -7604,7 +7702,8 @@
   },
   {
     "type": "comment",
-    "named": true
+    "named": true,
+    "extra": true
   },
   {
     "type": "compl",
@@ -7697,10 +7796,6 @@
   {
     "type": "goto",
     "named": false
-  },
-  {
-    "type": "identifier",
-    "named": true
   },
   {
     "type": "if",
@@ -7908,6 +8003,10 @@
   },
   {
     "type": "typedef",
+    "named": false
+  },
+  {
+    "type": "typeid",
     "named": false
   },
   {

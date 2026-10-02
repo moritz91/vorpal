@@ -144,7 +144,7 @@ impl<'i> SymbolTable<'i> {
   pub fn insert_file(&mut self, interner: &'i Interner, path: &str, id: NodeId) {
     let interned = interner.intern(path);
     let text = interner.text_of(interned);
-    let basename = text.rsplit('/').next().unwrap_or(text);
+    let basename = text.rsplit(['/', '\\']).next().unwrap_or(text);
     self.file_suffixes.entry(basename).or_default().push((text, id));
     self.files.insert(interned, id);
   }
@@ -186,7 +186,7 @@ impl<'i> SymbolTable<'i> {
         continue;
       }
       let name = interner.text_of(reference.name);
-      let Some((dir, basename)) = name.rsplit_once('/') else {
+      let Some((dir, basename)) = name.rsplit_once(['/', '\\']) else {
         continue;
       };
       if dir.is_empty() {
@@ -253,7 +253,7 @@ impl<'i> SymbolTable<'i> {
     name: &str,
     from_path: NameId<'i>,
   ) -> Option<(NodeId, NameId<'i>)> {
-    let (dir, basename) = name.rsplit_once('/')?;
+    let (dir, basename) = name.rsplit_once(['/', '\\'])?;
     if dir.is_empty() {
       return None;
     }
@@ -519,13 +519,27 @@ impl RetainedSymbolTable {
 fn suffix_boundary(path: &str, name: &str) -> Option<usize> {
   let at = path.len().checked_sub(name.len() + 1)?;
   let bytes = path.as_bytes();
-  (bytes[at] == b'/' && &bytes[at + 1..] == name.as_bytes()).then_some(at)
+  (matches!(bytes[at], b'/' | b'\\') && vorpal_kg::path_has_suffix(path, name)).then_some(at)
 }
 
 /// Leading path components two paths share (`a/b/x.c` vs `a/b/y/z.h` → 2).
 fn shared_components(a: &str, b: &str) -> usize {
-  a.split('/')
-    .zip(b.split('/'))
+  a.split(['/', '\\'])
+    .zip(b.split(['/', '\\']))
     .take_while(|(x, y)| x == y)
     .count()
+}
+
+#[cfg(test)]
+mod path_tests {
+  use super::*;
+
+  #[test]
+  fn include_suffix_requires_a_component_boundary_on_windows_and_unix() {
+    assert_eq!(suffix_boundary(r"C:\repo\include\api.h", "include/api.h"), Some(7));
+    assert_eq!(suffix_boundary("/repo/include/api.h", r"include\api.h"), Some(5));
+    assert_eq!(suffix_boundary(r"C:\repo\notinclude\api.h", "include/api.h"), None);
+    assert_eq!(suffix_boundary("/repo/include/api.h.bak", "include/api.h"), None);
+    assert_eq!(shared_components(r"C:\repo\src\main.cc", "C:/repo/include/api.h"), 2);
+  }
 }

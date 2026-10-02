@@ -2971,6 +2971,12 @@ const DESCEND_KINDS: &[&str] = &[
 fn callee_name<'t>(node: &SgNode<'t>) -> Option<Cow<'t, str>> {
   let kind_cow = node.kind();
   let kind = kind_cow.as_ref();
+  // Pointer-to-member calls select a runtime value, not a statically named method.
+  if kind == "field_expression"
+    && node.field("operator").is_some_and(|op| matches!(op.text().as_ref(), ".*" | "->*"))
+  {
+    return None;
+  }
   // Elixir module references keep their dotted form (`Foo.Bar`), unlike path-style rightmost.
   if kind == "alias" {
     return Some(node.text());

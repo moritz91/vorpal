@@ -388,8 +388,8 @@ fn upstream_corpora_pass_against_the_compiled_parsers() {
           (true, true) => allowlisted_seen.push((basename.clone(), test.name.clone())),
           (false, true) => skipped += 1, // known mismatch, documented in ALLOWLIST
           (false, false) => failures.push(format!(
-            "[{basename}] {} ({lang:?}): tree mismatch",
-            test.name
+            "[{basename}] {} ({lang:?}): tree mismatch\nexpected: {}\nactual: {actual}",
+            test.name, test.expected
           )),
         }
       }

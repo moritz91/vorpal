@@ -580,7 +580,7 @@ pub fn dead_records_page(
         }
       }
       match filter.path_suffix.as_deref() {
-        Some(suffix) => view.path.ends_with(suffix),
+        Some(suffix) => vorpal_kg::path_has_suffix(view.path, suffix),
         None => true,
       }
     })

@@ -4589,7 +4589,7 @@ impl<'f> CompiledSearchFilter<'f> {
       }
     }
     if let Some(suffix) = self.path_suffix {
-      if !view.path.ends_with(suffix) {
+      if !vorpal_kg::path_has_suffix(view.path, suffix) {
         return false;
       }
     }
