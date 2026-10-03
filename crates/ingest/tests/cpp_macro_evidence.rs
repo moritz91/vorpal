@@ -347,3 +347,133 @@ fn file_symlinks_do_not_prove_a_different_quoted_include_directory() {
     .is_empty()
   );
 }
+
+#[test]
+fn only_definite_pragma_once_visits_skip_repeated_header_effects() {
+  let fixture = Fixture::new();
+  let header = fixture.0.join("once.h");
+  let path = fixture.0.join("run.cc");
+  std::fs::write(&header, "#pragma once\n#undef CHECK\n").unwrap();
+  let source =
+    "#include \"once.h\"\n#define CHECK(x) { effect(x); }\n#include \"once.h\"\nCHECK(value())\n";
+  let evidence = audit(&path, source);
+  assert!(
+    evidence
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_some()
+  );
+  assert_eq!(evidence.dependencies.len(), 1);
+  let identity = evidence.dependency_identity();
+  for source in [
+    "#ifdef PLATFORM\n#include \"once.h\"\n#endif\n#define CHECK(x) { effect(x); }\n#include \"once.h\"\nCHECK(value())\n",
+    "#include \"outer.h\"\n#define CHECK(x) { effect(x); }\n#include \"once.h\"\nCHECK(value())\n",
+  ] {
+    std::fs::write(
+      fixture.0.join("outer.h"),
+      "#ifdef PLATFORM\n#include \"once.h\"\n#endif\n",
+    )
+    .unwrap();
+    assert!(
+      audit(&path, source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none()
+    );
+  }
+  for replacement in [
+    "#undef CHECK\n",
+    "#ifdef PLATFORM\n#pragma once\n#endif\n#undef CHECK\n",
+  ] {
+    std::fs::write(&header, replacement).unwrap();
+    let changed = audit(&path, source);
+    assert_ne!(identity, changed.dependency_identity());
+    assert!(
+      changed
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none()
+    );
+  }
+}
+
+#[test]
+fn definite_once_breaks_guarded_recursion_but_not_unguarded_cycles() {
+  let fixture = Fixture::new();
+  let path = fixture.0.join("run.cc");
+  let header = fixture.0.join("once.h");
+  let source = "#include \"once.h\"\nCHECK(value())\n";
+  std::fs::write(
+    &header,
+    "#pragma once\n#define CHECK(x) { effect(x); }\n#include \"once.h\"\n",
+  )
+  .unwrap();
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_some()
+  );
+  std::fs::write(
+    &header,
+    "#define CHECK(x) { effect(x); }\n#include \"once.h\"\n#pragma once\n",
+  )
+  .unwrap();
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+}
+
+#[test]
+fn possible_once_visits_cannot_claim_later_redefinitions_execute() {
+  let fixture = Fixture::new();
+  let header = fixture.0.join("once.h");
+  let path = fixture.0.join("run.cc");
+  let source = "#ifdef PLATFORM\n#include \"once.h\"\n#endif\n#define CHECK(x) ordinary(x)\n#include \"once.h\"\nCHECK(value())\n";
+  std::fs::write(&header, "#pragma once\n#define CHECK(x) { effect(x); }\n").unwrap();
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+  // The same uncertainty applies to a pragma inside the header's own branch.
+  std::fs::write(
+    &header,
+    "#ifdef PLATFORM\n#pragma once\n#endif\n#define CHECK(x) { effect(x); }\n",
+  )
+  .unwrap();
+  let source =
+    "#include \"once.h\"\n#define CHECK(x) ordinary(x)\n#include \"once.h\"\nCHECK(value())\n";
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+}
+
+#[test]
+fn possibly_skipped_outer_headers_do_not_mark_nested_once_as_definite() {
+  let fixture = Fixture::new();
+  let path = fixture.0.join("run.cc");
+  std::fs::write(
+    fixture.0.join("outer.h"),
+    "#pragma once\n#ifdef PLATFORM\n#include \"inner.h\"\n#endif\n",
+  )
+  .unwrap();
+  std::fs::write(fixture.0.join("inner.h"), "#pragma once\n#undef CHECK\n").unwrap();
+  let source = "#ifdef FIRST\n#include \"outer.h\"\n#endif\n#include \"outer.h\"\n#define CHECK(x) { effect(x); }\n#include \"inner.h\"\nCHECK(value())\n";
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+  // Alternative branches still cannot establish a definite nested visit.
+  std::fs::write(
+    fixture.0.join("outer.h"),
+    "#pragma once\n#ifdef PLATFORM\nstruct First {};\n#else\n#include \"inner.h\"\n#endif\n",
+  )
+  .unwrap();
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+}

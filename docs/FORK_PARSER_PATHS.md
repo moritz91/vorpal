@@ -156,7 +156,7 @@ change: class base lists accept `decltype` in their explicit type context.
 Catch2 improves by one ERROR node and 53 bytes, without the large root error
 of the combined draft. Calls nested inside `decltype` operands are unevaluated
 and do not become runtime graph edges; ordinary calls with the same name retain
-exact spans. Seventeen parser regressions, unchanged corpus, Clippy, native
+exact spans. Eighteen parser regressions, unchanged corpus, Clippy, native
 Windows checks, schema validation and an MSVC base-specifier fixture pass.
 The subset remains 16 error-bearing files, with 361 ERROR nodes and 137650
 damaged bytes. No new visible node kinds are introduced.
@@ -221,6 +221,15 @@ depth/file/byte limits end evidence. Well-formed #ifdef/#ifndef groups preserve
 only entering definitions that remain unchanged across every possible branch:
 all branch includes are consulted and tracked, and a possible redefine/undef
 rejects that name. No definitions originating inside those groups are promoted.
+An unconditionally reached top-level `#pragma once` prevents repeated header
+execution, including guarded self-includes. Possible visits through unknown
+branches are tracked separately: a later include may execute or may be skipped,
+so it cannot introduce new proof or mark nested headers as definitely visited.
+A conditional pragma is never treated as unconditional. Unguarded cycles still
+end proof. Header bytes and missing search candidates remain dependencies;
+removing/reinstating `#pragma once` invalidates warm products and normal MCP
+rebuilds. Evidence identity v3 prevents replay under the earlier include rules.
+
 Unknown #if expressions, malformed groups and unknown directives still end proof;
 conditions are never evaluated. The evidence identity is versioned to invalidate
 products built under the previous proof rules. Regression tests cover retained
@@ -255,13 +264,13 @@ per-file identity gate. Custom environments bypass default-only live overlay lan
 Callers outside the index pipeline must use the extractor's dependency-aware
 `extraction_identity_for_path`, rather than the free grammar/rules helper.
 
-Seven recovery tests on Windows/Linux cover spans and arguments, wrong arity,
+Eight recovery tests on Windows/Linux cover spans and arguments, wrong arity,
 genuine syntax errors, parser/thread reuse, nested/panic restoration, header edits
-and identical owned/streamed/scan-handoff products. Ten evidence tests pass on both
-platforms, plus a Unix symlink regression. An index regression checks external
+and identical owned/streamed/scan-handoff products. Sixteen evidence tests pass on Windows, with seventeen on Linux including the
+Unix symlink regression. An index regression checks external
 header edit/removal, local shadow creation/removal, warm product replay, hinted live
 builds and scratch/incremental generation equality in bucketed and flat formats.
-Seventeen parser regressions, unchanged corpus, Clippy, native Windows provenance,
+Eighteen parser regressions, unchanged corpus, Clippy, native Windows provenance,
 MSVC fixtures, resolver evaluations and existing live/cutoff/replay tests pass.
 The original 80-file default-parser audit remains 16 error-bearing files, 361 ERROR
 nodes and 137650 affected bytes.

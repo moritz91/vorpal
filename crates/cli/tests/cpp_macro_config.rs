@@ -145,3 +145,30 @@ fn empty_roots_enable_local_includes_and_absent_config_keeps_default_errors() {
       .contains("parse health: clean")
   );
 }
+
+#[test]
+fn repeated_once_headers_recover_in_mcp_and_header_edits_restore_errors() {
+  let temp = tempfile::tempdir().unwrap();
+  let src = temp.path().join("src");
+  let sdk = temp.path().join("sdk");
+  fs::create_dir(&src).unwrap();
+  fs::create_dir(&sdk).unwrap();
+  let config = temp.path().join("vorpalconfig.yml");
+  fs::write(&config, "ruleDirs: []\ncppMacroIncludeRoots: [sdk]\n").unwrap();
+  let header = sdk.join("once.h");
+  fs::write(&header, "#pragma once\n#undef CHECK\n").unwrap();
+  fs::write(src.join("run.cc"), "#include <once.h>\n#define CHECK(x) { effect(x); }\n#include <once.h>\nvoid run() { CHECK(value()) after(); }\n").unwrap();
+  let out = temp.path().join("index");
+  index(&src, &out, &config);
+  let health = |response: Value| {
+    response["result"]["content"][0]["text"]
+      .as_str()
+      .unwrap()
+      .to_owned()
+  };
+  assert!(health(mcp_rebuild(&src, &out, &config)).contains("parse health: clean"));
+  fs::write(&header, "#undef CHECK\n").unwrap();
+  assert!(health(mcp_rebuild(&src, &out, &config)).contains("carry ERROR nodes"));
+  fs::write(&header, "#pragma once\n#undef CHECK\n").unwrap();
+  assert!(health(mcp_rebuild(&src, &out, &config)).contains("parse health: clean"));
+}
