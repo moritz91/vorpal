@@ -290,6 +290,19 @@ rules['conditional_linkage_specification'] = {'type': 'PREC_DYNAMIC', 'value': -
 for name in ['_top_level_item', '_block_item']:
     if symbol('conditional_linkage_specification') not in rules[name]['members']:
         rules[name]['members'].append(symbol('conditional_linkage_specification'))
+# Block comments may separate replacement-list fragments across continued lines.
+# Keep each original preproc_arg and comment span rather than rewriting source.
+def macro_fragments(node):
+    if node == {'type': 'REPEAT1', 'content': symbol('preproc_arg')}:
+        return node
+    if node == symbol('preproc_arg'):
+        return {'type': 'REPEAT1', 'content': symbol('preproc_arg')}
+    return {key: ([macro_fragments(c) if isinstance(c, dict) else c for c in value]
+                  if isinstance(value, list) else
+                  macro_fragments(value) if isinstance(value, dict) else value)
+            for key, value in node.items()}
+for name in ['preproc_def', 'preproc_function_def']:
+    rules[name] = macro_fragments(rules[name])
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 
 if '--finalize' in sys.argv:

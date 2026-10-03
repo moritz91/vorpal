@@ -140,6 +140,27 @@ with original element counts retained in these headers. Fifteen parser
 regressions, unchanged corpus, Clippy, native Windows checks and schema validation
 pass. The new node kinds and opening/closing guard fields are in the C++ schema.
 
+The macro-replacement follow-up supports multiple replacement-list fragments
+separated by block comments in object-like and function-like definitions,
+including LF and CRLF continuations. Existing `preproc_arg` and comment spans
+remain intact; replacement-list calls and synthetic function text are opaque,
+rather than becoming runtime graph facts. Sixteen parser regressions, unchanged
+corpus, Clippy and native Windows checks pass, and MSVC accepts the continued
+comment fixture. The audit remains at 16 error-bearing files, with 362 ERROR
+nodes and 137703 damaged bytes. Catch2 drops from 124 to 107 ERROR nodes and
+39883 to 30309 damaged bytes; `stb_image.h` drops from twelve to nine errors.
+No new schema kinds are introduced.
+
+Semicolonless statement macros need definition/include evidence. The audited
+`ASSERT` definitions in the two test-framework headers expand to a complete
+`if` statement, whereas an ordinary same-named function must still require a
+semicolon. Their recovery must also invalidate cached products when defining
+headers change; macro argument calls retain their own source spans and macro
+names must not invent runtime callees. A broader `decltype`-base/convention draft
+remains withheld because it enlarges the Catch2 error region, despite passing
+isolated regressions and the unchanged corpus. Catch2 has ordinary CRLF bytes;
+diagnosis must inspect bytes instead of newline-translating console output.
+
 Remaining C++ boundaries in that audit include macro statements without semicolons
 and additional SDK annotations/conditional linkage blocks. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as

@@ -3,6 +3,19 @@ use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;
 
 #[test]
+fn cpp_continued_macro_comments_keep_following_definitions() {
+  let lf = "#define BODY(x) body(x); /* note */ \\\n  finish(x);\n#define VALUE 1 /* note */ + 2\n#define FAKE void synthetic() { /* note */ return; }\nvoid run() { BODY(1); after(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(product.items.iter().any(|item| item.entry.name == "run"));
+    assert!(!product.items.iter().any(|item| item.entry.name == "synthetic"));
+    let call = product.refs.iter().find(|r| r.name == "after" && r.kind == 0).unwrap();
+    assert_eq!(&source[call.start as usize..call.end as usize], "after()");
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && ["body", "finish"].contains(&r.name.as_str())));
+  }
+}
+
+#[test]
 fn cpp_conditional_linkage_retains_declarations_and_definition_spans() {
   let source = r#"
 #ifndef HEADER_H
