@@ -329,10 +329,10 @@
     "commit": "v0.26.4",
     "license": "MIT",
     "patches": [
-      "Case-insensitive numeric size multipliers; scripts/patch_powershell_grammar.py, tree-sitter 0.25.10 ABI 15."
+      "Case-insensitive numeric size multipliers and instance-method invocation precedence in command arguments; scripts/patch_powershell_grammar.py, tree-sitter 0.25.10 ABI 15."
     ],
     "repository": "https://github.com/airbus-cert/tree-sitter-powershell",
-    "source_digest": "xxh3:aa53afa285161664",
+    "source_digest": "xxh3:d8c29c1ca505d3f4",
     "version": "0.26.4"
   },
   "tree-sitter-proto": {

@@ -285,6 +285,14 @@ pass. The audited run_per_view_marker_soak.ps1 and
 run_runtime_split_screen_live_test.ps1 are now parse-clean. Reproduction uses
 scripts/patch_powershell_grammar.py and tree-sitter 0.25.10 generate --abi 15
 src/grammar.json in the PowerShell grammar directory. Markdown is unchanged.
+Instance-method invocation precedence also preserves complete calls in command
+arguments, such as $task.GetAwaiter().GetResult(), rather than splitting the first
+argument list away from the member expression. Static invocations are unchanged.
+Native PowerShell AST comparison, Windows/Linux span/error regressions and the
+unchanged corpus pass. run_editor_split_screen_trace_test.ps1 and
+run_save_slot_cold_start_test.ps1 now parse clean too; seven of the original eleven
+PowerShell files still have command-argument errors. These are subset audit counts,
+not a new health report from the installed MCP generation.
 
 To inspect a source file without updating an index:
 

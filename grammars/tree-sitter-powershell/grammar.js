@@ -1066,12 +1066,12 @@ export default grammar({
 
     invokation_expression: ($) =>
       choice(
-        seq(
+        prec.left(PREC.PARAM + 1, seq(
           $._primary_expression,
           token.immediate('.'),
           $.member_name,
           $.argument_list,
-        ),
+        )),
         seq($._primary_expression, '::', $.member_name, $.argument_list),
         $.invokation_foreach_expression,
       ),

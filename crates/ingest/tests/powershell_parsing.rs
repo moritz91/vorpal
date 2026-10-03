@@ -3,6 +3,35 @@ use vorpal_ingest::OutlineExtractor;
 use vorpal_lang_registry::SgLang;
 
 #[test]
+fn command_arguments_keep_complete_member_invocations() {
+  let language = SgLang::from_path("commands.ps1").unwrap();
+  for expression in [
+    "$task.GetAwaiter().GetResult()",
+    "$spec.root.Replace('\\', '/')",
+  ] {
+    let lf = format!("Write-Output {expression}\nfunction Following {{ Write-Output 'done' }}\n");
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let parsed = language.grep(&source);
+      assert!(!parsed.root().has_error(), "{expression}");
+      assert!(parsed.root().dfs().any(|n| n.kind().as_ref() == "invokation_expression"
+        && &source[n.range()] == expression));
+      let product = OutlineExtractor::new()
+        .unwrap()
+        .extract_product("commands.ps1", &source)
+        .unwrap();
+      assert_eq!(product.error_nodes, 0);
+      assert!(product.items.iter().any(|i| i.entry.name == "Following"));
+    }
+  }
+  for invalid in [
+    "Write-Output $task.GetAwaiter().GetResult(",
+    "Write-Output $task.GetAwaiter().GetResult(,)",
+  ] {
+    assert!(language.grep(invalid).root().has_error(), "{invalid}");
+  }
+}
+
+#[test]
 fn numeric_multipliers_preserve_literal_spans_and_following_functions() {
   let language = SgLang::from_path("sizes.ps1").unwrap();
   let extractor = OutlineExtractor::new().unwrap();
