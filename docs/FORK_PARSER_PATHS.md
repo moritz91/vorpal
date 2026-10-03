@@ -183,6 +183,32 @@ Recovery must distinguish complete statement replacements from expression and
 function-definition macros, respect definition order and conflicting/undefined
 names, and preserve original invocation/argument spans. No recovery is enabled yet.
 
+A read-only `cpp_macro_evidence::audit` seam now records syntactically complete
+function-like `if`, `try` and compound-statement replacements, definition spans,
+parameter counts and ordered binding intervals. It follows local quoted includes
+with bounded depth/files/bytes and records consulted content digests or unavailable
+paths. Redefinitions, undef, unknown directives, conditional groups, unresolved
+includes and cycles end evidence conservatively. Expression/function-definition,
+variadic and duplicate-parameter macros are not accepted by this first audit.
+Seven evidence regressions cover these boundaries, header edits/removal, CRLF and
+ordinary uppercase functions on Windows and Linux; the unchanged corpus, Clippy
+and native MSVC statement fixture pass. CI/release parser gates run the evidence
+suite alongside the existing seventeen parser regressions.
+
+This seam does not enable recovery or change index replay. The actual test-framework
+headers supply ASSERT evidence. In the audited Hades translation units, later
+includes without configured search roots end that interval before use. The next
+integration needs explicit include search paths and dependency-based invalidation,
+followed by a source-span-preserving parser hook shared by all extraction entries.
+Macro stringification/pasting and conditional header guards are also conservative
+boundaries; the audit must not be mistaken for a C++ preprocessor.
+
+Inspect evidence without writing an index:
+
+```sh
+cargo run -p vorpal-ingest --example macro_audit -- path/to/file.cc
+```
+
 Remaining C++ boundaries in that audit include macro statements without semicolons
 and additional SDK annotations/conditional linkage blocks. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as

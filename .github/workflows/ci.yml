@@ -50,7 +50,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-mcp --test protocol graph_path_suffixes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p vorpal-ingest --test cpp_macro_parsing
+          cargo test --locked -p vorpal-ingest --test cpp_macro_parsing --test cpp_macro_evidence
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-language --test grammar_provenance
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
