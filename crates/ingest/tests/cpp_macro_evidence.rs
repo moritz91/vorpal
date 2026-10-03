@@ -1,5 +1,5 @@
 use std::path::Path;
-use vorpal_ingest::cpp_macro_evidence::audit;
+use vorpal_ingest::cpp_macro_evidence::{audit, audit_with_roots};
 
 #[test]
 fn statement_definitions_have_original_spans_and_ordered_lifetimes() {
@@ -172,6 +172,84 @@ fn ordinary_uppercase_functions_and_oversized_includes_are_not_evidence() {
       .at("CHECK", source.find("CHECK(argument").unwrap())
       .is_none()
   );
+  assert_eq!(evidence.dependencies.len(), 1);
+  assert!(evidence.dependencies[0].digest.is_none());
+}
+
+#[test]
+fn ordered_roots_and_new_local_headers_change_dependency_identity() {
+  let fixture = Fixture::new();
+  let first = fixture.0.join("first");
+  let second = fixture.0.join("second");
+  std::fs::create_dir(&first).unwrap();
+  std::fs::create_dir(&second).unwrap();
+  std::fs::write(first.join("sdk.h"), "#define CHECK(x) { first(x); }\n").unwrap();
+  std::fs::write(second.join("sdk.h"), "#define CHECK(x) { second(x); }\n").unwrap();
+  let source = "#include \"sdk.h\"\nCHECK(argument())\n";
+  let path = fixture.0.join("proof.cc");
+  let roots = [first.clone(), second.clone()];
+  let before = audit_with_roots(&path, source, &roots);
+  let offset = source.find("CHECK(argument").unwrap();
+  assert_eq!(
+    before.at("CHECK", offset).unwrap().definition_path,
+    first.join("sdk.h").canonicalize().unwrap()
+  );
+  assert!(
+    before
+      .dependencies
+      .iter()
+      .any(|d| d.path.ends_with("sdk.h") && d.digest.is_none())
+  );
+  let reordered = audit_with_roots(&path, source, &[second, first]);
+  assert_ne!(
+    before.dependency_identity(),
+    reordered.dependency_identity()
+  );
+  std::fs::write(fixture.0.join("sdk.h"), "#define CHECK(x) function(x)\n").unwrap();
+  let shadowed = audit_with_roots(&path, source, &roots);
+  assert!(shadowed.at("CHECK", offset).is_none());
+  assert_ne!(before.dependency_identity(), shadowed.dependency_identity());
+}
+
+#[test]
+fn angle_includes_use_explicit_roots_and_propagate_to_nested_headers() {
+  let fixture = Fixture::new();
+  let root = fixture.0.join("sdk");
+  std::fs::create_dir(&root).unwrap();
+  std::fs::write(fixture.0.join("sdk.h"), "#define WRONG(x) { local(x); }\n").unwrap();
+  std::fs::write(root.join("sdk.h"), "#include <detail.h>\n").unwrap();
+  std::fs::write(root.join("detail.h"), "#define CHECK(x) { target(x); }\n").unwrap();
+  let source = "#include <sdk.h>\nCHECK(argument())\n";
+  let path = fixture.0.join("proof.cc");
+  assert!(audit(&path, source).bindings.is_empty());
+  let evidence = audit_with_roots(&path, source, &[root]);
+  assert!(
+    evidence
+      .at("CHECK", source.find("CHECK(argument").unwrap())
+      .is_some()
+  );
+  assert!(
+    evidence
+      .at("WRONG", source.find("CHECK(argument").unwrap())
+      .is_none()
+  );
+  assert_eq!(evidence.dependencies.len(), 2);
+}
+
+#[test]
+fn unreadable_first_candidate_does_not_fall_back_to_another_root() {
+  let fixture = Fixture::new();
+  let root = fixture.0.join("sdk");
+  std::fs::create_dir(&root).unwrap();
+  // A directory is present at the local candidate path, but cannot be a header.
+  std::fs::create_dir(fixture.0.join("sdk.h")).unwrap();
+  std::fs::write(root.join("sdk.h"), "#define CHECK(x) { target(x); }\n").unwrap();
+  let evidence = audit_with_roots(
+    &fixture.0.join("proof.cc"),
+    "#include \"sdk.h\"\nCHECK(argument())\n",
+    &[root],
+  );
+  assert!(evidence.bindings.is_empty());
   assert_eq!(evidence.dependencies.len(), 1);
   assert!(evidence.dependencies[0].digest.is_none());
 }

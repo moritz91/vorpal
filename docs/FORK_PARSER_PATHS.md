@@ -203,10 +203,28 @@ followed by a source-span-preserving parser hook shared by all extraction entrie
 Macro stringification/pasting and conditional header guards are also conservative
 boundaries; the audit must not be mistaken for a C++ preprocessor.
 
+The include-search follow-up adds `audit_with_roots`: quoted includes search
+locally before the explicit ordered roots, and angle includes search those roots.
+No roots are inferred. Missing earlier candidates are dependencies too, so a newly
+created local header changes the dependency identity. Present but unreadable
+candidates stop resolution rather than falling through to a different header.
+`Evidence::dependency_identity` includes ordered search roots, exact path bytes,
+header digests and unavailable candidates with a versioned domain. It is a building
+block for replay invalidation, not an installed product-cache gate. Ten evidence
+tests pass on Windows/Linux alongside seventeen parser regressions; Clippy and the
+unchanged corpus pass. MSVC verifies root order and rejects the expression macro
+that a newly created local header uses to shadow the statement macro.
+
+Explicit roots alone do not prove the audited Hades macro environment: the binary
+serialization test still has no active bindings after its uncertain/transitive
+includes. Conditions, unresolved system includes and unsupported replacement
+forms remain conservative boundaries. Parser recovery and cache integration are
+still disabled; the audit must not be presented as recovered graph facts.
+
 Inspect evidence without writing an index:
 
 ```sh
-cargo run -p vorpal-ingest --example macro_audit -- path/to/file.cc
+cargo run -p vorpal-ingest --example macro_audit -- --include-root path/to/includes path/to/file.cc
 ```
 
 Remaining C++ boundaries in that audit include macro statements without semicolons

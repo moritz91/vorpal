@@ -42,9 +42,34 @@ pub struct Dependency {
 pub struct Evidence {
   pub bindings: Vec<Binding>,
   pub dependencies: Vec<Dependency>,
+  /// Ordered search roots; changes in search order must also invalidate evidence.
+  pub include_roots: Vec<PathBuf>,
 }
 
 impl Evidence {
+  /// Dependency/search identity for a future recovery consumer. The consumer must
+  /// separately validate the translation unit's exact source bytes and grammar.
+  /// This does not install invalidation in the index or its product caches.
+  pub fn dependency_identity(&self) -> u64 {
+    let mut hash = xxhash_rust::xxh3::Xxh3::new();
+    hash.update(b"vorpal-cpp-macro-evidence-v1\0");
+    hash.update(&(self.include_roots.len() as u64).to_le_bytes());
+    for root in &self.include_roots {
+      let text = root.as_os_str().as_encoded_bytes();
+      hash.update(&(text.len() as u64).to_le_bytes());
+      hash.update(text);
+    }
+    hash.update(&(self.dependencies.len() as u64).to_le_bytes());
+    for dependency in &self.dependencies {
+      let text = dependency.path.as_os_str().as_encoded_bytes();
+      hash.update(&(text.len() as u64).to_le_bytes());
+      hash.update(text);
+      hash.update(&[u8::from(dependency.digest.is_some())]);
+      hash.update(&dependency.digest.unwrap_or_default().to_le_bytes());
+    }
+    hash.digest()
+  }
+
   pub fn at(&self, name: &str, offset: usize) -> Option<&StatementMacro> {
     self
       .bindings
@@ -55,6 +80,7 @@ impl Evidence {
 }
 
 struct Audit {
+  include_roots: Vec<PathBuf>,
   dependencies: BTreeMap<PathBuf, Option<u64>>,
   stack: Vec<PathBuf>,
   remaining_bytes: usize,
@@ -64,17 +90,28 @@ struct Audit {
 /// Audit without modifying source, evaluating conditions, or caching header reads.
 /// The limits bound pathological include trees; exhausting a limit clears evidence.
 pub fn audit(path: &Path, source: &str) -> Evidence {
+  audit_with_roots(path, source, &[])
+}
+
+/// Search quoted includes locally first, then in the supplied root order.
+/// Angle includes search only the supplied roots. Never infer a search root.
+pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) -> Evidence {
   let mut audit = Audit {
+    include_roots: include_roots
+      .iter()
+      .map(|p| canonical_or_absolute(p))
+      .collect(),
     dependencies: BTreeMap::new(),
     stack: Vec::new(),
     remaining_bytes: 4 * 1024 * 1024,
     remaining_files: 128,
   };
-  let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+  let path = canonical_or_absolute(path);
   let mut environment = BTreeMap::new();
   let mut bindings = Vec::new();
   audit.visit(&path, source, &mut environment, Some(&mut bindings));
   Evidence {
+    include_roots: audit.include_roots,
     bindings: bindings
       .into_iter()
       .filter(|b| !b.active.is_empty())
@@ -87,7 +124,53 @@ pub fn audit(path: &Path, source: &str) -> Evidence {
   }
 }
 
+fn canonical_or_absolute(path: &Path) -> PathBuf {
+  path
+    .canonicalize()
+    .or_else(|_| std::path::absolute(path))
+    .unwrap_or_else(|_| path.to_path_buf())
+}
+
 impl Audit {
+  fn resolve_include(
+    &mut self,
+    including: &Path,
+    text: &str,
+    environment: &mut BTreeMap<String, StatementMacro>,
+  ) {
+    let (relative, quoted) =
+      if let Some(relative) = text.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+        (relative, true)
+      } else if let Some(relative) = text.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
+        (relative, false)
+      } else {
+        environment.clear();
+        return;
+      };
+    let mut candidates = Vec::new();
+    if quoted {
+      candidates.push(including.parent().unwrap_or(Path::new(".")).join(relative));
+    }
+    candidates.extend(self.include_roots.iter().map(|root| root.join(relative)));
+    for path in candidates {
+      match path.try_exists() {
+        Ok(true) => {
+          self.include(&path, environment);
+          return;
+        }
+        Ok(false) => {
+          self.dependencies.insert(path, None);
+        }
+        Err(_) => {
+          self.dependencies.insert(path, None);
+          environment.clear();
+          return;
+        }
+      }
+    }
+    environment.clear();
+  }
+
   fn include(&mut self, path: &Path, environment: &mut BTreeMap<String, StatementMacro>) {
     let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     if self.remaining_files == 0
@@ -193,15 +276,8 @@ impl Audit {
         "preproc_include" => {
           if !node.has_error()
             && let Some(include) = node.field("path")
-            && let Some(relative) = include
-              .text()
-              .strip_prefix('"')
-              .and_then(|s| s.strip_suffix('"'))
           {
-            self.include(
-              &path.parent().unwrap_or(Path::new(".")).join(relative),
-              environment,
-            );
+            self.resolve_include(path, &include.text(), environment);
           } else {
             environment.clear();
           }
