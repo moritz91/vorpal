@@ -96,6 +96,15 @@ pub fn audit(path: &Path, source: &str) -> Evidence {
 /// Search quoted includes locally first, then in the supplied root order.
 /// Angle includes search only the supplied roots. Never infer a search root.
 pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) -> Evidence {
+  // Canonicalizing a file symlink can change the directory used for quoted
+  // includes. Decline proof instead of silently choosing the target's directory.
+  if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+    return Evidence {
+      bindings: Vec::new(),
+      dependencies: vec![Dependency { path: std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()), digest: None }],
+      include_roots: include_roots.iter().map(|p| canonical_or_absolute(p)).collect(),
+    };
+  }
   let mut audit = Audit {
     include_roots: include_roots
       .iter()
@@ -172,6 +181,11 @@ impl Audit {
   }
 
   fn include(&mut self, path: &Path, environment: &mut BTreeMap<String, StatementMacro>) {
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+      self.dependencies.insert(path.to_path_buf(), None);
+      environment.clear();
+      return;
+    }
     let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     if self.remaining_files == 0
       || self.stack.len() >= 16

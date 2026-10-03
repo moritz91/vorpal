@@ -171,88 +171,65 @@ remains withheld because it enlarges the Catch2 error region, despite passing
 isolated regressions and the unchanged corpus. Catch2 has ordinary CRLF bytes;
 diagnosis must inspect bytes instead of newline-translating console output.
 
-The macro recovery audit identifies three integration boundaries still to implement:
-`OutlineExtractor::extract_with_parser` serves owned and streaming products,
-`extract_product_from_root` accepts the scan's already-parsed root, and
-`tree_cache::grep_cached_unpoliced` may reuse an incremental tree and walk snapshot.
-All three must receive the same proven macro environment. Persistent replay
-currently checks source bytes and grammar/rule identity; adding include-based
-evidence also requires dependency identity and header-change invalidation before
-a stored product can replay. Scanner-only or extraction-only changes are not enough.
-Recovery must distinguish complete statement replacements from expression and
-function-definition macros, respect definition order and conflicting/undefined
-names, and preserve original invocation/argument spans. No recovery is enabled yet.
+Proof-backed statement recovery is now available through an explicit extraction
+API opt-in. Default extraction and CLI configuration remain unchanged. Set
+`ExtractionEnv::cpp_macro_include_roots` to `Some(roots)` or construct an extractor
+with `OutlineExtractor::with_cpp_macro_recovery`; an empty root list still allows
+local quoted includes. No roots are inferred. Production CLI/configuration wiring
+is still a follow-up, as is evidence for the uncertain Hades include environment.
 
-A read-only `cpp_macro_evidence::audit` seam now records syntactically complete
-function-like `if`, `try` and compound-statement replacements, definition spans,
-parameter counts and ordered binding intervals. It follows local quoted includes
-with bounded depth/files/bytes and records consulted content digests or unavailable
-paths. Redefinitions, undef, unknown directives, conditional groups, unresolved
-includes and cycles end evidence conservatively. Expression/function-definition,
-variadic and duplicate-parameter macros are not accepted by this first audit.
-Seven evidence regressions cover these boundaries, header edits/removal, CRLF and
-ordinary uppercase functions on Windows and Linux; the unchanged corpus, Clippy
-and native MSVC statement fixture pass. CI/release parser gates run the evidence
-suite alongside the existing seventeen parser regressions.
+`cpp_macro_evidence::audit_with_roots` records complete function-like `if`, `try`
+and compound-statement replacements, original definition spans, parameter counts
+and ordered active intervals. Quoted includes search locally before explicit
+ordered roots; angle includes search only those roots. Missing earlier candidates
+are dependencies, so newly created local headers invalidate an earlier SDK hit.
+Present unreadable candidates stop resolution. File symlinks conservatively end
+proof because canonicalization can change their quoted-include directory.
 
-This seam does not enable recovery or change index replay. The actual test-framework
-headers supply ASSERT evidence. In the audited Hades translation units, later
-includes without configured search roots end that interval before use. The next
-integration needs explicit include search paths and dependency-based invalidation,
-followed by a source-span-preserving parser hook shared by all extraction entries.
-Macro stringification/pasting and conditional header guards are also conservative
-boundaries; the audit must not be mistaken for a C++ preprocessor.
+Redefinitions, undef, unknown directives, conditional groups, unresolved includes,
+cycles and depth/file/byte limits end evidence. Expression/function-definition,
+variadic and duplicate-parameter macros, stringification/pasting and comments
+between the macro name and opening parenthesis remain unsupported. The audit does
+not evaluate conditional branches or implement a full C++ preprocessor. Hades
+binary_serialization_tests.cc still has no active ASSERT binding after uncertain
+transitive includes, even with tests/src roots; no actual Hades recovery is claimed.
 
-The include-search follow-up adds `audit_with_roots`: quoted includes search
-locally before the explicit ordered roots, and angle includes search those roots.
-No roots are inferred. Missing earlier candidates are dependencies too, so a newly
-created local header changes the dependency identity. Present but unreadable
-candidates stop resolution rather than falling through to a different header.
-`Evidence::dependency_identity` includes ordered search roots, exact path bytes,
-header digests and unavailable candidates with a versioned domain. It is a building
-block for replay invalidation, not an installed product-cache gate. Ten evidence
-tests pass on Windows/Linux alongside seventeen parser regressions; Clippy and the
-unchanged corpus pass. MSVC verifies root order and rejects the expression macro
-that a newly created local header uses to shadow the statement macro.
+The scanner has no public byte offset. Every invocation of an enabled name is
+independently checked against its definition interval and valid argument syntax;
+preprocessor parenthesis rules determine its parameter count. Any unproven use
+rejects that name for the whole source. ASCII identifiers and whitespace agree
+between Rust and C. The borrowed context is thread-local, synchronous, nested and
+panic-safe, and never serialized in trees. An empty context keeps ordinary parsing.
+`macro_statement` preserves original name/argument spans without inventing a call
+edge to the macro name; argument calls and following functions are retained.
 
-Explicit roots alone do not prove the audited Hades macro environment: the binary
-serialization test still has no active bindings after its uncertain/transitive
-includes. Conditions, unresolved system includes and unsupported replacement
-forms remain conservative boundaries. Parser recovery and cache integration are
-still disabled; the audit must not be presented as recovered graph facts.
+Owned and streaming extraction share one proof-backed parse. Scan-root handoff
+reparses under the configured proof rather than banking a context-free tree.
+Recovered C++ parses bypass incremental tree/walk caches and drain pending reuse
+state: those caches have no dependency identity yet. Product identity includes
+versioned recovery configuration, ordered roots, consulted header bytes and missing
+candidates. Replay recomputes dependencies from current source/header bytes using
+the same extractor. Whole-tree stat reuse and stamp-only/scoped compose shortcuts
+are disabled under this opt-in; unrelated products can still replay through the
+per-file identity gate. Custom environments bypass default-only live overlay lanes.
+Callers outside the index pipeline must use the extractor's dependency-aware
+`extraction_identity_for_path`, rather than the free grammar/rules helper.
 
-Inspect evidence without writing an index:
+Seven recovery tests on Windows/Linux cover spans and arguments, wrong arity,
+genuine syntax errors, parser/thread reuse, nested/panic restoration, header edits
+and identical owned/streamed/scan-handoff products. Ten evidence tests pass on both
+platforms, plus a Unix symlink regression. An index regression checks external
+header edit/removal, local shadow creation/removal, warm product replay, hinted live
+builds and scratch/incremental generation equality in bucketed and flat formats.
+Seventeen parser regressions, unchanged corpus, Clippy, native Windows provenance,
+MSVC fixtures, resolver evaluations and existing live/cutoff/replay tests pass.
+The original 80-file default-parser audit remains 16 error-bearing files, 361 ERROR
+nodes and 137650 affected bytes.
+
+Inspect evidence or a recovered tree report without writing an index:
 
 ```sh
 cargo run -p vorpal-ingest --example macro_audit -- --include-root path/to/includes path/to/file.cc
-```
-
-A read-only `cpp_macro_recovery::audit_recovery` prototype now parses original
-source bytes with a scoped proof-backed scanner. `macro_statement` keeps the
-identifier and argument list at their original spans; the macro name is not a
-call-expression callee. Argument expressions and following functions remain in
-the tree. No recovered root or product is returned to production extraction.
-
-The external scanner has no public byte offset. The audit therefore independently
-validates every invocation argument list and parameter count, and rejects an
-entire name if any occurrence lies outside its proven definition interval or has
-invalid arguments. Commas are counted with preprocessor parenthesis rules, not
-C++ template/bracket rules. Names and whitespace use the same ASCII recognition
-in the audit and scanner. The borrowed scanner context is thread-local, scoped,
-restored after nested parsing or unwinding, and never stored in a tree. An empty
-context preserves ordinary parsing. Comments between a macro name and its opening
-parenthesis remain unsupported.
-
-Six recovery regressions pass on Windows/Linux: LF/CRLF spans, consecutive uses,
-raw-string/comment commas, invalid arguments and genuine missing semicolons,
-header creation/edit/removal, parser reuse, parallel workers and panic restoration.
-The unchanged corpus and original 80-file audit pass without changed error totals.
-This is still an audit prototype: owned/streaming extraction, scan handoff,
-incremental trees/walk snapshots, persistent products and whole-tree replay need
-one shared evidence environment and dependency invalidation before activation.
-The Hades translation-unit include boundaries described above still apply.
-
-```sh
 cargo run -p vorpal-ingest --example macro_audit -- --recover --include-root path/to/includes path/to/file.cc
 ```
 

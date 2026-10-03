@@ -132,3 +132,69 @@ fn header_edit_creation_and_removal_change_fresh_recovery_proof() {
   assert_eq!(missing.dependency_identity, removed.dependency_identity);
   std::fs::remove_dir(&dir).unwrap();
 }
+
+#[test]
+fn production_owned_streaming_and_scan_handoff_share_proof_and_identity() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let source = "#define CHECK(x) { function(x); }\nvoid run() { CHECK(value()) after(); }\nvoid following() { next(); }";
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  let path = "fixture.cc";
+  let product = extractor.extract_product(path, source).unwrap();
+  assert_eq!(product.error_nodes, 0);
+  for name in ["value", "after", "next"] {
+    let call = product
+      .refs
+      .iter()
+      .find(|r| r.name == name && r.kind == 0)
+      .unwrap();
+    assert_eq!(
+      &source[call.start as usize..call.end as usize],
+      format!("{name}()")
+    );
+  }
+  assert!(
+    !product
+      .refs
+      .iter()
+      .any(|r| r.name == "CHECK" && r.kind == 0)
+  );
+  let mut owned = Vec::new();
+  encode_product_into(&product, &mut owned);
+  let mut streamed = Vec::new();
+  extractor
+    .extract_product_encoded(path, source, 0, 0, &mut streamed)
+    .unwrap();
+  assert_eq!(owned, streamed);
+  let raw = SgLang::from_path(path).unwrap().grep(source);
+  assert!(raw.root().has_error());
+  let handoff = extractor.extract_product_from_root(path, &raw).unwrap();
+  let mut bank = Vec::new();
+  encode_product_into(&handoff, &mut bank);
+  assert_eq!(owned, bank);
+  // Default extraction never acquires a recovered tree from parser reuse.
+  let ordinary = OutlineExtractor::new()
+    .unwrap()
+    .extract_product(path, source)
+    .unwrap();
+  assert_ne!(ordinary.grammar_digest, product.grammar_digest);
+  let nested = vorpal_language::with_cpp_statement_macros(&["CHECK".to_owned()], || {
+    OutlineExtractor::new()
+      .unwrap()
+      .extract_product(path, source)
+      .unwrap()
+  });
+  let mut expected = Vec::new();
+  let mut actual = Vec::new();
+  encode_product_into(&ordinary, &mut expected);
+  encode_product_into(&nested, &mut actual);
+  assert_eq!(
+    expected, actual,
+    "default extraction clears surrounding scanner context"
+  );
+}

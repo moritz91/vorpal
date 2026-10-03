@@ -151,6 +151,7 @@ pub struct OutlineExtractor {
   /// product's identity so editing an extraction rule invalidates products it produced — the
   /// grammar digest alone cannot see a rule change.
   rules_digest: u64,
+  cpp_macro_roots: Option<Vec<std::path::PathBuf>>,
 }
 
 
@@ -250,6 +251,7 @@ impl OutlineExtractor {
       .clone()?;
     Ok(Self {
       by_lang,
+      cpp_macro_roots: None,
       dynamic_specs: HashMap::new(),
       rules_digest: xxhash_rust::xxh3::xxh3_64(DEFAULT_OUTLINE_RULES.as_bytes()),
     })
@@ -259,6 +261,7 @@ impl OutlineExtractor {
   pub fn from_rules(rules_yaml: &str) -> Result<Self, String> {
     Ok(Self {
       by_lang: Arc::new(ExtractorSet::Eager(compile_rules(rules_yaml)?)),
+      cpp_macro_roots: None,
       dynamic_specs: HashMap::new(),
       rules_digest: xxhash_rust::xxh3::xxh3_64(rules_yaml.as_bytes()),
     })
@@ -376,6 +379,7 @@ impl OutlineExtractor {
     Ok(Self {
       by_lang: Arc::new(ExtractorSet::Eager(compile_groups(rules)?)),
       dynamic_specs,
+      cpp_macro_roots: None,
       rules_digest: h.digest(),
     })
   }
@@ -405,6 +409,56 @@ impl OutlineExtractor {
   pub fn rules_digest(&self) -> u64 {
     self.rules_digest
   }
+
+  /// Enable conservative statement-macro recovery with explicit ordered roots.
+  /// Recovered C++ trees bypass incremental tree/walk caches. Product replay
+  /// must use this extractor's dependency-aware identity, not the free helper.
+  pub fn with_cpp_macro_recovery(mut self, roots: &[std::path::PathBuf]) -> Result<Self, String> {
+    if !cfg!(feature = "builtin-parser") {
+      return Err("C++ macro recovery requires builtin-parser".to_owned());
+    }
+    if self.cpp_macro_roots.is_some() {
+      return Err("C++ macro recovery already configured".to_owned());
+    }
+    let roots: Vec<_> = roots.iter().map(|p| std::path::absolute(p).map_err(|e| e.to_string())).collect::<Result<_, _>>()?;
+    let mut hash = xxhash_rust::xxh3::Xxh3::new();
+    hash.update(b"vorpal-cpp-macro-config-v1\0");
+    hash.update(&self.rules_digest.to_le_bytes());
+    for root in &roots {
+      let bytes = root.as_os_str().as_encoded_bytes();
+      hash.update(&(bytes.len() as u64).to_le_bytes());
+      hash.update(bytes);
+    }
+    self.rules_digest = hash.digest();
+    self.cpp_macro_roots = Some(roots);
+    Ok(self)
+  }
+
+  pub fn cpp_macro_recovery_enabled(&self) -> bool {
+    self.cpp_macro_roots.is_some()
+  }
+
+  /// Replay identity from current source/include bytes, including missing
+  /// candidates which may now shadow an existing header. Failure declines reuse.
+  pub fn extraction_identity_for_path(&self, path: &str) -> Option<u64> {
+    let base = crate::extraction_identity_for_path(path, self.rules_digest)?;
+    #[cfg(feature = "builtin-parser")]
+    if let Some(roots) = &self.cpp_macro_roots
+      && SgLang::from_path(path) == Some(SgLang::Builtin(vorpal_language::SupportLang::Cpp)) {
+      let source = std::fs::read_to_string(path).ok()?;
+      let evidence = crate::cpp_macro_evidence::audit_with_roots(std::path::Path::new(path), &source, roots);
+      return Some(macro_product_identity(base, evidence.dependency_identity()));
+    }
+    Some(base)
+  }
+}
+
+fn macro_product_identity(base: u64, dependency: u64) -> u64 {
+  let mut hash = xxhash_rust::xxh3::Xxh3::new();
+  hash.update(b"vorpal-cpp-macro-product-v1\0");
+  hash.update(&base.to_le_bytes());
+  hash.update(&dependency.to_le_bytes());
+  hash.digest()
 }
 
 /// One extra outline-rule document for [`OutlineExtractor::with_sources`]: `origin` is the
@@ -538,8 +592,23 @@ impl OutlineExtractor {
     // The parse tree (`grep`) is owned locally; everything extracted is copied into the owned
     // product before it drops. Reference extraction runs even without outline rules (the file
     // node is the only definition span).
+    #[cfg(feature = "builtin-parser")]
+    if self.cpp_macro_recovery_enabled() && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
+      // Recovery always reparses: cached trees/walk snapshots have no proof identity.
+      let _ = crate::tree_cache::take_reuse(path);
+      let (grep, dependency) = crate::cpp_macro_recovery::parse_recovery(
+        std::path::Path::new(path), source, self.cpp_macro_roots.as_deref().unwrap());
+      return self.extract_from_grep(lang, path, source, &grep, Some(dependency), finish);
+    }
+    #[cfg(feature = "builtin-parser")]
+    let grep = if lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
+      vorpal_language::with_cpp_statement_macros(&[], || parse(lang, path, source))
+    } else {
+      parse(lang, path, source)
+    };
+    #[cfg(not(feature = "builtin-parser"))]
     let grep = parse(lang, path, source);
-    self.extract_from_grep(lang, path, source, &grep, finish)
+    self.extract_from_grep(lang, path, source, &grep, None, finish)
   }
 
   /// Whether `lang` has outline rules or a reference spec — the languages this extractor
@@ -563,7 +632,10 @@ impl OutlineExtractor {
     if *root.lang() != lang || !self.extracts(lang) {
       return None;
     }
-    self.extract_from_grep(lang, path, root.source(), root, product_from_parts)
+    if self.cpp_macro_recovery_enabled() && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
+      return self.extract_product(path, root.source());
+    }
+    self.extract_from_grep(lang, path, root.source(), root, None, product_from_parts)
   }
 
   /// The single extraction body over a parsed root — every product, owned or encoded, from
@@ -574,6 +646,7 @@ impl OutlineExtractor {
     path: &str,
     source: &str,
     grep: &ParsedRoot,
+    dependency: Option<u64>,
     finish: impl FnOnce(product::ExtractedParts<'_>) -> R,
   ) -> Option<R> {
     let combined = self.by_lang.get(lang);
@@ -643,7 +716,8 @@ impl OutlineExtractor {
     // Claim the reuse context the parse may have armed — drained unconditionally so a
     // stale snapshot never leaks to a later file on this worker thread.
     let reuse = crate::tree_cache::take_reuse(path);
-    let identity = crate::extraction_identity(grammar_generation, self.rules_digest);
+    let base_identity = crate::extraction_identity(grammar_generation, self.rules_digest);
+    let identity = dependency.map_or(base_identity, |dep| macro_product_identity(base_identity, dep));
     static WALK_REUSE: OnceLock<bool> = OnceLock::new();
     let reuse_enabled = *WALK_REUSE
       .get_or_init(|| !std::env::var_os("VORPAL_WALK_REUSE").is_some_and(|v| v == "0"));
@@ -1224,7 +1298,7 @@ impl OutlineExtractor {
       source_xxh3: xxhash_rust::xxh3::xxh3_64(source.as_bytes()),
       // Extraction identity: the language's grammar generation folded with the outline-rule
       // digest, so the cache invalidates a product once either the parser or the rules change.
-      grammar_digest: crate::extraction_identity(grammar_generation, self.rules_digest),
+      grammar_digest: identity,
       error_nodes,
       error_bytes,
       error_spans,

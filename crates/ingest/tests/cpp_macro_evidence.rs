@@ -253,3 +253,29 @@ fn unreadable_first_candidate_does_not_fall_back_to_another_root() {
   assert_eq!(evidence.dependencies.len(), 1);
   assert!(evidence.dependencies[0].digest.is_none());
 }
+
+#[cfg(unix)]
+#[test]
+fn file_symlinks_do_not_prove_a_different_quoted_include_directory() {
+  let fixture = Fixture::new();
+  let real = fixture.0.join("real");
+  std::fs::create_dir(&real).unwrap();
+  std::fs::write(real.join("proof.h"), "#include \"detail.h\"\n").unwrap();
+  std::fs::write(real.join("detail.h"), "#define CHECK(x) { target(x); }\n").unwrap();
+  std::os::unix::fs::symlink(real.join("proof.h"), fixture.0.join("proof.h")).unwrap();
+  let source = "#include \"proof.h\"\nCHECK(value())\n";
+  let evidence = audit(&fixture.0.join("run.cc"), source);
+  assert!(evidence.bindings.is_empty());
+  assert_eq!(evidence.dependencies.len(), 1);
+  assert!(evidence.dependencies[0].digest.is_none());
+  std::fs::write(real.join("run.cc"), "#define CHECK(x) { target(x); }\n").unwrap();
+  std::os::unix::fs::symlink(real.join("run.cc"), fixture.0.join("run.cc")).unwrap();
+  assert!(
+    audit(
+      &fixture.0.join("run.cc"),
+      "#define CHECK(x) { target(x); }\nCHECK(value())"
+    )
+    .bindings
+    .is_empty()
+  );
+}

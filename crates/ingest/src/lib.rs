@@ -64,6 +64,9 @@ pub struct ExtractionEnv {
   /// index extracts from host files, so its exact bytes fold into the rules digest — editing
   /// an injection rule re-keys products like editing an outline rule does.
   pub injection_config: Option<RuleSource>,
+  /// Opt-in proof-backed C++ statement recovery. `Some([])` enables local
+  /// quoted includes; additional roots are searched in the given order.
+  pub cpp_macro_include_roots: Option<Vec<std::path::PathBuf>>,
 }
 
 /// One dynamic language's extraction canary: `source` is extracted as `path` and must yield at
@@ -88,16 +91,21 @@ impl ExtractionEnv {
       && self.ref_spec_sources.is_empty()
       && self.canaries.is_empty()
       && self.injection_config.is_none()
+      && self.cpp_macro_include_roots.is_none()
   }
 
   /// The extractor this environment describes. Languages named by the sources must already be
   /// registered — dlopen is the caller's job (a one-shot at startup), never extraction's.
   pub fn extractor(&self) -> Result<OutlineExtractor, String> {
-    OutlineExtractor::with_env(
+    let extractor = OutlineExtractor::with_env(
       &self.outline_sources,
       &self.ref_spec_sources,
       self.injection_config.as_ref(),
-    )
+    )?;
+    match &self.cpp_macro_include_roots {
+      Some(roots) => extractor.with_cpp_macro_recovery(roots),
+      None => Ok(extractor),
+    }
   }
 
   /// Dynamic languages this environment extracts but does not canary-verify — computed against

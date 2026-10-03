@@ -1,4 +1,4 @@
-//! Read-only recovery audit. Recovered trees/products never enter an index cache.
+//! Proof-backed statement parsing and a read-only recovery report.
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -18,12 +18,16 @@ pub struct RecoveryAudit {
 
 /// Prove every invocation of a name before giving it to the offset-free scanner.
 /// One unproven/incorrect-arity occurrence disables that name for the whole file.
-/// This conservative seam does not activate recovery in any production extractor.
+/// This report does not write products or activate recovery in default extraction.
 pub fn audit_recovery(path: &Path, source: &str, roots: &[PathBuf]) -> RecoveryAudit {
   vorpal_language::with_cpp_statement_macros(&[], || audit_without_context(path, source, roots))
 }
 
-fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> RecoveryAudit {
+fn parse_without_context(
+  path: &Path,
+  source: &str,
+  roots: &[PathBuf],
+) -> (crate::ParsedRoot, Vec<String>, u64) {
   let lang = SgLang::Builtin(SupportLang::Cpp);
   let raw = lang.grep(source);
   let evidence = crate::cpp_macro_evidence::audit_with_roots(path, source, roots);
@@ -98,6 +102,22 @@ fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> Recove
     .filter(|name| name.len() <= 128 && name.is_ascii() && !rejected.contains(name))
     .collect();
   let parsed = vorpal_language::with_cpp_statement_macros(&eligible_names, || lang.grep(source));
+  (parsed, eligible_names, evidence.dependency_identity())
+}
+
+pub(crate) fn parse_recovery(
+  path: &Path,
+  source: &str,
+  roots: &[PathBuf],
+) -> (crate::ParsedRoot, u64) {
+  vorpal_language::with_cpp_statement_macros(&[], || {
+    let (parsed, _, identity) = parse_without_context(path, source, roots);
+    (parsed, identity)
+  })
+}
+
+fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> RecoveryAudit {
+  let (parsed, eligible_names, dependency_identity) = parse_without_context(path, source, roots);
   let root = parsed.root();
   let macro_spans = root
     .dfs()
@@ -126,7 +146,7 @@ fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> Recove
     macro_spans,
     calls,
     functions,
-    dependency_identity: evidence.dependency_identity(),
+    dependency_identity,
   }
 }
 
