@@ -314,7 +314,20 @@ def decltype_base(node):
                   decltype_base(value) if isinstance(value, dict) else value)
             for key, value in node.items()}
 rules['base_class_clause'] = decltype_base(rules['base_class_clause'])
+# Proof-backed statement names come only from a scoped external scanner context.
+# Without that context the new branch is unreachable, including ordinary calls.
+external = symbol('_proven_statement_macro')
+if external not in grammar['externals']:
+    grammar['externals'].append(external)
+rules['macro_statement'] = {'type': 'PREC_RIGHT', 'value': 1, 'content': seq(
+    {'type': 'FIELD', 'name': 'name', 'content': alias_rule('_proven_statement_macro', 'identifier')},
+    {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')},
+    optional({'type': 'STRING', 'value': ';'}))}
+if symbol('macro_statement') not in rules['statement']['members']:
+    rules['statement']['members'].append(symbol('macro_statement'))
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
+scanner = path.parent / 'scanner.c'
+scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())
 
 if '--finalize' in sys.argv:
     # The generator replaces parser.h; retain Vorpal's existing ASCII lexer fast path.

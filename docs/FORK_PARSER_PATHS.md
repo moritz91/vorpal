@@ -227,6 +227,35 @@ Inspect evidence without writing an index:
 cargo run -p vorpal-ingest --example macro_audit -- --include-root path/to/includes path/to/file.cc
 ```
 
+A read-only `cpp_macro_recovery::audit_recovery` prototype now parses original
+source bytes with a scoped proof-backed scanner. `macro_statement` keeps the
+identifier and argument list at their original spans; the macro name is not a
+call-expression callee. Argument expressions and following functions remain in
+the tree. No recovered root or product is returned to production extraction.
+
+The external scanner has no public byte offset. The audit therefore independently
+validates every invocation argument list and parameter count, and rejects an
+entire name if any occurrence lies outside its proven definition interval or has
+invalid arguments. Commas are counted with preprocessor parenthesis rules, not
+C++ template/bracket rules. Names and whitespace use the same ASCII recognition
+in the audit and scanner. The borrowed scanner context is thread-local, scoped,
+restored after nested parsing or unwinding, and never stored in a tree. An empty
+context preserves ordinary parsing. Comments between a macro name and its opening
+parenthesis remain unsupported.
+
+Six recovery regressions pass on Windows/Linux: LF/CRLF spans, consecutive uses,
+raw-string/comment commas, invalid arguments and genuine missing semicolons,
+header creation/edit/removal, parser reuse, parallel workers and panic restoration.
+The unchanged corpus and original 80-file audit pass without changed error totals.
+This is still an audit prototype: owned/streaming extraction, scan handoff,
+incremental trees/walk snapshots, persistent products and whole-tree replay need
+one shared evidence environment and dependency invalidation before activation.
+The Hades translation-unit include boundaries described above still apply.
+
+```sh
+cargo run -p vorpal-ingest --example macro_audit -- --recover --include-root path/to/includes path/to/file.cc
+```
+
 Remaining C++ boundaries in that audit include macro statements without semicolons
 and additional SDK annotations/conditional linkage blocks. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as

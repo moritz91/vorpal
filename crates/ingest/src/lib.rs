@@ -13,6 +13,8 @@
 //! A single [`Ingestor`] is a single-writer-per-shard sink (§7.5); scale-out shards it by path.
 
 pub mod cpp_macro_evidence;
+#[cfg(feature = "builtin-parser")]
+pub mod cpp_macro_recovery;
 mod tree_cache;
 mod walk_reuse;
 mod manifest;

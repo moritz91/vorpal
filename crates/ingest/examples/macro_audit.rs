@@ -1,12 +1,15 @@
-//! Read-only statement-macro evidence audit. This does not enable parser recovery.
+//! Read-only statement-macro audit. No recovered products enter index caches.
 use std::path::{Path, PathBuf};
 
 fn main() {
   let mut args = std::env::args().skip(1);
   let mut roots = Vec::new();
   let mut paths = Vec::new();
+  let mut recover = false;
   while let Some(arg) = args.next() {
-    if arg == "--include-root" {
+    if arg == "--recover" {
+      recover = true;
+    } else if arg == "--include-root" {
       roots.push(PathBuf::from(
         args.next().expect("--include-root requires a path"),
       ));
@@ -16,6 +19,12 @@ fn main() {
   }
   for path in paths {
     let source = std::fs::read_to_string(&path).unwrap();
+    if recover {
+      let report =
+        vorpal_ingest::cpp_macro_recovery::audit_recovery(Path::new(&path), &source, &roots);
+      println!("{path}: {report:?}");
+      continue;
+    }
     let evidence =
       vorpal_ingest::cpp_macro_evidence::audit_with_roots(Path::new(&path), &source, &roots);
     for binding in &evidence.bindings {
