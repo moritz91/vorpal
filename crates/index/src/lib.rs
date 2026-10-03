@@ -7099,7 +7099,7 @@ pub(crate) fn open_generation_pack(dir: &Path) -> Option<PackReader> {
   }
   let probe = entries[0].path.as_str();
   let mut root: Option<String> = None;
-  for (at, _) in probe.match_indices('/') {
+  for (at, _) in probe.match_indices(['/', '\\']) {
     let candidate = &probe[..at];
     let accepts = entries.iter().all(|entry| {
       let key = vorpal_kg::identity::tree_relative(&entry.path, candidate);
@@ -7282,7 +7282,7 @@ pub fn parse_health_report(index_dir: &Path) -> Result<String, Box<dyn Error>> {
       return None;
     }
     path
-      .match_indices('/')
+      .match_indices(['/', '\\'])
       .map(|(at, _)| &path[..at])
       .find(|candidate| {
         let key = vorpal_kg::identity::tree_relative(path, candidate);
@@ -7304,11 +7304,10 @@ pub fn parse_health_report(index_dir: &Path) -> Result<String, Box<dyn Error>> {
   let mut recovered_items = 0u64;
   for (_, path) in &files {
     let Some(bytes) = lookup(path) else {
-      continue;
+      return Err(format!("parse health unavailable: missing product for {path}").into());
     };
-    let Ok(product) = vorpal_ingest::decode_product_view(bytes) else {
-      continue;
-    };
+    let product = vorpal_ingest::decode_product_view(bytes)
+      .map_err(|err| format!("parse health unavailable: invalid product for {path}: {err}"))?;
     if product.error_nodes == 0 {
       continue;
     }

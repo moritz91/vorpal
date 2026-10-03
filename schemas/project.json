@@ -6,6 +6,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "cppMacroIncludeRoots": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Opt in to proof-backed C++ statement-macro recovery. Quoted includes search locally first, then these ordered roots; angle includes search only these roots. Relative paths resolve against the configuration directory. An empty list enables local quoted includes; absent means disabled. Uncertain includes or definitions decline recovery."
+        },
         "ruleDirs": {
           "type": "array",
           "items": {

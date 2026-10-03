@@ -172,11 +172,41 @@ isolated regressions and the unchanged corpus. Catch2 has ordinary CRLF bytes;
 diagnosis must inspect bytes instead of newline-translating console output.
 
 Proof-backed statement recovery is now available through an explicit extraction
-API opt-in. Default extraction and CLI configuration remain unchanged. Set
+API or project-configuration opt-in. Default extraction remains unchanged. Set
 `ExtractionEnv::cpp_macro_include_roots` to `Some(roots)` or construct an extractor
 with `OutlineExtractor::with_cpp_macro_recovery`; an empty root list still allows
-local quoted includes. No roots are inferred. Production CLI/configuration wiring
-is still a follow-up, as is evidence for the uncertain Hades include environment.
+local quoted includes. No roots are inferred. For both `vorpal index` and `vorpal
+mcp`, a project configuration can opt in without custom language declarations:
+
+```yaml
+ruleDirs: []
+cppMacroIncludeRoots:
+  - tests
+  - src
+```
+
+Roots retain their order; relative paths use the configuration file's directory,
+including an external file supplied with `--config`. `cppMacroIncludeRoots: []`
+enables local quoted includes, whereas an absent key keeps recovery disabled.
+Multi-project MCP loading carries each project's own roots. Include proof still
+declines unknown headers and uncertain definitions; configuring roots does not
+assert that their macros are safe or evaluate preprocessor conditions. Evidence
+for the uncertain Hades include environment remains a follow-up.
+
+An opt-in MCP daemon performs rebuilds with its retained extraction environment
+in process. The existing child-indexer protocol cannot transport this exact proof
+configuration, and rediscovering a config under the source directory loses external
+`--config` inputs. This bypass applies to explicit, background and reconcile
+rebuilds. Default extraction retains child supervision. CLI/MCP regression tests
+check roots relative to an external config, empty versus absent roots, explicit
+MCP rebuilds and changed external headers that must restore real syntax errors.
+
+Native Windows pack-root inference now recognizes both path separators without
+rewriting stored keys or matching ambiguous filename suffixes. Previously a native
+Windows index could correctly count parse errors during build while `health` skipped
+their unavailable products and reported clean. Health now refuses missing/invalid
+products rather than treating uninspected files as healthy. A cross-platform regression
+uses clean/damaged files with identical basenames and a damaged product pack.
 
 `cpp_macro_evidence::audit_with_roots` records complete function-like `if`, `try`
 and compound-statement replacements, original definition spans, parameter counts
