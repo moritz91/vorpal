@@ -3,6 +3,39 @@ use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;
 
 #[test]
+fn cpp_conditional_if_prefix_preserves_common_body_and_calls() {
+  let source = r#"
+template<unsigned size, typename STR, typename... ARGS>
+unsigned long* encode(unsigned long (&buffer)[size], unsigned long color, STR format, ARGS... args) {
+  unsigned long* destination = buffer;
+  write(destination, color, format, args...);
+  return destination;
+}
+void run() {
+#if ENABLE_FAST && defined(AVAILABLE)
+  if (ready()) { fast(); }
+  else
+#endif
+  { slow(); }
+#ifdef USE_GPU
+  if (gpu()) { upload(); }
+  else
+#endif
+  { fallback(); }
+  after();
+}
+"#;
+  let product = clean_product(source);
+  for name in ["ready", "fast", "slow", "gpu", "upload", "fallback", "after"] {
+    let call = product.refs.iter().find(|r| r.name == name && r.kind == 0).unwrap();
+    assert_eq!(&source[call.start as usize..call.end as usize], format!("{name}()"));
+  }
+  for invalid in ["void run() { if (ready()) { fast(); } else }", "void run() { else { slow(); } }"] {
+    assert!(SgLang::from_path("sdk.cc").unwrap().grep(invalid).root().has_error());
+  }
+}
+
+#[test]
 fn cpp_sdk_parameter_annotations_are_metadata() {
   let source = r#"
 void target();

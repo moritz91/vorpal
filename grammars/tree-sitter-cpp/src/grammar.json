@@ -6313,6 +6313,10 @@
         {
           "type": "SYMBOL",
           "name": "_non_case_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "conditional_if_statement"
         }
       ]
     },
@@ -17915,6 +17919,149 @@
           {
             "type": "SYMBOL",
             "name": "identifier"
+          }
+        ]
+      }
+    },
+    "_conditional_else_clause": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "else"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "PATTERN",
+            "value": "#[ \t]*endif"
+          },
+          "named": false,
+          "value": "#endif"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "statement"
+        }
+      ]
+    },
+    "conditional_if_statement": {
+      "type": "PREC_DYNAMIC",
+      "value": -1,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "PATTERN",
+                      "value": "#[ \t]*if"
+                    },
+                    "named": false,
+                    "value": "#if"
+                  },
+                  {
+                    "type": "FIELD",
+                    "name": "preproc_condition",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_preproc_expression"
+                    }
+                  },
+                  {
+                    "type": "STRING",
+                    "value": "\n"
+                  }
+                ]
+              },
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "ALIAS",
+                        "content": {
+                          "type": "PATTERN",
+                          "value": "#[ \t]*ifdef"
+                        },
+                        "named": false,
+                        "value": "#ifdef"
+                      },
+                      {
+                        "type": "ALIAS",
+                        "content": {
+                          "type": "PATTERN",
+                          "value": "#[ \t]*ifndef"
+                        },
+                        "named": false,
+                        "value": "#ifndef"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "FIELD",
+                    "name": "preproc_condition",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "identifier"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "STRING",
+            "value": "if"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "constexpr"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "FIELD",
+            "name": "condition",
+            "content": {
+              "type": "SYMBOL",
+              "name": "condition_clause"
+            }
+          },
+          {
+            "type": "FIELD",
+            "name": "consequence",
+            "content": {
+              "type": "SYMBOL",
+              "name": "statement"
+            }
+          },
+          {
+            "type": "FIELD",
+            "name": "alternative",
+            "content": {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_conditional_else_clause"
+              },
+              "named": true,
+              "value": "else_clause"
+            }
           }
         ]
       }

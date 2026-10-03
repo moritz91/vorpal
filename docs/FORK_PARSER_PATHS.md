@@ -104,6 +104,19 @@ schema validation pass. The new `sdk_parameter_annotation` kind is in the C++
 rule schema. Conditional `else` structures and one pointer-return convention in
 PIX headers remain for subsequent work.
 
+The conditional-prefix follow-up models SDK `#if`/`#ifdef`/`#ifndef` groups
+whose runtime `if`/`else` prefix ends directly before `#endif`, with the final
+statement shared outside the directive. The exact boundary is required; ordinary
+dangling `else` remains an error. `conditional_if_statement` retains separate
+preprocessor and runtime condition fields and an `else_clause` spanning the
+original directive boundary. Both bodies and following calls keep exact source
+spans. All three PIXEvents headers now parse cleanly, reducing the subset to 19
+error-bearing files (389 ERROR nodes, 532620 damaged bytes). Thirteen parser
+regressions, the unchanged corpus, Clippy, native Windows checks and schema
+validation pass. A broad pointer-return calling-convention extension remains
+withheld: it changes ordinary template functions with array-reference parameters.
+Their shape is retained in the regression fixture; corpus expectations are intact.
+
 Remaining C++ boundaries in that audit include macro statements without semicolons
 and additional SDK annotations/conditional linkage blocks. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as

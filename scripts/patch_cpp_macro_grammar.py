@@ -242,6 +242,27 @@ for name in ['parameter_declaration', 'optional_parameter_declaration', 'variadi
     annotations = repeat(symbol('sdk_parameter_annotation'))
     if members[0] != annotations:
         members.insert(0, annotations)
+# SDKs conditionally compile an if/else prefix while keeping its final body shared.
+# Require the exact else-before-endif boundary; ordinary dangling else stays invalid.
+grammar['conflicts'] = [c for c in grammar['conflicts']
+    if c not in [['preproc_if', 'conditional_if_statement'], ['preproc_ifdef', 'conditional_if_statement']]]
+headers = []
+for name in ['preproc_if', 'preproc_ifdef']:
+    parts = json.loads(json.dumps(rules[name]['content']['members']))
+    stop = next(i for i, part in enumerate(parts) if part == repeat(symbol('_block_item')))
+    header = parts[:stop]
+    for part in header:
+        if part.get('type') == 'FIELD':
+            part['name'] = 'preproc_condition'
+    headers.append(seq(*header))
+endif = json.loads(json.dumps(rules['preproc_if']['content']['members'][-1]))
+prefix = json.loads(json.dumps(rules['if_statement']['content']['members'][:-1]))
+rules['_conditional_else_clause'] = seq({'type': 'STRING', 'value': 'else'}, endif, symbol('statement'))
+rules['conditional_if_statement'] = {'type': 'PREC_DYNAMIC', 'value': -1, 'content': seq(
+    choice(*headers), *prefix,
+    {'type': 'FIELD', 'name': 'alternative', 'content': alias_rule('_conditional_else_clause', 'else_clause')})}
+if symbol('conditional_if_statement') not in rules['statement']['members']:
+    rules['statement']['members'].append(symbol('conditional_if_statement'))
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 
 if '--finalize' in sys.argv:
