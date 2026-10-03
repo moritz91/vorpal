@@ -328,9 +328,11 @@
     "abi": 15,
     "commit": "v0.26.4",
     "license": "MIT",
-    "patches": [],
+    "patches": [
+      "Case-insensitive numeric size multipliers; scripts/patch_powershell_grammar.py, tree-sitter 0.25.10 ABI 15."
+    ],
     "repository": "https://github.com/airbus-cert/tree-sitter-powershell",
-    "source_digest": "xxh3:c1ae62a9ed3ea972",
+    "source_digest": "xxh3:aa53afa285161664",
     "version": "0.26.4"
   },
   "tree-sitter-proto": {

@@ -267,7 +267,14 @@ Remaining C++ boundaries in that audit include macro statements without semicolo
 and additional SDK annotations/conditional linkage blocks. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as
 an orphan closing brace or a trailing `template <typename T>`; these should remain
-reported as parse errors. PowerShell and Markdown grammars are unchanged.
+reported as parse errors. PowerShell numeric size multipliers now accept the
+native parser's case-insensitive spellings, including integer, hex and real
+literals. Original literal spans and malformed-expression errors are retained.
+The unchanged 139-test PowerShell corpus and Windows/Linux extraction regression
+pass. The audited run_per_view_marker_soak.ps1 and
+run_runtime_split_screen_live_test.ps1 are now parse-clean. Reproduction uses
+scripts/patch_powershell_grammar.py and tree-sitter 0.25.10 generate --abi 15
+src/grammar.json in the PowerShell grammar directory. Markdown is unchanged.
 
 To inspect a source file without updating an index:
 

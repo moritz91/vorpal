@@ -53,7 +53,7 @@ export default grammar({
         seq(
           /[0-9]+/,
           optional(choice('l', 'd')),
-          optional(choice('kb', 'mb', 'gb', 'tb', 'pb')),
+          optional(/[kKmMgGtTpP][bB]/),
         ),
       ),
 
@@ -63,7 +63,7 @@ export default grammar({
           '0x',
           /[0-9a-fA-F]+/,
           optional('l'),
-          optional(choice('kb', 'mb', 'gb', 'tb', 'pb')),
+          optional(/[kKmMgGtTpP][bB]/),
         ),
       ),
 
@@ -74,17 +74,17 @@ export default grammar({
           seq(
             /[0-9]+\.[0-9]+/,
             optional(token(seq('e', optional(choice('+', '-')), /[0-9]+/))),
-            optional(choice('kb', 'mb', 'gb', 'tb', 'pb')),
+            optional(/[kKmMgGtTpP][bB]/),
           ),
           seq(
             /\.[0-9]+/,
             optional(token(seq('e', optional(choice('+', '-')), /[0-9]+/))),
-            optional(choice('kb', 'mb', 'gb', 'tb', 'pb')),
+            optional(/[kKmMgGtTpP][bB]/),
           ),
           seq(
             /[0-9]+/,
             token(seq('e', optional(choice('+', '-')), /[0-9]+/)),
-            optional(choice('kb', 'mb', 'gb', 'tb', 'pb')),
+            optional(/[kKmMgGtTpP][bB]/),
           ),
         ),
       ),
