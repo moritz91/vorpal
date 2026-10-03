@@ -263,6 +263,18 @@ rules['conditional_if_statement'] = {'type': 'PREC_DYNAMIC', 'value': -1, 'conte
     {'type': 'FIELD', 'name': 'alternative', 'content': alias_rule('_conditional_else_clause', 'else_clause')})}
 if symbol('conditional_if_statement') not in rules['statement']['members']:
     rules['statement']['members'].append(symbol('conditional_if_statement'))
+# A convention after a pointer star must precede a directly named function.
+# Recursive declarators here wrongly reinterpret ordinary parameter parentheses.
+rules['_sdk_pointer_function'] = seq(
+    {'type': 'FIELD', 'name': 'declarator', 'content': symbol('identifier')},
+    symbol('_function_declarator_seq'))
+original = rules['pointer_declarator']['members'][0] if rules['pointer_declarator']['type'] == 'CHOICE' else rules['pointer_declarator']
+convention = json.loads(json.dumps(original))
+convention['value'] = -1
+members = convention['content']['content']['members']
+members.insert(-1, choice(symbol('ms_call_modifier'), symbol('sdk_call_modifier')))
+members[-1]['content'] = alias_rule('_sdk_pointer_function', 'function_declarator')
+rules['pointer_declarator'] = choice(original, convention)
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 
 if '--finalize' in sys.argv:

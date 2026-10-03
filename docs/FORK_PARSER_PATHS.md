@@ -117,6 +117,16 @@ validation pass. A broad pointer-return calling-convention extension remains
 withheld: it changes ordinary template functions with array-reference parameters.
 Their shape is retained in the regression fixture; corpus expectations are intact.
 
+The pointer-convention follow-up requires a directly named function after an
+SDK convention following the pointer star. It reuses `function_declarator` via
+an alias and keeps recursive declarators on their original path. This avoids
+the withheld draft's array-reference template regression. `pix3_win.h` is now
+clean alongside the other four audited PIX headers. The subset is 18 error-bearing
+files (388 ERROR nodes, 532614 damaged bytes). Fourteen parser regressions,
+unchanged corpus, Clippy and native Windows checks pass. No new schema kinds
+are introduced. Calling conventions on more elaborate declarator shapes still
+need separate context-specific treatment.
+
 Remaining C++ boundaries in that audit include macro statements without semicolons
 and additional SDK annotations/conditional linkage blocks. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as

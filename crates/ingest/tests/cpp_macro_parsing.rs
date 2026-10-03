@@ -3,6 +3,26 @@ use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;
 
 #[test]
+fn cpp_sdk_pointer_return_conventions_preserve_names() {
+  let source = r#"
+struct Info {};
+extern "C" Info* WINAPI acquire() noexcept;
+Info* WINAPI create() { return target(); }
+char* __stdcall load(int);
+char* __stdcall read() { return bytes(); }
+int WINAPI(int value) { return value; }
+int ordinary() { return WINAPI(1); }
+"#;
+  let product = clean_product(source);
+  for name in ["create", "read", "ordinary"] {
+    assert!(product.items.iter().any(|item| item.entry.name == name));
+  }
+  for name in ["target", "bytes", "WINAPI"] {
+    assert!(product.refs.iter().any(|r| r.name == name && r.kind == 0));
+  }
+}
+
+#[test]
 fn cpp_conditional_if_prefix_preserves_common_body_and_calls() {
   let source = r#"
 template<unsigned size, typename STR, typename... ARGS>

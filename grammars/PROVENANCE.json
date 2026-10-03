@@ -62,10 +62,11 @@
       "Unnamed pointer default parameters and class-scoped pointer fields; named member scope and negative precedence preserve existing declaration and global delete parses; reproduce via scripts/patch_cpp_macro_grammar.py.",
       "Admit abstract member-function pointers only in explicit type descriptors, retaining global-delete parses.",
       "Parameter SDK annotations with contextual identifiers and negative precedence; retain spans and exclude annotation arguments from runtime call references.",
-      "Conditional SDK if/else prefixes ending before #endif share a following statement; exact boundary and original spans preserved, ordinary dangling else remains invalid."
+      "Conditional SDK if/else prefixes ending before #endif share a following statement; exact boundary and original spans preserved, ordinary dangling else remains invalid.",
+      "SDK pointer-return conventions require a directly named function declarator, avoiding recursive parameter-parenthesis ambiguity; reproduce with scripts/patch_cpp_macro_grammar.py."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:006de00a9196cd0a",
+    "source_digest": "xxh3:3647f353d69ae6ec",
     "version": "0.23.4"
   },
   "tree-sitter-css": {
