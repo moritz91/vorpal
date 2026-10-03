@@ -216,8 +216,18 @@ are dependencies, so newly created local headers invalidate an earlier SDK hit.
 Present unreadable candidates stop resolution. File symlinks conservatively end
 proof because canonicalization can change their quoted-include directory.
 
-Redefinitions, undef, unknown directives, conditional groups, unresolved includes,
-cycles and depth/file/byte limits end evidence. Expression/function-definition,
+Redefinitions, undef, unknown directives, unresolved includes, cycles and
+depth/file/byte limits end evidence. Well-formed #ifdef/#ifndef groups preserve
+only entering definitions that remain unchanged across every possible branch:
+all branch includes are consulted and tracked, and a possible redefine/undef
+rejects that name. No definitions originating inside those groups are promoted.
+Unknown #if expressions, malformed groups and unknown directives still end proof;
+conditions are never evaluated. The evidence identity is versioned to invalidate
+products built under the previous proof rules. Regression tests cover retained
+spans/calls, branch header edit/removal, genuine errors and normal configured MCP
+rebuilds on Windows/Linux; warm product replay passes in bucketed and flat layouts.
+MSVC accepts the fixture with both defined and undefined platform symbols.
+Expression/function-definition,
 variadic and duplicate-parameter macros, stringification/pasting and comments
 between the macro name and opening parenthesis remain unsupported. The audit does
 not evaluate conditional branches or implement a full C++ preprocessor. Hades

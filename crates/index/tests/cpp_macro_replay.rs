@@ -20,7 +20,7 @@ fn external_header_changes_and_local_shadowing_rebuild_dependent_products() {
   )
   .unwrap();
   let header = sdk.join("proof.h");
-  fs::write(&header, "#define CHECK(x) { function(x); }\n").unwrap();
+  fs::write(&header, "#define CHECK(x) { function(x); }\n#ifdef PLATFORM\nstruct First {};\n#else\nstruct Second {};\n#endif\n").unwrap();
   let env = ExtractionEnv {
     cpp_macro_include_roots: Some(vec![sdk]),
     ..Default::default()
@@ -37,7 +37,12 @@ fn external_header_changes_and_local_shadowing_rebuild_dependent_products() {
     )
     .unwrap()
   };
-  assert_eq!(build(&out).indexed, 1);
+  let initial = build(&out);
+  assert_eq!(initial.indexed, 1);
+  assert_eq!(
+    initial.error_nodes, 0,
+    "unchanged conditional branches preserve recovery"
+  );
   assert_eq!(
     build(&out).indexed,
     0,
@@ -46,9 +51,17 @@ fn external_header_changes_and_local_shadowing_rebuild_dependent_products() {
   let extractor = env.extractor().unwrap();
   let key = path.to_str().unwrap();
   let first = extractor.extraction_identity_for_path(key).unwrap();
-  fs::write(&header, "#define CHECK(x) function(x)\n").unwrap();
+  fs::write(
+    &header,
+    "#define CHECK(x) { function(x); }\n#ifdef PLATFORM\n#undef CHECK\n#endif\n",
+  )
+  .unwrap();
   assert_ne!(first, extractor.extraction_identity_for_path(key).unwrap());
   let edited = build(&out);
+  assert!(
+    edited.error_nodes > 0,
+    "a possible undef restores real parse errors"
+  );
   assert!(!edited.reused && !edited.graph_reused);
   assert_eq!(
     edited.indexed, 1,

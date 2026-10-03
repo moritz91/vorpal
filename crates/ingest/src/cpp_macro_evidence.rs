@@ -52,7 +52,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v1\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v2\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -101,8 +101,14 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
   if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
     return Evidence {
       bindings: Vec::new(),
-      dependencies: vec![Dependency { path: std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()), digest: None }],
-      include_roots: include_roots.iter().map(|p| canonical_or_absolute(p)).collect(),
+      dependencies: vec![Dependency {
+        path: std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()),
+        digest: None,
+      }],
+      include_roots: include_roots
+        .iter()
+        .map(|p| canonical_or_absolute(p))
+        .collect(),
     };
   }
   let mut audit = Audit {
@@ -316,6 +322,56 @@ impl Audit {
           } else if !(directive == "#pragma" && argument.trim() == "once") {
             environment.clear();
           }
+        }
+        "preproc_ifdef" if !node.has_error() => {
+          // #ifdef/#ifndef do not expand a condition. Inspect every possible
+          // branch for effects, without selecting a branch or adding a binding.
+          // Only definitions entering the group may survive it unchanged.
+          for directive in node.dfs() {
+            match directive.kind().as_ref() {
+              "preproc_def" | "preproc_function_def" => {
+                if let Some(name) = directive.field("name") {
+                  environment.remove(name.text().as_ref());
+                } else {
+                  environment.clear();
+                }
+              }
+              "preproc_include" => {
+                if let Some(include) = directive.field("path") {
+                  let entering = environment.clone();
+                  self.resolve_include(path, &include.text(), environment);
+                  environment.retain(|name, definition| entering.get(name) == Some(definition));
+                } else {
+                  environment.clear();
+                }
+              }
+              "preproc_call" => {
+                let directive_name = directive.field("directive");
+                let argument = directive.field("argument");
+                match (directive_name, argument) {
+                  (Some(name), Some(argument)) if name.text() == "#undef" => {
+                    let argument = argument.text();
+                    let name = argument.trim();
+                    if !name.is_empty()
+                      && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                    {
+                      environment.remove(name);
+                    } else {
+                      environment.clear();
+                    }
+                  }
+                  (Some(name), Some(argument))
+                    if name.text() == "#pragma" && argument.text().trim() == "once" => {}
+                  _ => environment.clear(),
+                }
+              }
+              "preproc_ifdef" | "preproc_else" | "preproc_elifdef" | "preproc_params"
+              | "preproc_arg" => {}
+              kind if kind.starts_with("preproc_") => environment.clear(),
+              _ => {}
+            }
+          }
+          environment.retain(|name, definition| previous.get(name) == Some(definition));
         }
         "comment" => {}
         _ => {

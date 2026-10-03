@@ -84,6 +84,74 @@ fn comments_and_continuations_keep_original_definition_bytes() {
   }
 }
 
+#[test]
+fn conditional_definedness_groups_preserve_only_unaffected_entering_definitions() {
+  let definition = "#define CHECK(x) { function(x); }\n";
+  for group in [
+    "#ifdef PLATFORM\nstruct Windows {};\n#else\nstruct Other {};\n#endif\n",
+    "#ifndef PLATFORM\n#ifdef DEBUG\nstruct Debug {};\n#endif\n#endif\n",
+    "#ifdef PLATFORM\n#define OTHER(x) { other(x); }\n#endif\n",
+  ] {
+    let source = format!("{definition}{group}CHECK(argument())\n");
+    let evidence = audit(Path::new("proof.cc"), &source);
+    let old = evidence
+      .at("CHECK", source.find("CHECK(argument").unwrap())
+      .unwrap();
+    assert_eq!(old.definition_span, 0..definition.len());
+    assert!(evidence.at("OTHER", source.len() - 1).is_none());
+  }
+  for group in [
+    "#ifdef PLATFORM\n#undef CHECK\n#endif\n",
+    "#ifndef PLATFORM\n#else\n#define CHECK(x) { other(x); }\n#endif\n",
+    "#ifdef PLATFORM\n#pragma pop_macro(\"CHECK\")\n#endif\n",
+    "#ifdef PLATFORM\n#if EXPAND()\nstruct Other {};\n#endif\n#endif\n",
+    "#ifdef PLATFORM\nstruct Other {};\n",
+  ] {
+    let source = format!("{definition}{group}CHECK(argument())\n");
+    assert!(
+      audit(Path::new("proof.cc"), &source)
+        .at("CHECK", source.find("CHECK(argument").unwrap())
+        .is_none(),
+      "{group}"
+    );
+  }
+}
+
+#[test]
+fn conditional_includes_track_all_branches_and_cannot_introduce_definitions() {
+  let fixture = Fixture::new();
+  let first = fixture.0.join("first.h");
+  let second = fixture.0.join("second.h");
+  std::fs::write(&first, "struct First {};\n#define NEW(x) { other(x); }\n").unwrap();
+  std::fs::write(&second, "struct Second {};\n").unwrap();
+  let source = "#define CHECK(x) { function(x); }\n#ifdef PLATFORM\n#include \"first.h\"\n#else\n#include \"second.h\"\n#endif\nCHECK(argument())\n";
+  let path = fixture.0.join("proof.cc");
+  let before = audit(&path, source);
+  assert!(
+    before
+      .at("CHECK", source.find("CHECK(argument").unwrap())
+      .is_some()
+  );
+  assert!(before.bindings.iter().all(|b| b.definition.name != "NEW"));
+  assert_eq!(before.dependencies.len(), 2);
+  std::fs::write(&second, "#undef CHECK\n").unwrap();
+  let changed = audit(&path, source);
+  assert!(
+    changed
+      .at("CHECK", source.find("CHECK(argument").unwrap())
+      .is_none()
+  );
+  assert_ne!(before.dependency_identity(), changed.dependency_identity());
+  std::fs::remove_file(&second).unwrap();
+  let missing = audit(&path, source);
+  assert!(
+    missing
+      .at("CHECK", source.find("CHECK(argument").unwrap())
+      .is_none()
+  );
+  assert!(missing.dependencies.iter().any(|d| d.digest.is_none()));
+}
+
 struct Fixture(std::path::PathBuf);
 impl Fixture {
   fn new() -> Self {
