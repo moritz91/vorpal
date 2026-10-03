@@ -52,7 +52,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v3\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v4\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -85,6 +85,10 @@ struct Audit {
   stack: Vec<PathBuf>,
   definitely_once: BTreeSet<PathBuf>,
   possibly_once: BTreeSet<PathBuf>,
+  effect_definitions: BTreeMap<String, BTreeSet<String>>,
+  pasted_names: BTreeSet<String>,
+  ordinary_names: BTreeSet<String>,
+  pragma_operator: bool,
   remaining_bytes: usize,
   remaining_files: usize,
 }
@@ -122,6 +126,10 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
     stack: Vec::new(),
     definitely_once: BTreeSet::new(),
     possibly_once: BTreeSet::new(),
+    effect_definitions: BTreeMap::new(),
+    pasted_names: BTreeSet::new(),
+    ordinary_names: BTreeSet::new(),
+    pragma_operator: false,
     remaining_bytes: 4 * 1024 * 1024,
     remaining_files: 128,
   };
@@ -129,6 +137,9 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
   let mut environment = BTreeMap::new();
   let mut bindings = Vec::new();
   audit.visit(&path, source, &mut environment, Some(&mut bindings), true);
+  if audit.has_opaque_effects() {
+    bindings.clear();
+  }
   Evidence {
     include_roots: audit.include_roots,
     bindings: bindings
@@ -151,6 +162,83 @@ fn canonical_or_absolute(path: &Path) -> PathBuf {
 }
 
 impl Audit {
+  // A pragma operator can restore definitions saved before this audit's active
+  // interval. Opaque replacements can also manufacture it with token pasting.
+  // Decline the translation unit rather than pretending to expand such macros.
+  fn has_opaque_effects(&self) -> bool {
+    if self.pragma_operator {
+      return true;
+    }
+    let mut dangerous = self.pasted_names.clone();
+    loop {
+      let before = dangerous.len();
+      for (name, references) in &self.effect_definitions {
+        if references
+          .iter()
+          .any(|reference| dangerous.contains(reference))
+        {
+          dangerous.insert(name.clone());
+        }
+      }
+      if dangerous.len() == before {
+        return self
+          .ordinary_names
+          .iter()
+          .any(|name| dangerous.contains(name));
+      }
+    }
+  }
+
+  fn record_effects(&mut self, source: &str) {
+    // Translation-phase line splicing can join the operator name itself. This
+    // effect-only fixture never supplies spans or replaces production input.
+    let joined = source.replace("\\\r\n", "").replace("\\\n", "");
+    let source = joined.as_str();
+    let parsed = SupportLang::Cpp.grep(source);
+    let root = parsed.root();
+    let mut protected = Vec::new();
+    for node in root.dfs() {
+      if matches!(node.kind().as_ref(), "preproc_def" | "preproc_function_def") {
+        protected.push(node.range());
+        let Some(name) = node.field("name") else {
+          continue;
+        };
+        let values: Vec<_> = node
+          .children()
+          .filter(|n| n.kind().as_ref() == "preproc_arg")
+          .collect();
+        let (Some(first), Some(last)) = (values.first(), values.last()) else {
+          continue;
+        };
+        let replacement = source[first.range().start..last.range().end]
+          .replace("\\\r\n", "")
+          .replace("\\\n", "");
+        let (references, pasted) = effect_tokens(&replacement);
+        self.pragma_operator |= references.contains("_Pragma") || references.contains("__pragma");
+        let name = name.text().into_owned();
+        if pasted {
+          self.pasted_names.insert(name.clone());
+        }
+        self
+          .effect_definitions
+          .entry(name)
+          .or_default()
+          .extend(references);
+      }
+    }
+    for node in root.dfs() {
+      if node.kind().ends_with("identifier")
+        && !protected
+          .iter()
+          .any(|range| range.contains(&node.range().start))
+      {
+        let name = node.text().into_owned();
+        self.pragma_operator |= name == "_Pragma" || name == "__pragma";
+        self.ordinary_names.insert(name);
+      }
+    }
+  }
+
   fn resolve_include(
     &mut self,
     including: &Path,
@@ -273,6 +361,7 @@ impl Audit {
     mut bindings: Option<&mut Vec<Binding>>,
     definite: bool,
   ) {
+    self.record_effects(source);
     self.stack.push(path.to_path_buf());
     let parsed = SupportLang::Cpp.grep(source);
     let root = parsed.root();
@@ -477,4 +566,35 @@ fn complete_statement(replacement: &str) -> bool {
       statements[0].kind().as_ref(),
       "if_statement" | "try_statement" | "compound_statement"
     )
+}
+
+// Parse an opaque replacement only to identify possible effects, never to expand
+// or alter the original source. Literal/comment contents are not identifiers.
+fn effect_tokens(replacement: &str) -> (BTreeSet<String>, bool) {
+  let parsed = SupportLang::Cpp.grep(replacement);
+  let root = parsed.root();
+  let names = root
+    .dfs()
+    .filter(|n| n.kind().ends_with("identifier"))
+    .map(|n| n.text().into_owned())
+    .collect();
+  let protected: Vec<_> = root
+    .dfs()
+    .filter(|n| {
+      matches!(
+        n.kind().as_ref(),
+        "comment" | "string_literal" | "raw_string_literal" | "char_literal"
+      )
+    })
+    .map(|n| n.range())
+    .collect();
+  let pasted = replacement
+    .as_bytes()
+    .windows(2)
+    .enumerate()
+    .any(|(offset, bytes)| {
+      (bytes == b"##" || replacement.as_bytes().get(offset..offset + 4) == Some(b"%:%:"))
+        && !protected.iter().any(|range| range.contains(&offset))
+    });
+  (names, pasted)
 }

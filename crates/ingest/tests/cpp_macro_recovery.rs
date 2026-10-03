@@ -220,3 +220,41 @@ fn production_owned_streaming_and_scan_handoff_share_proof_and_identity() {
     "default extraction clears surrounding scanner context"
   );
 }
+
+#[test]
+fn pragma_operators_and_invoked_paste_wrappers_cannot_restore_hidden_definitions() {
+  for effect in [
+    "__pragma(pop_macro(\"CHECK\"));",
+    "_Pragma(\"pop_macro(\\\"CHECK\\\")\");",
+    "#define RESTORE() __pragma(pop_macro(\"CHECK\"))\nRESTORE();",
+    "#define JOIN(a,b) a##b\nJOIN(__pr,agma)(pop_macro(\"CHECK\"));",
+    "#define JOIN(a,b) a%:%:b\nJOIN(__pr,agma)(pop_macro(\"CHECK\"));",
+    "__pr\\\nagma(pop_macro(\"CHECK\"));",
+    "#define JOIN(a,b) a##b\n#define RESTORE() JOIN(__pr,agma)(pop_macro(\"CHECK\"))\nRESTORE();",
+  ] {
+    let source = format!(
+      "#define CHECK(x) expression(x)\n#pragma push_macro(\"CHECK\")\n#undef CHECK\n#define CHECK(x) {{ effect(x); }}\n{effect}\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    for source in [source.clone(), source.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("fixture.cc"), &source, &[]);
+      assert!(report.has_error, "{effect}: {report:?}");
+      assert!(report.eligible_names.is_empty(), "{effect}: {report:?}");
+      assert!(report.macro_spans.is_empty());
+    }
+  }
+}
+
+#[test]
+fn inert_operator_mentions_and_unused_paste_definitions_keep_valid_recovery() {
+  let source = r#"
+// __pragma(pop_macro("CHECK"))
+#define TEXT "_Pragma ## __pragma"
+#define JOIN(a,b) a##b
+#define CHECK(x) { effect(x); }
+void run() { const char* text = R"(__pragma ## _Pragma)"; CHECK(value()) }
+"#;
+  let report = audit_recovery(Path::new("fixture.cc"), source, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+}

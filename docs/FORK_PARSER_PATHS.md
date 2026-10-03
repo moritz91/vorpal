@@ -228,7 +228,15 @@ so it cannot introduce new proof or mark nested headers as definitely visited.
 A conditional pragma is never treated as unconditional. Unguarded cycles still
 end proof. Header bytes and missing search candidates remain dependencies;
 removing/reinstating `#pragma once` invalidates warm products and normal MCP
-rebuilds. Evidence identity v3 prevents replay under the earlier include rules.
+rebuilds. Evidence identity v4 also rejects opaque pragma effects. Literal `_Pragma` or
+`__pragma` operators in a translation unit or consulted replacement lists disable
+its recovery, including operators joined by continuation lines. Invoked token-pasting
+macros (`##` or `%:%:`) and their transitive replacement wrappers also disable
+recovery: they can manufacture a pragma operator that restores hidden saved
+definitions. This deliberately declines the entire proof rather than claiming to
+expand those macros. Comments, string contents and unused paste definitions do not
+supply effects. Header edits introducing/removing these effects invalidate warm
+products; regression checks compare the rebuilt graph with a scratch build.
 
 Unknown #if expressions, malformed groups and unknown directives still end proof;
 conditions are never evaluated. The evidence identity is versioned to invalidate

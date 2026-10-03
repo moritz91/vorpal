@@ -143,3 +143,66 @@ fn pragma_once_header_changes_invalidate_warm_products() {
     fs::read(scratch.join("CURRENT")).unwrap()
   );
 }
+
+#[test]
+fn header_pragma_operator_invalidates_recovered_products() {
+  let nonce = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_nanos();
+  let root = std::env::temp_dir().join(format!(
+    "vorpal-pragma-effect-replay-{}-{nonce}",
+    std::process::id()
+  ));
+  let src = root.join("src");
+  let sdk = root.join("sdk");
+  fs::create_dir_all(&src).unwrap();
+  fs::create_dir(&sdk).unwrap();
+  let header = sdk.join("proof.h");
+  let safe = "#define CHECK(x) { effect(x); }\n";
+  fs::write(&header, safe).unwrap();
+  fs::write(
+    src.join("run.cc"),
+    "#include <proof.h>\nvoid run() { CHECK(value()) after(); }\n",
+  )
+  .unwrap();
+  let env = ExtractionEnv {
+    cpp_macro_include_roots: Some(vec![sdk]),
+    ..Default::default()
+  };
+  let out = root.join("index");
+  let build = |out: &Path| {
+    build_index_env(
+      &src,
+      out,
+      CacheMode::default(),
+      ParseHealthPolicy::default(),
+      &env,
+    )
+    .unwrap()
+  };
+  assert_eq!(build(&out).error_nodes, 0);
+  assert_eq!(build(&out).indexed, 0);
+  fs::write(
+    &header,
+    format!("{safe}#define RESTORE() __pragma(pop_macro(\"CHECK\"))\n"),
+  )
+  .unwrap();
+  let changed = build(&out);
+  assert_eq!(changed.indexed, 1);
+  assert!(
+    changed.error_nodes > 0,
+    "opaque pragma effects must disable recovery"
+  );
+  assert!(!changed.reused && !changed.graph_reused);
+  fs::write(&header, safe).unwrap();
+  let restored = build(&out);
+  assert_eq!(restored.indexed, 1);
+  assert_eq!(restored.error_nodes, 0);
+  let scratch = root.join("scratch");
+  build(&scratch);
+  assert_eq!(
+    fs::read(out.join("CURRENT")).unwrap(),
+    fs::read(scratch.join("CURRENT")).unwrap()
+  );
+}
