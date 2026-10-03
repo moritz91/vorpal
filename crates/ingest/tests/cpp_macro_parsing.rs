@@ -3,6 +3,40 @@ use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;
 
 #[test]
+fn cpp_conditional_linkage_retains_declarations_and_definition_spans() {
+  let source = r#"
+#ifndef HEADER_H
+#define HEADER_H
+#ifndef FORCE_CPP
+#ifdef __cplusplus
+extern "C" {
+#endif
+#endif
+struct Info { int field; };
+Info* acquire();
+int inside() { return target(); }
+#ifndef FORCE_CPP
+#ifdef __cplusplus
+}
+#endif
+#endif
+int following() { return after(); }
+#endif
+"#;
+  let product = clean_product(source);
+  for name in ["Info", "inside", "following"] {
+    assert!(product.items.iter().any(|item| item.entry.name == name), "missing {name}");
+  }
+  for name in ["target", "after"] {
+    let call = product.refs.iter().find(|r| r.name == name && r.kind == 0).unwrap();
+    assert_eq!(&source[call.start as usize..call.end as usize], format!("{name}()"));
+  }
+  for invalid in ["extern \"C\" { int incomplete;", "#ifdef __cplusplus\nextern \"C\" {\n#endif\nint incomplete;", "}\n#endif"] {
+    assert!(SgLang::from_path("sdk.cc").unwrap().grep(invalid).root().has_error());
+  }
+}
+
+#[test]
 fn cpp_sdk_pointer_return_conventions_preserve_names() {
   let source = r#"
 struct Info {};

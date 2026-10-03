@@ -124,6 +124,10 @@
           },
           "named": true,
           "value": "declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "conditional_linkage_specification"
         }
       ]
     },
@@ -240,6 +244,10 @@
           },
           "named": true,
           "value": "declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "conditional_linkage_specification"
         }
       ]
     },
@@ -18156,6 +18164,235 @@
           "name": "_function_declarator_seq"
         }
       ]
+    },
+    "conditional_linkage_open": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "PATTERN",
+                    "value": "#[ \t]*if"
+                  },
+                  "named": false,
+                  "value": "#if"
+                },
+                {
+                  "type": "FIELD",
+                  "name": "preproc_condition",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_preproc_expression"
+                  }
+                },
+                {
+                  "type": "STRING",
+                  "value": "\n"
+                }
+              ]
+            },
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "PATTERN",
+                        "value": "#[ \t]*ifdef"
+                      },
+                      "named": false,
+                      "value": "#ifdef"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "PATTERN",
+                        "value": "#[ \t]*ifndef"
+                      },
+                      "named": false,
+                      "value": "#ifndef"
+                    }
+                  ]
+                },
+                {
+                  "type": "FIELD",
+                  "name": "preproc_condition",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "identifier"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "extern"
+                },
+                {
+                  "type": "FIELD",
+                  "name": "value",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "string_literal"
+                  }
+                },
+                {
+                  "type": "STRING",
+                  "value": "{"
+                }
+              ]
+            },
+            {
+              "type": "SYMBOL",
+              "name": "conditional_linkage_open"
+            }
+          ]
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "PATTERN",
+            "value": "#[ \t]*endif"
+          },
+          "named": false,
+          "value": "#endif"
+        }
+      ]
+    },
+    "conditional_linkage_close": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "PATTERN",
+                    "value": "#[ \t]*if"
+                  },
+                  "named": false,
+                  "value": "#if"
+                },
+                {
+                  "type": "FIELD",
+                  "name": "preproc_condition",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_preproc_expression"
+                  }
+                },
+                {
+                  "type": "STRING",
+                  "value": "\n"
+                }
+              ]
+            },
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "PATTERN",
+                        "value": "#[ \t]*ifdef"
+                      },
+                      "named": false,
+                      "value": "#ifdef"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "PATTERN",
+                        "value": "#[ \t]*ifndef"
+                      },
+                      "named": false,
+                      "value": "#ifndef"
+                    }
+                  ]
+                },
+                {
+                  "type": "FIELD",
+                  "name": "preproc_condition",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "identifier"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "}"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "conditional_linkage_close"
+            }
+          ]
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "PATTERN",
+            "value": "#[ \t]*endif"
+          },
+          "named": false,
+          "value": "#endif"
+        }
+      ]
+    },
+    "conditional_linkage_specification": {
+      "type": "PREC_DYNAMIC",
+      "value": -1,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "conditional_linkage_open"
+          },
+          {
+            "type": "REPEAT",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_top_level_item"
+            }
+          },
+          {
+            "type": "SYMBOL",
+            "name": "conditional_linkage_close"
+          }
+        ]
+      }
     }
   },
   "extras": [

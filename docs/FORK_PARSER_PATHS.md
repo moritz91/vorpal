@@ -127,6 +127,19 @@ unchanged corpus, Clippy and native Windows checks pass. No new schema kinds
 are introduced. Calling conventions on more elaborate declarator shapes still
 need separate context-specific treatment.
 
+The conditional-linkage follow-up admits independently guarded opening and
+closing `extern "C"` braces, including nested guards as used by NanoSVG. Complete
+opening and closing groups are required; unclosed linkage blocks remain errors.
+`conditional_linkage_specification`, `conditional_linkage_open` and
+`conditional_linkage_close` retain the original guard conditions, source spans
+and contained declarations. The parser models their structure without evaluating
+preprocessor conditions. Both NanoSVG headers now parse cleanly; `stb_image.h`
+retains twelve small errors spanning 107 bytes instead of a large root error.
+The audit subset is 16 error-bearing files (382 ERROR nodes, 147319 damaged bytes),
+with original element counts retained in these headers. Fifteen parser
+regressions, unchanged corpus, Clippy, native Windows checks and schema validation
+pass. The new node kinds and opening/closing guard fields are in the C++ schema.
+
 Remaining C++ boundaries in that audit include macro statements without semicolons
 and additional SDK annotations/conditional linkage blocks. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as

@@ -275,6 +275,21 @@ members = convention['content']['content']['members']
 members.insert(-1, choice(symbol('ms_call_modifier'), symbol('sdk_call_modifier')))
 members[-1]['content'] = alias_rule('_sdk_pointer_function', 'function_declarator')
 rules['pointer_declarator'] = choice(original, convention)
+# C-compatible SDK headers guard linkage braces independently of their contents.
+# Require complete guarded opening/closing groups, including nested guards.
+rules['conditional_linkage_open'] = seq(choice(*headers), choice(
+    seq({'type': 'STRING', 'value': 'extern'},
+        {'type': 'FIELD', 'name': 'value', 'content': symbol('string_literal')},
+        {'type': 'STRING', 'value': '{'}),
+    symbol('conditional_linkage_open')), endif)
+rules['conditional_linkage_close'] = seq(choice(*headers), choice(
+    {'type': 'STRING', 'value': '}'}, symbol('conditional_linkage_close')), endif)
+rules['conditional_linkage_specification'] = {'type': 'PREC_DYNAMIC', 'value': -1, 'content': seq(
+    symbol('conditional_linkage_open'), repeat(symbol('_top_level_item')),
+    symbol('conditional_linkage_close'))}
+for name in ['_top_level_item', '_block_item']:
+    if symbol('conditional_linkage_specification') not in rules[name]['members']:
+        rules[name]['members'].append(symbol('conditional_linkage_specification'))
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 
 if '--finalize' in sys.argv:
