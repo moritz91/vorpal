@@ -24,6 +24,8 @@ The vendored 0.23.4 grammar carries explicit productions for:
   interpretations are preferred when both readings are viable.
 - Nested preprocessor branches in initializer lists, retaining alternative branch
   nodes and call spans. Ordinary list entries still require commas.
+- Unnamed pointer parameters with defaults and class-scoped pointer fields,
+  preserving field names and the existing global `::delete[]` parse.
 
 No source preprocessing or byte rewriting is performed. Definition and reference
 spans still refer to the original source. Calls through a pointer-to-member do
@@ -76,9 +78,16 @@ reduces the subset to 28 error-bearing files (633 ERROR nodes, 537769 damaged
 bytes). Tests cover nested `#if`/`#ifdef`/`#elif`/`#elifdef`/`#else`, both branch
 calls and following calls, exact call spans, and missing ordinary list commas.
 
+The declaration follow-up fixes `render.h`, `mock_render_device.h` and
+`material_library.cc`, reducing the subset to 25 error-bearing files (624 ERROR
+nodes, 537663 damaged bytes). Ten parser regressions and the unchanged corpus
+pass. Pointer default parameters are added specifically, rather than accepting
+every abstract declarator. Member scopes are supported for pointer fields;
+extending abstract member-pointer types still regresses global delete parsing
+and remains withheld. Field names are verified in the extracted outline.
+
 Remaining C++ boundaries in that audit include macro statements without semicolons
-and some complex abstract/member
-declarators. Third-party C headers forced through the C++ grammar by `*.h` also
+and some complex abstract member-function declarators. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as
 an orphan closing brace or a trailing `template <typename T>`; these should remain
 reported as parse errors. PowerShell and Markdown grammars are unchanged.

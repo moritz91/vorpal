@@ -3,6 +3,33 @@ use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;
 
 #[test]
+fn cpp_member_pointer_fields_parse() {
+  let product = clean_product(r#"
+struct Material { int field; int method(int) const; };
+struct Slots { int Material::* ref; int (Material::*callback)(int) const; };
+void invoke(Material& material, int (Material::*callback)(int) const) {
+  (material.*callback)(1);
+}
+"#);
+  let slots = product.items.iter().find(|item| item.entry.name == "Slots").unwrap();
+  for name in ["ref", "callback"] {
+    assert!(slots.members.iter().any(|member| member.entry.name == name), "missing {name}");
+  }
+}
+
+#[test]
+fn cpp_unnamed_pointer_defaults_preserve_global_delete() {
+  clean_product(r#"
+struct Diagnostic {};
+void inspect(Diagnostic* = nullptr, const char* const = nullptr);
+void run() {
+  auto values = new int[5];
+  ::delete[] values;
+}
+"#);
+}
+
+#[test]
 fn cpp_initializer_conditionals_preserve_branches_and_following_calls() {
   let source = r#"
 void configure() {

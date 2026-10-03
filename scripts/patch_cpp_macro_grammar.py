@@ -175,6 +175,35 @@ for name in groups:
 rules['initializer_list'] = seq({'type': 'STRING', 'value': '{'},
                                 optional(symbol('_initializer_entries')), {'type': 'STRING', 'value': '}'})
 
+# Default parameters accept unnamed pointers as well as unnamed references.
+# Avoid widening this to every abstract declarator: that changes unrelated parses.
+def default_pointer(node):
+    if node.get('type') == 'CHOICE' and symbol('abstract_reference_declarator') in node['members']:
+        if symbol('abstract_pointer_declarator') not in node['members']:
+            node['members'].append(symbol('abstract_pointer_declarator'))
+    for value in node.values():
+        if isinstance(value, dict): default_pointer(value)
+        elif isinstance(value, list):
+            for child in value:
+                if isinstance(child, dict): default_pointer(child)
+default_pointer(rules['optional_parameter_declaration'])
+
+# Member pointer fields and abstract types require a named class scope.
+member_scope = json.loads(json.dumps(rules['_scope_resolution']))
+scope_field = member_scope['content']['members'][0]
+scope_field['content'] = scope_field['content']['members'][0]
+rules['_member_pointer_scope'] = member_scope
+for name in ['pointer_field_declarator']:
+    original = rules[name]['members'][0] if rules[name]['type'] == 'CHOICE' else rules[name]
+    member = json.loads(json.dumps(original))
+    member['value'] = -1
+    members = member['content']['content']['members']
+    at = next(i for i, m in enumerate(members) if m == {'type': 'STRING', 'value': '*'})
+    members.insert(at, {'type': 'REPEAT1', 'content': symbol('_member_pointer_scope')})
+    rules[name] = choice(original, member)
+conflict = ['_scope_resolution', '_member_pointer_scope']
+if conflict not in grammar['conflicts']:
+    grammar['conflicts'].append(conflict)
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 
 if '--finalize' in sys.argv:

@@ -4155,55 +4155,118 @@
       }
     },
     "pointer_field_declarator": {
-      "type": "PREC_DYNAMIC",
-      "value": 1,
-      "content": {
-        "type": "PREC_RIGHT",
-        "value": 0,
-        "content": {
-          "type": "SEQ",
-          "members": [
-            {
-              "type": "CHOICE",
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "PREC_DYNAMIC",
+          "value": 1,
+          "content": {
+            "type": "PREC_RIGHT",
+            "value": 0,
+            "content": {
+              "type": "SEQ",
               "members": [
                 {
-                  "type": "SYMBOL",
-                  "name": "ms_based_modifier"
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "SYMBOL",
+                      "name": "ms_based_modifier"
+                    },
+                    {
+                      "type": "BLANK"
+                    }
+                  ]
                 },
                 {
-                  "type": "BLANK"
+                  "type": "STRING",
+                  "value": "*"
+                },
+                {
+                  "type": "REPEAT",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "ms_pointer_modifier"
+                  }
+                },
+                {
+                  "type": "REPEAT",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "type_qualifier"
+                  }
+                },
+                {
+                  "type": "FIELD",
+                  "name": "declarator",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_field_declarator"
+                  }
                 }
               ]
-            },
-            {
-              "type": "STRING",
-              "value": "*"
-            },
-            {
-              "type": "REPEAT",
-              "content": {
-                "type": "SYMBOL",
-                "name": "ms_pointer_modifier"
-              }
-            },
-            {
-              "type": "REPEAT",
-              "content": {
-                "type": "SYMBOL",
-                "name": "type_qualifier"
-              }
-            },
-            {
-              "type": "FIELD",
-              "name": "declarator",
-              "content": {
-                "type": "SYMBOL",
-                "name": "_field_declarator"
-              }
             }
-          ]
+          }
+        },
+        {
+          "type": "PREC_DYNAMIC",
+          "value": -1,
+          "content": {
+            "type": "PREC_RIGHT",
+            "value": 0,
+            "content": {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "SYMBOL",
+                      "name": "ms_based_modifier"
+                    },
+                    {
+                      "type": "BLANK"
+                    }
+                  ]
+                },
+                {
+                  "type": "REPEAT1",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_member_pointer_scope"
+                  }
+                },
+                {
+                  "type": "STRING",
+                  "value": "*"
+                },
+                {
+                  "type": "REPEAT",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "ms_pointer_modifier"
+                  }
+                },
+                {
+                  "type": "REPEAT",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "type_qualifier"
+                  }
+                },
+                {
+                  "type": "FIELD",
+                  "name": "declarator",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_field_declarator"
+                  }
+                }
+              ]
+            }
+          }
         }
-      }
+      ]
     },
     "pointer_type_declarator": {
       "type": "PREC_DYNAMIC",
@@ -12101,6 +12164,10 @@
                   {
                     "type": "SYMBOL",
                     "name": "abstract_reference_declarator"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "abstract_pointer_declarator"
                   }
                 ]
               },
@@ -17650,6 +17717,49 @@
           }
         ]
       }
+    },
+    "_member_pointer_scope": {
+      "type": "PREC",
+      "value": 1,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "FIELD",
+            "name": "scope",
+            "content": {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "_namespace_identifier"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "template_type"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "decltype"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "dependent_type_identifier"
+                  },
+                  "named": true,
+                  "value": "dependent_name"
+                }
+              ]
+            }
+          },
+          {
+            "type": "STRING",
+            "value": "::"
+          }
+        ]
+      }
     }
   },
   "extras": [
@@ -17853,6 +17963,10 @@
     [
       "preproc_elifdef",
       "preproc_elifdef_in_initializer_list"
+    ],
+    [
+      "_scope_resolution",
+      "_member_pointer_scope"
     ]
   ],
   "precedences": [
