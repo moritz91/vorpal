@@ -22,6 +22,8 @@ The vendored 0.23.4 grammar carries explicit productions for:
 - SDK convention/export macros after return types and in parenthesized callback
   declarators, including `F_API`, `F_CALL` and `WINAPI`. Ordinary identifier
   interpretations are preferred when both readings are viable.
+- Nested preprocessor branches in initializer lists, retaining alternative branch
+  nodes and call spans. Ordinary list entries still require commas.
 
 No source preprocessing or byte rewriting is performed. Definition and reference
 spans still refer to the original source. Calls through a pointer-to-member do
@@ -69,8 +71,13 @@ including missing-token errors reported by the parser. Header prototypes retain
 the existing outline policy; parsing them cleanly does not automatically add
 external function definitions to the graph.
 
-Remaining C++ boundaries in that audit include macro statements without semicolons, conditional
-preprocessor branches inside initializer lists, and some complex abstract/member
+The initializer follow-up parses the previously damaged audio backend cleanly and
+reduces the subset to 28 error-bearing files (633 ERROR nodes, 537769 damaged
+bytes). Tests cover nested `#if`/`#ifdef`/`#elif`/`#elifdef`/`#else`, both branch
+calls and following calls, exact call spans, and missing ordinary list commas.
+
+Remaining C++ boundaries in that audit include macro statements without semicolons
+and some complex abstract/member
 declarators. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as
 an orphan closing brace or a trailing `template <typename T>`; these should remain

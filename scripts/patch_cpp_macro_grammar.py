@@ -138,6 +138,43 @@ for name in ['parenthesized_declarator', 'parenthesized_field_declarator',
 definition = rules['function_definition']['members']
 type_position = definition.index(symbol('_declaration_specifiers'))
 definition[type_position + 1] = optional(choice(symbol('ms_call_modifier'), symbol('sdk_call_modifier')))
+
+# Keep initializer commas strict, while admitting conditional branches as list entries.
+# Reuse the normal preprocessor shape/aliases so source spans and branch nodes survive.
+initializer_value = choice(symbol('initializer_pair'), symbol('expression'), symbol('initializer_list'))
+grammar['conflicts'] = [c for c in grammar['conflicts']
+    if c != ['comma_expression', 'initializer_list']]
+conflict = ['comma_expression', '_initializer_entries']
+if conflict not in grammar['conflicts']:
+    grammar['conflicts'].append(conflict)
+groups = ['preproc_if', 'preproc_ifdef', 'preproc_else', 'preproc_elif', 'preproc_elifdef']
+def initializer_group(name):
+    return {'type': 'ALIAS', 'content': symbol(name + '_in_initializer_list'),
+            'named': True, 'value': name}
+rules['_initializer_entries'] = choice(
+    seq({'type': 'REPEAT1', 'content': choice(
+        seq(initializer_value, {'type': 'STRING', 'value': ','}),
+        initializer_group('preproc_if'), initializer_group('preproc_ifdef'))},
+        optional(initializer_value)),
+    initializer_value,
+)
+def initializer_preproc(node):
+    if node == repeat(symbol('_block_item')):
+        return optional(symbol('_initializer_entries'))
+    if node.get('type') == 'SYMBOL' and node.get('name') in groups:
+        return initializer_group(node['name'])
+    return {key: ([initializer_preproc(c) if isinstance(c, dict) else c for c in value]
+                  if isinstance(value, list) else
+                  initializer_preproc(value) if isinstance(value, dict) else value)
+            for key, value in node.items()}
+for name in groups:
+    rules[name + '_in_initializer_list'] = initializer_preproc(rules[name])
+    conflict = [name, name + '_in_initializer_list']
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+rules['initializer_list'] = seq({'type': 'STRING', 'value': '{'},
+                                optional(symbol('_initializer_entries')), {'type': 'STRING', 'value': '}'})
+
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 
 if '--finalize' in sys.argv:

@@ -2,6 +2,44 @@ use vorpal_ingest::OutlineExtractor;
 use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;
 
+#[test]
+fn cpp_initializer_conditionals_preserve_branches_and_following_calls() {
+  let source = r#"
+void configure() {
+  auto backends = {
+#ifndef DISABLE_BACKEND
+    preferred(),
+#else
+    fallback(),
+#endif
+    always()
+  };
+  int nested[] = {
+#if OUTER
+#ifdef INNER
+    1,
+#elif defined(OTHER)
+    2,
+#endif
+#elifdef ALTERNATIVE
+    3,
+#else
+    4,
+#endif
+    5,
+  };
+  after();
+}
+"#;
+  let product = clean_product(source);
+  for name in ["preferred", "fallback", "always", "after"] {
+    let reference = product.refs.iter().find(|r| r.name == name && r.kind == 0).unwrap();
+    assert_eq!(&source[reference.start as usize..reference.end as usize], format!("{name}()"));
+  }
+  let invalid = "void run() { int values[] = { 1 2 }; }";
+  assert!(SgLang::from_path("macros.cc").unwrap().grep(invalid).root().has_error());
+}
+
 fn clean_product(source: &str) -> vorpal_ingest::FileProduct {
   assert!(!SgLang::from_path("macros.cc").unwrap().grep(source).root().has_error());
   let product = OutlineExtractor::new().unwrap().extract_product("macros.cc", source).unwrap();

@@ -3729,6 +3729,14 @@
         {
           "type": "initializer_pair",
           "named": true
+        },
+        {
+          "type": "preproc_if",
+          "named": true
+        },
+        {
+          "type": "preproc_ifdef",
+          "named": true
         }
       ]
     }
@@ -4885,6 +4893,10 @@
           "named": true
         },
         {
+          "type": "expression",
+          "named": true
+        },
+        {
           "type": "field_declaration",
           "named": true
         },
@@ -4894,6 +4906,14 @@
         },
         {
           "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "initializer_pair",
           "named": true
         },
         {
@@ -5021,6 +5041,10 @@
           "named": true
         },
         {
+          "type": "expression",
+          "named": true
+        },
+        {
           "type": "field_declaration",
           "named": true
         },
@@ -5030,6 +5054,14 @@
         },
         {
           "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "initializer_pair",
           "named": true
         },
         {
@@ -5128,6 +5160,10 @@
           "named": true
         },
         {
+          "type": "expression",
+          "named": true
+        },
+        {
           "type": "field_declaration",
           "named": true
         },
@@ -5137,6 +5173,14 @@
         },
         {
           "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "initializer_pair",
           "named": true
         },
         {
@@ -5328,6 +5372,10 @@
           "named": true
         },
         {
+          "type": "expression",
+          "named": true
+        },
+        {
           "type": "field_declaration",
           "named": true
         },
@@ -5337,6 +5385,14 @@
         },
         {
           "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "initializer_pair",
           "named": true
         },
         {
@@ -5464,6 +5520,10 @@
           "named": true
         },
         {
+          "type": "expression",
+          "named": true
+        },
+        {
           "type": "field_declaration",
           "named": true
         },
@@ -5473,6 +5533,14 @@
         },
         {
           "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "initializer_pair",
           "named": true
         },
         {

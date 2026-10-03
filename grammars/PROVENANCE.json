@@ -57,10 +57,11 @@
     "patches": [
       "ASCII/low-codepoint fast path in set_contains (src/tree_sitter/parser.h): linear scan of leading ranges for lookahead < 0x80, byte-identical membership vs the binary search \u2014 cuts identifier-lexing cost (see docs/UPSTREAM.md)",
       "Fork C++ syntax extensions: qualified macro arguments, format string macros, header probes, typeid, pointer-member operators and qualified new arrays; regenerated with tree-sitter 0.25.10, ABI 14; reproduce with scripts/patch_cpp_macro_grammar.py (including --finalize).",
-      "SDK convention/export identifiers in declaration and callback positions, with negative dynamic precedence preserving ordinary declarations; source-byte-preserving grammar extension via scripts/patch_cpp_macro_grammar.py."
+      "SDK convention/export identifiers in declaration and callback positions, with negative dynamic precedence preserving ordinary declarations; source-byte-preserving grammar extension via scripts/patch_cpp_macro_grammar.py.",
+      "Conditional initializer-list entries with nested preprocessor branch aliases and original source spans; ordinary list commas remain required; reproduce via scripts/patch_cpp_macro_grammar.py."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:a594f3df16b4de1f",
+    "source_digest": "xxh3:aad6098d8b00a36e",
     "version": "0.23.4"
   },
   "tree-sitter-css": {
