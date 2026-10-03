@@ -59,10 +59,11 @@
       "Fork C++ syntax extensions: qualified macro arguments, format string macros, header probes, typeid, pointer-member operators and qualified new arrays; regenerated with tree-sitter 0.25.10, ABI 14; reproduce with scripts/patch_cpp_macro_grammar.py (including --finalize).",
       "SDK convention/export identifiers in declaration and callback positions, with negative dynamic precedence preserving ordinary declarations; source-byte-preserving grammar extension via scripts/patch_cpp_macro_grammar.py.",
       "Conditional initializer-list entries with nested preprocessor branch aliases and original source spans; ordinary list commas remain required; reproduce via scripts/patch_cpp_macro_grammar.py.",
-      "Unnamed pointer default parameters and class-scoped pointer fields; named member scope and negative precedence preserve existing declaration and global delete parses; reproduce via scripts/patch_cpp_macro_grammar.py."
+      "Unnamed pointer default parameters and class-scoped pointer fields; named member scope and negative precedence preserve existing declaration and global delete parses; reproduce via scripts/patch_cpp_macro_grammar.py.",
+      "Admit abstract member-function pointers only in explicit type descriptors, retaining global-delete parses."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:30b4a0a981f35c9c",
+    "source_digest": "xxh3:5b647b64b0d076fa",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

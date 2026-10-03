@@ -177,7 +177,7 @@ All under `grammars/<crate>/`, patched into the workspace. `Local patches` is "�
 | tree-sitter-bash | 0.25.1 | `a06c2e4415e9` | — |
 | tree-sitter-c | 0.24.2 | `b780e47fc780` | — (macro-recovery work reverted; see Planned) |
 | tree-sitter-c-sharp | 0.23.5 | `cac6d5fb595f` | — |
-| tree-sitter-cpp | 0.23.4 | `f41e1a044c8a` | Fork macro arguments, format strings, header probes, typeid, pointer-member and new-array syntax; generated with CLI 0.25.10 / ABI 14; see [fork parser notes](../FORK_PARSER_PATHS.md) |
+| tree-sitter-cpp | 0.23.4 | `f41e1a044c8a` | Fork macro arguments, format strings, header probes, typeid, pointer-member and new-array syntax; generated with CLI 0.25.10 / ABI 14; see [fork parser notes](../FORK_PARSER_PATHS.md). Abstract member-function pointers are restricted to explicit type descriptors, preserving global delete parsing. |
 | tree-sitter-css | 0.25.0 | `dda5cfc5722c` | — |
 | tree-sitter-dart | 0.2.0 | `b57d734c84f5` | — |
 | tree-sitter-elixir | 0.3.5 | `e2d9e6e0e76b` | — |

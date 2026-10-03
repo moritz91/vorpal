@@ -83,11 +83,18 @@ The declaration follow-up fixes `render.h`, `mock_render_device.h` and
 nodes, 537663 damaged bytes). Ten parser regressions and the unchanged corpus
 pass. Pointer default parameters are added specifically, rather than accepting
 every abstract declarator. Member scopes are supported for pointer fields;
-extending abstract member-pointer types still regresses global delete parsing
+globally extending abstract member-pointer types regresses global delete parsing
 and remains withheld. Field names are verified in the extracted outline.
 
+The abstract-function follow-up instead confines member-function pointer types
+to explicit type descriptors. Both `const` and `noexcept` callback traits parse
+cleanly, including `src/script/utils.h`; global `::delete[]` retains its original
+parse. Eleven regressions verify source spans, following calls and invalid type
+syntax. The unchanged corpus and native Windows checks pass. The audit subset
+is now 24 error-bearing files (621 ERROR nodes, 537648 damaged bytes).
+
 Remaining C++ boundaries in that audit include macro statements without semicolons
-and some complex abstract member-function declarators. Third-party C headers forced through the C++ grammar by `*.h` also
+and additional SDK annotations/conditional linkage blocks. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as
 an orphan closing brace or a trailing `template <typename T>`; these should remain
 reported as parse errors. PowerShell and Markdown grammars are unchanged.

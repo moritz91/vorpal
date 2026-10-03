@@ -3,6 +3,34 @@ use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;
 
 #[test]
+fn cpp_abstract_member_function_types_preserve_global_delete() {
+  let source = r#"
+template <typename F> struct Traits;
+template <typename C, typename R, typename... Args>
+struct Traits<R (C::*)(Args...) const> {};
+template <typename C, typename R, typename... Args>
+struct Traits<R (C::*)(Args...) const noexcept> {};
+struct Object {};
+using Callback = int (Object::*)(int) const;
+void release(int* values) { ::delete[] values; after(); }
+"#;
+  let product = clean_product(source);
+  let after = product
+    .refs
+    .iter()
+    .find(|r| r.name == "after" && r.kind == 0)
+    .unwrap();
+  assert_eq!(&source[after.start as usize..after.end as usize], "after()");
+  assert!(
+    SgLang::from_path("macros.cc")
+      .unwrap()
+      .grep("using Broken = int (Object::*)(int) const ???;")
+      .root()
+      .has_error()
+  );
+}
+
+#[test]
 fn cpp_member_pointer_fields_parse() {
   let product = clean_product(r#"
 struct Material { int field; int method(int) const; };

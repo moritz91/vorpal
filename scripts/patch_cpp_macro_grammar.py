@@ -204,6 +204,25 @@ for name in ['pointer_field_declarator']:
 conflict = ['_scope_resolution', '_member_pointer_scope']
 if conflict not in grammar['conflicts']:
     grammar['conflicts'].append(conflict)
+# Abstract member-function pointers are admitted only as explicit type descriptors.
+# Keep the global abstract-pointer production unchanged (notably ::delete[]).
+def alias_rule(name, visible):
+    return {'type': 'ALIAS', 'content': symbol(name), 'named': True, 'value': visible}
+member_pointer = json.loads(json.dumps(rules['abstract_pointer_declarator']))
+member_pointer['value'] = -1
+member_pointer['content']['content']['members'].insert(0, {'type': 'REPEAT1', 'content': symbol('_member_pointer_scope')})
+rules['_abstract_member_pointer'] = member_pointer
+rules['_abstract_member_parenthesized'] = {'type': 'PREC', 'value': 1, 'content': seq(
+    {'type': 'STRING', 'value': '('},
+    alias_rule('_abstract_member_pointer', 'abstract_pointer_declarator'),
+    {'type': 'STRING', 'value': ')'})}
+rules['_abstract_member_function'] = seq(
+    {'type': 'FIELD', 'name': 'declarator', 'content': alias_rule('_abstract_member_parenthesized', 'abstract_parenthesized_declarator')},
+    symbol('_function_declarator_seq'))
+descriptor = rules['type_descriptor']['content']['members'][-1]['content']['members']
+member_function = alias_rule('_abstract_member_function', 'abstract_function_declarator')
+if member_function not in descriptor:
+    descriptor.insert(1, member_function)
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 
 if '--finalize' in sys.argv:
