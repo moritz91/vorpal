@@ -18,6 +18,11 @@ typedef uint16_t TSStateId;
 typedef uint16_t TSSymbol;
 typedef uint16_t TSFieldId;
 typedef struct TSLanguage TSLanguage;
+typedef struct TSLanguageMetadata {
+  uint8_t major_version;
+  uint8_t minor_version;
+  uint8_t patch_version;
+} TSLanguageMetadata;
 #endif
 
 typedef struct {
@@ -26,10 +31,11 @@ typedef struct {
   bool inherited;
 } TSFieldMapEntry;
 
+// Used to index the field and supertype maps.
 typedef struct {
   uint16_t index;
   uint16_t length;
-} TSFieldMapSlice;
+} TSMapSlice;
 
 typedef struct {
   bool visible;
@@ -79,6 +85,12 @@ typedef struct {
   uint16_t external_lex_state;
 } TSLexMode;
 
+typedef struct {
+  uint16_t lex_state;
+  uint16_t external_lex_state;
+  uint16_t reserved_word_set_id;
+} TSLexerMode;
+
 typedef union {
   TSParseAction action;
   struct {
@@ -93,7 +105,7 @@ typedef struct {
 } TSCharacterRange;
 
 struct TSLanguage {
-  uint32_t version;
+  uint32_t abi_version;
   uint32_t symbol_count;
   uint32_t alias_count;
   uint32_t token_count;
@@ -109,13 +121,13 @@ struct TSLanguage {
   const TSParseActionEntry *parse_actions;
   const char * const *symbol_names;
   const char * const *field_names;
-  const TSFieldMapSlice *field_map_slices;
+  const TSMapSlice *field_map_slices;
   const TSFieldMapEntry *field_map_entries;
   const TSSymbolMetadata *symbol_metadata;
   const TSSymbol *public_symbol_map;
   const uint16_t *alias_map;
   const TSSymbol *alias_sequences;
-  const TSLexMode *lex_modes;
+  const TSLexerMode *lex_modes;
   bool (*lex_fn)(TSLexer *, TSStateId);
   bool (*keyword_lex_fn)(TSLexer *, TSStateId);
   TSSymbol keyword_capture_token;
@@ -129,13 +141,18 @@ struct TSLanguage {
     void (*deserialize)(void *, const char *, unsigned);
   } external_scanner;
   const TSStateId *primary_state_ids;
+  const char *name;
+  const TSSymbol *reserved_words;
+  uint16_t max_reserved_word_set_size;
+  uint32_t supertype_count;
+  const TSSymbol *supertype_symbols;
+  const TSMapSlice *supertype_map_slices;
+  const TSSymbol *supertype_map_entries;
+  TSLanguageMetadata metadata;
 };
 
-static inline bool set_contains(TSCharacterRange *ranges, uint32_t len, int32_t lookahead) {
-  // vorpal: ASCII/low-codepoint fast path. Character sets are sorted by range start and source
-  // is overwhelmingly ASCII, so for a low lookahead a short linear scan over the leading ranges
-  // resolves membership in 1-4 comparisons and bails the moment a range starts past it — versus
-  // ~log2(len) probes across the full table. Same result as the binary search below.
+static inline bool set_contains(const TSCharacterRange *ranges, uint32_t len, int32_t lookahead) {
+  // vorpal: preserve the ASCII fast path after grammar regeneration.
   if (lookahead < 0x80) {
     for (uint32_t i = 0; i < len; i++) {
       if (lookahead < ranges[i].start) return false;
@@ -148,7 +165,7 @@ static inline bool set_contains(TSCharacterRange *ranges, uint32_t len, int32_t 
   while (size > 1) {
     uint32_t half_size = size / 2;
     uint32_t mid_index = index + half_size;
-    TSCharacterRange *range = &ranges[mid_index];
+    const TSCharacterRange *range = &ranges[mid_index];
     if (lookahead >= range->start && lookahead <= range->end) {
       return true;
     } else if (lookahead > range->end) {
@@ -156,7 +173,7 @@ static inline bool set_contains(TSCharacterRange *ranges, uint32_t len, int32_t 
     }
     size -= half_size;
   }
-  TSCharacterRange *range = &ranges[index];
+  const TSCharacterRange *range = &ranges[index];
   return (lookahead >= range->start && lookahead <= range->end);
 }
 

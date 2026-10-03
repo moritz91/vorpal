@@ -105,7 +105,7 @@ impl SidePlan {
       && self.eid.is_none_or(|want| view.external_id == Some(want))
       && (self.kinds.is_empty() || self.kinds.contains(&view.kind))
       && self.name.as_deref().is_none_or(|want| view.name == want)
-      && self.path_suffix.as_deref().is_none_or(|want| view.path.ends_with(want))
+      && self.path_suffix.as_deref().is_none_or(|want| vorpal_kg::path_has_suffix(view.path, want))
       && self.exported.is_none_or(|want| view.exported == want)
   }
 

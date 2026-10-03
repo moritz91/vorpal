@@ -126,7 +126,7 @@ fn files_of(root: &Path, lang: SgLang, path_suffix: Option<&str>) -> Vec<PathBuf
         {
           let path = entry.into_path();
           if SgLang::from_path(&path) == Some(lang)
-            && path_suffix.is_none_or(|suffix| path.to_string_lossy().ends_with(suffix))
+            && path_suffix.is_none_or(|suffix| vorpal_kg::path_has_suffix(&path.to_string_lossy(), suffix))
           {
             found.lock().unwrap_or_else(|p| p.into_inner()).push(path);
           }

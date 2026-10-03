@@ -663,6 +663,7 @@ fn build_index_inner(
     if manifest.unchanged_since(&prior_manifest)
       && manifest.grammar_stamp() == prior_manifest.grammar_stamp()
       && !verify_all
+      && !extractor.cpp_macro_recovery_enabled()
       && prior_families_current
       && policy.mode == ParseHealthMode::Warn
       // Readiness is FORMAT-AWARE: a bucketed generation's node store answers through
@@ -726,6 +727,7 @@ fn build_index_inner(
     vorpal_ingest::verify_default_extraction(&extractor).map_err(io::Error::other)?;
     vorpal_ingest::verify_env_extraction(&extractor, &env.canaries).map_err(io::Error::other)?;
     if !verify_all
+      && !extractor.cpp_macro_recovery_enabled()
       && policy.mode == ParseHealthMode::Warn
       && prior_families_current
       && manifest.grammar_stamp() == prior_manifest.grammar_stamp()
@@ -944,7 +946,7 @@ fn build_index_inner(
             if product.source_size == entry.size
               && product.source_mtime_ns == entry.mtime_ns
               && Some(product.grammar_digest)
-                == vorpal_ingest::extraction_identity_for_path(&entry.path, rules_digest)
+                == extractor.extraction_identity_for_path(&entry.path)
               && digest_must_match(
                 entry.mtime_ns,
                 Some(product.source_xxh3),
@@ -984,7 +986,7 @@ fn build_index_inner(
           // itself never crosses the channel and never materializes.
           if peek_product_stamps(bytes) == Some((entry.size, entry.mtime_ns))
             && vorpal_ingest::peek_product_grammar_digest(bytes)
-              == vorpal_ingest::extraction_identity_for_path(&entry.path, rules_digest)
+              == extractor.extraction_identity_for_path(&entry.path)
             && digest_must_match(
               entry.mtime_ns,
               vorpal_ingest::peek_product_digest(bytes),
@@ -4589,7 +4591,7 @@ impl<'f> CompiledSearchFilter<'f> {
       }
     }
     if let Some(suffix) = self.path_suffix {
-      if !view.path.ends_with(suffix) {
+      if !vorpal_kg::path_has_suffix(view.path, suffix) {
         return false;
       }
     }

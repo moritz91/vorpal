@@ -55,10 +55,22 @@
     "commit": "f41e1a044c8a",
     "license": "MIT",
     "patches": [
-      "ASCII/low-codepoint fast path in set_contains (src/tree_sitter/parser.h): linear scan of leading ranges for lookahead < 0x80, byte-identical membership vs the binary search \u2014 cuts identifier-lexing cost (see docs/UPSTREAM.md)"
+      "ASCII/low-codepoint fast path in set_contains (src/tree_sitter/parser.h): linear scan of leading ranges for lookahead < 0x80, byte-identical membership vs the binary search \u2014 cuts identifier-lexing cost (see docs/UPSTREAM.md)",
+      "Fork C++ syntax extensions: qualified macro arguments, format string macros, header probes, typeid, pointer-member operators and qualified new arrays; regenerated with tree-sitter 0.25.10, ABI 14; reproduce with scripts/patch_cpp_macro_grammar.py (including --finalize).",
+      "SDK convention/export identifiers in declaration and callback positions, with negative dynamic precedence preserving ordinary declarations; source-byte-preserving grammar extension via scripts/patch_cpp_macro_grammar.py.",
+      "Conditional initializer-list entries with nested preprocessor branch aliases and original source spans; ordinary list commas remain required; reproduce via scripts/patch_cpp_macro_grammar.py.",
+      "Unnamed pointer default parameters and class-scoped pointer fields; named member scope and negative precedence preserve existing declaration and global delete parses; reproduce via scripts/patch_cpp_macro_grammar.py.",
+      "Admit abstract member-function pointers only in explicit type descriptors, retaining global-delete parses.",
+      "Parameter SDK annotations with contextual identifiers and negative precedence; retain spans and exclude annotation arguments from runtime call references.",
+      "Conditional SDK if/else prefixes ending before #endif share a following statement; exact boundary and original spans preserved, ordinary dangling else remains invalid.",
+      "SDK pointer-return conventions require a directly named function declarator, avoiding recursive parameter-parenthesis ambiguity; reproduce with scripts/patch_cpp_macro_grammar.py.",
+      "Conditional linkage braces in complete optionally nested preprocessor guard groups; retain guard conditions, source spans and declarations without source preprocessing.",
+      "Multiple replacement-list fragments separated by block comments in object/function macro definitions; preserve original preproc_arg/comment spans with LF or CRLF continuations.",
+      "Accept decltype base-specifiers in class base lists without changing declaration calling-convention paths; retain original operand spans.",
+      "Scoped proof-backed statement-macro scanner and macro_statement audit node; default parsing keeps scanner context empty."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:326cfec631aa2327",
+    "source_digest": "xxh3:f3971c7d917e00ce",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

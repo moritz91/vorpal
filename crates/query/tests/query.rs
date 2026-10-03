@@ -70,6 +70,19 @@ fn single_node_lookups_and_scans() {
 }
 
 #[test]
+fn path_suffixes_match_in_scans_and_reached_side_filters() {
+  let kg = fixture();
+  for path in ["src/parse.rs", r"src\\parse.rs"] {
+    let query = format!(r#"MATCH (f:Function {{path: "{path}"}}) RETURN f.name ORDER BY f.name"#);
+    let result = run(&kg, &query).unwrap();
+    assert_eq!(texts(&result.rows, 0), ["parse", "validate"]);
+    let query = format!(r#"MATCH (f {{name: "main"}})-[:calls]->(g {{path: "{path}"}}) RETURN g.name"#);
+    let result = run(&kg, &query).unwrap();
+    assert_eq!(texts(&result.rows, 0), ["parse"]);
+  }
+}
+
+#[test]
 fn one_hop_and_reverse_anchoring() {
   let kg = fixture();
 

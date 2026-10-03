@@ -50,3 +50,7 @@ jemalloc = ["dep:tikv-jemalloc-sys"]
 
 [lints]
 workspace = true
+
+[[example]]
+name = "macro_audit"
+required-features = ["builtin-parser"]

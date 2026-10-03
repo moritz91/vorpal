@@ -63,7 +63,8 @@ fn digest_tree(dir: &Path) -> String {
   let mut hasher = xxhash_rust::xxh3::Xxh3::new();
   for file in &files {
     let rel = file.strip_prefix(dir).unwrap();
-    hasher.update(rel.to_string_lossy().as_bytes());
+    // The manifest records repository paths, independent of the host separator.
+    hasher.update(rel.to_string_lossy().replace('\\', "/").as_bytes());
     hasher.update(&[0]);
     hasher.update(&fs::read(file).unwrap());
     hasher.update(&[0]);

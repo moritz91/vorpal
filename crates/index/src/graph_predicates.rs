@@ -249,7 +249,7 @@ impl GraphFacts {
       }
     }
     if let Some(suffix) = &spec.path_suffix {
-      if !view.path.ends_with(suffix.as_str()) {
+      if !vorpal_kg::path_has_suffix(view.path, suffix) {
         return false;
       }
     }

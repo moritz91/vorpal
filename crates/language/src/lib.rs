@@ -21,6 +21,10 @@
 mod bash;
 mod c;
 mod cpp;
+#[cfg(feature = "tree-sitter-cpp")]
+mod cpp_statement_macros;
+#[cfg(feature = "tree-sitter-cpp")]
+pub use cpp_statement_macros::with_cpp_statement_macros;
 mod csharp;
 mod css;
 mod dart;

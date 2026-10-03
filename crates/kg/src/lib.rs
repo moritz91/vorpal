@@ -22,6 +22,8 @@ mod sigstore;
 pub mod trigramstore;
 mod usagestore;
 mod model;
+mod path;
+pub use path::path_has_suffix;
 mod writer;
 
 pub use kg::{

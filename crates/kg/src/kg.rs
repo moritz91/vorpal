@@ -1241,7 +1241,7 @@ impl Kg {
         Some(view)
           if selector.name.is_none_or(|n| view.name == n)
             && selector.kind.is_none_or(|k| view.kind == k)
-            && selector.path_suffix.is_none_or(|p| view.path.ends_with(p))
+            && selector.path_suffix.is_none_or(|p| crate::path_has_suffix(view.path, p))
             && selector.external_id.is_none_or(|e| view.external_id == Some(e)) =>
         {
           vec![NodeId::new(id)]
@@ -1258,7 +1258,7 @@ impl Kg {
           self.node(id).is_some_and(|view| {
             selector.name.is_none_or(|n| view.name == n)
               && selector.kind.is_none_or(|k| view.kind == k)
-              && selector.path_suffix.is_none_or(|p| view.path.ends_with(p))
+              && selector.path_suffix.is_none_or(|p| crate::path_has_suffix(view.path, p))
           })
         })
         .collect();
@@ -1272,7 +1272,7 @@ impl Kg {
       .filter(|&id| {
         self.node(id).is_some_and(|view| {
           selector.kind.is_none_or(|k| view.kind == k)
-            && selector.path_suffix.is_none_or(|p| view.path.ends_with(p))
+            && selector.path_suffix.is_none_or(|p| crate::path_has_suffix(view.path, p))
         })
       })
       .collect()
