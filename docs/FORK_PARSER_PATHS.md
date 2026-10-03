@@ -151,15 +151,37 @@ nodes and 137703 damaged bytes. Catch2 drops from 124 to 107 ERROR nodes and
 39883 to 30309 damaged bytes; `stb_image.h` drops from twelve to nine errors.
 No new schema kinds are introduced.
 
+The decltype-base follow-up is isolated from the withheld calling-convention
+change: class base lists accept `decltype` in their explicit type context.
+Catch2 improves by one ERROR node and 53 bytes, without the large root error
+of the combined draft. Calls nested inside `decltype` operands are unevaluated
+and do not become runtime graph edges; ordinary calls with the same name retain
+exact spans. Seventeen parser regressions, unchanged corpus, Clippy, native
+Windows checks, schema validation and an MSVC base-specifier fixture pass.
+The subset remains 16 error-bearing files, with 361 ERROR nodes and 137650
+damaged bytes. No new visible node kinds are introduced.
+
 Semicolonless statement macros need definition/include evidence. The audited
 `ASSERT` definitions in the two test-framework headers expand to a complete
 `if` statement, whereas an ordinary same-named function must still require a
 semicolon. Their recovery must also invalidate cached products when defining
 headers change; macro argument calls retain their own source spans and macro
-names must not invent runtime callees. A broader `decltype`-base/convention draft
+names must not invent runtime callees. The broader built-in calling-convention part of the combined draft
 remains withheld because it enlarges the Catch2 error region, despite passing
 isolated regressions and the unchanged corpus. Catch2 has ordinary CRLF bytes;
 diagnosis must inspect bytes instead of newline-translating console output.
+
+The macro recovery audit identifies three integration boundaries still to implement:
+`OutlineExtractor::extract_with_parser` serves owned and streaming products,
+`extract_product_from_root` accepts the scan's already-parsed root, and
+`tree_cache::grep_cached_unpoliced` may reuse an incremental tree and walk snapshot.
+All three must receive the same proven macro environment. Persistent replay
+currently checks source bytes and grammar/rule identity; adding include-based
+evidence also requires dependency identity and header-change invalidation before
+a stored product can replay. Scanner-only or extraction-only changes are not enough.
+Recovery must distinguish complete statement replacements from expression and
+function-definition macros, respect definition order and conflicting/undefined
+names, and preserve original invocation/argument spans. No recovery is enabled yet.
 
 Remaining C++ boundaries in that audit include macro statements without semicolons
 and additional SDK annotations/conditional linkage blocks. Third-party C headers forced through the C++ grammar by `*.h` also

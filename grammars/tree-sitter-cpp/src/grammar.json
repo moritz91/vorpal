@@ -11666,8 +11666,17 @@
                   ]
                 },
                 {
-                  "type": "SYMBOL",
-                  "name": "_class_name"
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "SYMBOL",
+                      "name": "_class_name"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "decltype"
+                    }
+                  ]
                 },
                 {
                   "type": "CHOICE",
@@ -11762,8 +11771,17 @@
                         ]
                       },
                       {
-                        "type": "SYMBOL",
-                        "name": "_class_name"
+                        "type": "CHOICE",
+                        "members": [
+                          {
+                            "type": "SYMBOL",
+                            "name": "_class_name"
+                          },
+                          {
+                            "type": "SYMBOL",
+                            "name": "decltype"
+                          }
+                        ]
                       },
                       {
                         "type": "CHOICE",

@@ -1989,8 +1989,10 @@ pub(crate) fn walk_reference_tree<'t>(
           pending,
         ),
         Chain::Call(idx) => {
-          // SAL annotation arguments describe a declaration, not runtime calls.
-          if ancestors.iter().any(|ancestor| ancestor.kind().as_ref() == "sdk_parameter_annotation") {
+          // SAL metadata and decltype operands are unevaluated declaration contexts.
+          if ancestors.iter().any(|ancestor| {
+            matches!(ancestor.kind().as_ref(), "sdk_parameter_annotation" | "decltype")
+          }) {
             break 'dispatch;
           }
           let cspec = &spec.calls[idx as usize];

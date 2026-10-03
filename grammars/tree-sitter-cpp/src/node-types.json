@@ -1055,6 +1055,10 @@
           "named": true
         },
         {
+          "type": "decltype",
+          "named": true
+        },
+        {
           "type": "qualified_identifier",
           "named": true
         },

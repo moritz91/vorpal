@@ -3,6 +3,34 @@ use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;
 
 #[test]
+fn cpp_decltype_bases_preserve_following_definitions() {
+  let source = r#"
+struct Base {};
+Base produce();
+struct Derived : decltype(produce()) {};
+template <typename Fun, typename... Args>
+struct Callable : decltype(tester::test<Fun, Args...>(0)) {};
+struct Other {};
+struct Multiple : public decltype(produce()), Other {};
+void following() { after(); }
+void ordinary() { produce(); }
+"#;
+  let product = clean_product(source);
+  for name in ["Base", "Derived", "Callable", "Multiple", "following"] {
+    assert!(product.items.iter().any(|item| item.entry.name == name), "missing {name}");
+  }
+  let call = product.refs.iter().find(|r| r.name == "after" && r.kind == 0).unwrap();
+  assert_eq!(&source[call.start as usize..call.end as usize], "after()");
+  let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == "produce").collect();
+  assert_eq!(calls.len(), 1);
+  assert_eq!(calls[0].start as usize, source.rfind("produce()").unwrap());
+  assert!(!product.refs.iter().any(|r| r.kind == 0 && r.name == "test"));
+  for invalid in ["struct Broken : decltype() {};", "struct Broken : decltype(produce()) Base {};", "void f() { CALL() }"] {
+    assert!(SgLang::from_path("base.cc").unwrap().grep(invalid).root().has_error());
+  }
+}
+
+#[test]
 fn cpp_continued_macro_comments_keep_following_definitions() {
   let lf = "#define BODY(x) body(x); /* note */ \\\n  finish(x);\n#define VALUE 1 /* note */ + 2\n#define FAKE void synthetic() { /* note */ return; }\nvoid run() { BODY(1); after(); }\n";
   for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {

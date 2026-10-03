@@ -303,6 +303,17 @@ def macro_fragments(node):
             for key, value in node.items()}
 for name in ['preproc_def', 'preproc_function_def']:
     rules[name] = macro_fragments(rules[name])
+# decltype is a valid class base in this explicit type context.
+def decltype_base(node):
+    if node == symbol('_class_name'):
+        return choice(symbol('_class_name'), symbol('decltype'))
+    if node == choice(symbol('_class_name'), symbol('decltype')):
+        return node
+    return {key: ([decltype_base(c) if isinstance(c, dict) else c for c in value]
+                  if isinstance(value, list) else
+                  decltype_base(value) if isinstance(value, dict) else value)
+            for key, value in node.items()}
+rules['base_class_clause'] = decltype_base(rules['base_class_clause'])
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 
 if '--finalize' in sys.argv:
