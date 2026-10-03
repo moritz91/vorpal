@@ -1,3 +1,81 @@
+#[test]
+fn cpp_explicit_template_callbacks_preserve_types_and_runtime_call_spans() {
+  let lf = r#"
+struct Name {};
+struct Vector2 { float x, y; };
+template<class F> void Bind(const Name&, F) {}
+template void Bind(const Name&, Vector2 (*)(float, float));
+namespace Callbacks {
+  template<class F> void Register(const Name&, F) {}
+}
+template void Callbacks::Register(const Name&, Vector2 (*)(float, float));
+#define _In_
+#define _In_reads_(x)
+template void Bind(const Name&, _In_ int (*)(float, float));
+template void Bind(const Name&, _In_reads_(2) int (*)(float, float));
+void following(Name name) { Bind(name, value()); after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(
+      product
+        .items
+        .iter()
+        .any(|item| item.entry.name == "following")
+    );
+    for expected in ["Bind(name, value())", "value()", "after()"] {
+      assert!(
+        product
+          .refs
+          .iter()
+          .any(|r| r.kind == 0 && &source[r.start as usize..r.end as usize] == expected),
+        "missing {expected}"
+      );
+    }
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "Bind")
+        .count(),
+      1
+    );
+    assert!(!product.refs.iter().any(|r| r.kind == 0
+      && matches!(
+        r.name.as_str(),
+        "Register" | "Vector2" | "_In_" | "_In_reads_"
+      )));
+    let parsed = SgLang::from_path("callbacks.cc").unwrap().grep(&source);
+    let instantiations: Vec<_> = parsed
+      .root()
+      .dfs()
+      .filter(|n| n.kind().as_ref() == "template_instantiation")
+      .collect();
+    assert_eq!(instantiations.len(), 4);
+    for node in instantiations {
+      assert_eq!(
+        node.field("declarator").unwrap().kind().as_ref(),
+        "function_declarator"
+      );
+    }
+  }
+  for source in [
+    "template void Bind(Vector2 (*)(float, float);",
+    "template void Bind(Vector2 (*)(float first float second));",
+    "template void Bind(Vector2 (*)(float, float))",
+    "void run() { Bind(value()) missing() }",
+  ] {
+    assert!(
+      SgLang::from_path("callbacks.cc")
+        .unwrap()
+        .grep(source)
+        .root()
+        .has_error(),
+      "silenced {source}"
+    );
+  }
+}
+
 use vorpal_ingest::OutlineExtractor;
 use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;

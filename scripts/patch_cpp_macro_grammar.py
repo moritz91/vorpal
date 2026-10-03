@@ -249,6 +249,44 @@ for name in ['parameter_declaration', 'optional_parameter_declaration', 'variadi
     annotations = repeat(symbol('sdk_parameter_annotation'))
     if members[0] != annotations:
         members.insert(0, annotations)
+# Explicit instantiations need an annotation-free type path for unnamed callbacks
+# returning a user-defined type. Keep the existing declarator path in parallel:
+# SDK-annotated instantiations must retain their previous parse. Do not widen
+# abstract declarators or change expression/ordinary parameter contexts.
+instantiation_parameters = [
+    'parameter_declaration', 'optional_parameter_declaration',
+    'variadic_parameter_declaration',
+]
+for name in instantiation_parameters:
+    plain = json.loads(json.dumps(rules[name]))
+    plain['members'].pop(0)  # the SDK annotation repeat added immediately above
+    rules['_instantiation_' + name] = plain
+
+def instantiation_parameter_list(node):
+    if isinstance(node, list):
+        return [instantiation_parameter_list(value) for value in node]
+    if not isinstance(node, dict):
+        return node
+    if node.get('type') == 'SYMBOL' and node.get('name') in instantiation_parameters:
+        return alias_rule('_instantiation_' + node['name'], node['name'])
+    return {key: instantiation_parameter_list(value) for key, value in node.items()}
+
+rules['_instantiation_parameter_list'] = instantiation_parameter_list(rules['parameter_list'])
+function_tail = json.loads(json.dumps(rules['_function_declarator_seq']))
+function_tail['members'][0]['content'] = alias_rule('_instantiation_parameter_list', 'parameter_list')
+rules['_instantiation_function'] = {'type': 'PREC_DYNAMIC', 'value': 2, 'content': seq(
+    {'type': 'FIELD', 'name': 'declarator', 'content': choice(
+        symbol('identifier'), symbol('qualified_identifier'), symbol('template_function'))},
+    function_tail)}
+rules['template_instantiation']['members'][2]['content'] = choice(
+    alias_rule('_instantiation_function', 'function_declarator'), symbol('_declarator'))
+for conflict in [
+    ['_declarator', 'type_specifier', '_instantiation_function'],
+    ['_declarator', '_instantiation_function'],
+]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+
 # SDKs conditionally compile an if/else prefix while keeping its final body shared.
 # Require the exact else-before-endif boundary; ordinary dangling else stays invalid.
 grammar['conflicts'] = [c for c in grammar['conflicts']

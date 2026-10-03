@@ -319,6 +319,18 @@ text_shaper.cc is parse-clean (previously 20 ERROR nodes / 1266 bytes); Catch2 d
 is unchanged. Eighteen parser regressions, evidence/recovery and replay tests,
 Windows/Linux resolver evaluations, native MSVC syntax checking, native provenance,
 Clippy and the unchanged 179-test C++ corpus pass. No new visible grammar kinds.
+Explicit template instantiations retain a parallel annotation-free parameter
+path for unnamed function pointers returning a user-defined type. The original
+SDK-annotated declarator path remains available; ordinary parameter and expression
+rules are unchanged. Existing function/parameter kinds are aliased, with no new
+visible kinds or schema changes. Qualified instantiations retain their types and
+spans without inventing runtime calls; genuine following calls remain references.
+On identical current test_mocks.h bytes, the previous parser reports 70 ERROR nodes
+and 2196 affected bytes, while the new parser reports zero and retains 32 items.
+Nineteen C++ parser regressions, evidence/recovery, configured MCP, replay, member
+calls, resolver evaluations, native provenance, MSVC and the unchanged corpus
+validate this path. The original subset excludes this header and is unchanged.
+
 The historical 80-source audit now has only 79 paths present: script_system.cc was
 removed outside this work, and ui_tests.cc grew. On identical current ui_tests.cc
 bytes the baseline and new parser both report 179 ERROR nodes / 106951 bytes;
