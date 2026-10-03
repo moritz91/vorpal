@@ -331,10 +331,23 @@ Nineteen C++ parser regressions, evidence/recovery, configured MCP, replay, memb
 calls, resolver evaluations, native provenance, MSVC and the unchanged corpus
 validate this path. The original subset excludes this header and is unchanged.
 
+Primitive type arguments after a comma (for example va_arg(list, int)) retain
+explicit type nodes. The first argument slot stays unchanged, preserving ordinary
+parenthesized function/member declarations and functional conversions. A C++ call
+with a direct explicit type argument is metadata: its callee is suppressed, while
+calls in value arguments and enclosing runtime calls retain original spans. An
+ordinary same-named function call remains a runtime reference, including after
+#undef. The graph regression prevents linking metadata to that function's body.
+On identical source, stb_image_write.h drops from five ERROR nodes / 33 bytes to
+two / 18; its remaining native-convention declarations are still reported. Catch2
+and other original audit paths are unchanged. Twenty parser regressions, three
+C++ graph regressions, Windows/Linux proof/replay/configured-MCP checks, MSVC,
+Clippy and the unchanged corpus pass. No new visible kinds or schema changes.
+
 The historical 80-source audit now has only 79 paths present: script_system.cc was
 removed outside this work, and ui_tests.cc grew. On identical current ui_tests.cc
 bytes the baseline and new parser both report 179 ERROR nodes / 106951 bytes;
-current original-subset totals are 16 files / 366 nodes / 137690 bytes. These source
+current original-subset totals are 16 files / 363 nodes / 137675 bytes. These source
 changes must not be presented as a parser regression or as installed MCP health.
 
 To inspect a source file without updating an index:

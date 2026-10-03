@@ -9646,6 +9646,15 @@
                             },
                             "named": true,
                             "value": "identifier"
+                          },
+                          {
+                            "type": "ALIAS",
+                            "content": {
+                              "type": "SYMBOL",
+                              "name": "_primitive_macro_type_argument"
+                            },
+                            "named": true,
+                            "value": "macro_type_argument"
                           }
                         ]
                       }
@@ -18845,6 +18854,47 @@
                     "type": "BLANK"
                   }
                 ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "_primitive_macro_type_argument": {
+      "type": "PREC_DYNAMIC",
+      "value": -1,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "primitive_type"
+          },
+          {
+            "type": "REPEAT",
+            "content": {
+              "type": "SYMBOL",
+              "name": "type_qualifier"
+            }
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "abstract_pointer_declarator"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "abstract_reference_declarator"
+                  }
+                ]
+              },
+              {
+                "type": "BLANK"
               }
             ]
           }

@@ -37,6 +37,27 @@ def add_argument_type(node):
             for child in value:
                 if isinstance(child, dict): add_argument_type(child)
 add_argument_type(rules['argument_list'])
+
+# Primitive type keywords after an argument comma are unambiguous type metadata
+# (for example va_arg(list, int)). Do not enable them in the first argument slot:
+# that would compete with ordinary parenthesized function/member declarations.
+rules['_primitive_macro_type_argument'] = {'type': 'PREC_DYNAMIC', 'value': -1,
+    'content': seq(symbol('primitive_type'), repeat(symbol('type_qualifier')),
+                   pointer_or_reference)}
+primitive_argument = {'type': 'ALIAS', 'content': symbol('_primitive_macro_type_argument'),
+                      'named': True, 'value': 'macro_type_argument'}
+def add_trailing_primitive_argument(node):
+    if node.get('type') == 'SEQ' and node.get('members', [None])[0] == {'type': 'STRING', 'value': ','}:
+        argument = node['members'][1]
+        if argument.get('type') == 'CHOICE' and symbol('expression') in argument['members']:
+            if primitive_argument not in argument['members']:
+                argument['members'].append(primitive_argument)
+    for value in node.values():
+        if isinstance(value, dict): add_trailing_primitive_argument(value)
+        elif isinstance(value, list):
+            for child in value:
+                if isinstance(child, dict): add_trailing_primitive_argument(child)
+add_trailing_primitive_argument(rules['argument_list'])
 grammar['conflicts'] = [c for c in grammar['conflicts'] if c != ['type_specifier', 'macro_type_argument']]
 conflict = ['_declaration_modifiers', 'macro_type_argument']
 if conflict not in grammar['conflicts']:

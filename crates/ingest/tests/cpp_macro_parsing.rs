@@ -1,4 +1,84 @@
 #[test]
+fn cpp_trailing_primitive_type_arguments_do_not_invent_macro_runtime_callees() {
+  let lf = r#"
+#define TYPE_META(v, t) ((void)(v), sizeof(t))
+int value();
+void consume(unsigned long long);
+void run() {
+  consume(TYPE_META(value(), int));
+  auto size = TYPE_META(value(), int*);
+  auto converted = TYPE_META(int(value()), float);
+}
+#undef TYPE_META
+int TYPE_META(int a, int b) { return a + b; }
+void ordinary() { TYPE_META(1, 2); }
+struct Plain {};
+struct Value {};
+void declarations() { int(Plain::*callback)(int, float); int(Plain::*typed)(Value, int); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(
+      product
+        .items
+        .iter()
+        .any(|item| item.entry.name == "ordinary")
+    );
+    assert!(
+      product
+        .items
+        .iter()
+        .any(|item| item.entry.name == "TYPE_META")
+    );
+    let meta_calls: Vec<_> = product
+      .refs
+      .iter()
+      .filter(|r| r.kind == 0 && r.name == "TYPE_META")
+      .collect();
+    assert_eq!(meta_calls.len(), 1);
+    assert_eq!(
+      &source[meta_calls[0].start as usize..meta_calls[0].end as usize],
+      "TYPE_META(1, 2)"
+    );
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "value")
+        .count(),
+      3
+    );
+    let outer = product
+      .refs
+      .iter()
+      .find(|r| r.kind == 0 && r.name == "consume")
+      .unwrap();
+    assert_eq!(
+      &source[outer.start as usize..outer.end as usize],
+      "consume(TYPE_META(value(), int))"
+    );
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && matches!(r.name.as_str(), "callback" | "typed"))
+    );
+  }
+  for source in [
+    "void run() { TYPE_META(value(), int }",
+    "void run() { TYPE_META(value() int); }",
+  ] {
+    assert!(
+      SgLang::from_path("metadata.cc")
+        .unwrap()
+        .grep(source)
+        .root()
+        .has_error()
+    );
+  }
+}
+
+#[test]
 fn cpp_explicit_template_callbacks_preserve_types_and_runtime_call_spans() {
   let lf = r#"
 struct Name {};
