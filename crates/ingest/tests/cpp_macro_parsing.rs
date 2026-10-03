@@ -3,6 +3,92 @@ use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;
 
 #[test]
+fn cpp_inline_sdk_member_definitions_preserve_body_and_call_spans() {
+  let source = r#"
+class Base { public: virtual long SDKCALL Draw(int) = 0; };
+class Renderer : public Base {
+public:
+  Renderer() { initialize(); }
+  int Ordinary() { return ordinary(); }
+  long SDKCALL Draw(int value) override { return draw(value); }
+  unsigned SDKCALL AddRef() { return retain(); }
+  long __stdcall Native(int value) { return native(value); }
+};
+void following() { after(); }
+"#;
+  let product = clean_product(source);
+  let renderer = product
+    .items
+    .iter()
+    .find(|item| item.entry.name == "Renderer")
+    .unwrap();
+  for name in ["Draw", "AddRef", "Native", "Ordinary", "Renderer"] {
+    assert!(
+      renderer
+        .members
+        .iter()
+        .any(|member| member.entry.name == name),
+      "missing {name}: {:?}",
+      renderer
+        .members
+        .iter()
+        .map(|m| &m.entry.name)
+        .collect::<Vec<_>>()
+    );
+  }
+  for member in &renderer.members {
+    let expected = if member.entry.name == "Renderer" {
+      vorpal_outline::model::SymbolType::Constructor
+    } else {
+      vorpal_outline::model::SymbolType::Method
+    };
+    assert_eq!(member.entry.symbol_type, expected);
+    assert!(member.is_public);
+  }
+  assert!(
+    product
+      .items
+      .iter()
+      .any(|item| item.entry.name == "following")
+  );
+  for call_text in [
+    "draw(value)",
+    "retain()",
+    "native(value)",
+    "ordinary()",
+    "initialize()",
+    "after()",
+  ] {
+    assert!(
+      product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && &source[r.start as usize..r.end as usize] == call_text),
+      "missing {call_text}"
+    );
+  }
+  assert!(
+    !product
+      .refs
+      .iter()
+      .any(|r| r.kind == 0 && r.name == "SDKCALL")
+  );
+  for invalid in [
+    "struct Broken { long SDKCALL Draw(int) { return value } };",
+    "struct Broken { long SDKCALL Draw(int) { return; };",
+    "void f() { ordinary() }",
+  ] {
+    assert!(
+      SgLang::from_path("sdk.cc")
+        .unwrap()
+        .grep(invalid)
+        .root()
+        .has_error()
+    );
+  }
+}
+
+#[test]
 fn cpp_decltype_bases_preserve_following_definitions() {
   let source = r#"
 struct Base {};

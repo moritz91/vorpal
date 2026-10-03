@@ -139,6 +139,13 @@ definition = rules['function_definition']['members']
 type_position = definition.index(symbol('_declaration_specifiers'))
 definition[type_position + 1] = optional(choice(symbol('ms_call_modifier'), symbol('sdk_call_modifier')))
 
+# Inline members have a distinct definition rule; conventions must precede only
+# their declarator, without broadening general field/declaration modifiers.
+inline_members = rules['inline_method_definition']['members']
+inline_convention = optional(choice(symbol('ms_call_modifier'), symbol('sdk_call_modifier')))
+if inline_members[1] != inline_convention:
+    inline_members.insert(1, inline_convention)
+
 # Keep initializer commas strict, while admitting conditional branches as list entries.
 # Reuse the normal preprocessor shape/aliases so source spans and branch nodes survive.
 initializer_value = choice(symbol('initializer_pair'), symbol('expression'), symbol('initializer_list'))

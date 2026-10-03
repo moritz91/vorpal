@@ -61,3 +61,33 @@ fn cpp_calls_select_the_body_of_the_typed_receiver() {
   assert!(!overloaded_kg.all_evidence().iter().any(|e| e.from as u64 == caller.raw() && e.outcome == vorpal_kg::EvidenceOutcome::Edge && EdgeType(e.etype).base() == EdgeType::CALLS));
   fs::remove_dir_all(base).unwrap();
 }
+
+#[test]
+fn cpp_inline_sdk_methods_are_callable_graph_definitions() {
+  let base = std::env::temp_dir().join(format!("vorpal-cpp-inline-sdk-{}", std::process::id()));
+  let src = base.join("src");
+  fs::create_dir_all(&src).unwrap();
+  fs::write(src.join("sdk.cc"), "int support(int);\nclass SDK { public: long SDKCALL Draw(int value) { return support(value); } };\nint invoke(SDK& object) { return object.Draw(1); }\n").unwrap();
+  let index = base.join("index");
+  let report = vorpal_index::build_index(&src, &index).unwrap();
+  assert_eq!(report.error_files, 0);
+  let kg = Kg::load(&index).unwrap();
+  let id = |name: &str| -> NodeId {
+    (0..kg.node_count() as u64)
+      .map(NodeId::new)
+      .find(|&id| kg.node(id).is_some_and(|n| n.name == name))
+      .unwrap_or_else(|| panic!("missing {name}"))
+  };
+  let caller = id("invoke");
+  let method = id("Draw");
+  assert!(
+    kg.all_evidence()
+      .iter()
+      .any(|e| e.from as u64 == caller.raw()
+        && e.to as u64 == method.raw()
+        && EdgeType(e.etype).base() == EdgeType::CALLS
+        && e.outcome == vorpal_kg::EvidenceOutcome::Edge)
+  );
+  drop(kg);
+  fs::remove_dir_all(base).unwrap();
+}

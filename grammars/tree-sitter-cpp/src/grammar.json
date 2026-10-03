@@ -12532,6 +12532,27 @@
           "name": "_declaration_specifiers"
         },
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "ms_call_modifier"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "sdk_call_modifier"
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
           "type": "FIELD",
           "name": "declarator",
           "content": {

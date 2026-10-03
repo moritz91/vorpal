@@ -122,7 +122,9 @@ symbolType: method
 # (`int (*cb)(int);`) fails that test — its declarator is parenthesized — and correctly
 # falls through to the field rule instead of becoming a method named `(*cb)`.
 rule:
-  kind: field_declaration
+  any:
+    - kind: field_declaration
+    - kind: function_definition
   has:
     field: declarator
     any:
@@ -148,7 +150,9 @@ role: member
 parentRuleIds: [cpp-class, cpp-struct, cpp-union]
 symbolType: constructor
 rule:
-  kind: declaration
+  any:
+    - kind: declaration
+    - kind: function_definition
   has:
     field: declarator
     kind: function_declarator

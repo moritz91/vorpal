@@ -301,6 +301,21 @@ the read-only source audit. Five Windows/Linux extraction regressions, the
 unchanged 139-test corpus, native provenance and Clippy pass. These are subset
 audit counts, not a new health report from the installed MCP generation.
 
+SDK conventions are also accepted before inline-member declarators, using the
+separate inline_method_definition rule. General field/declaration modifiers are
+unchanged. Inline methods and constructors are retained as members in extraction,
+with their original bodies, call spans, symbol kinds and visibility. A typed
+receiver resolves to the inline SDK method in the index regression. The current
+text_shaper.cc is parse-clean (previously 20 ERROR nodes / 1266 bytes); Catch2 damage
+is unchanged. Eighteen parser regressions, evidence/recovery and replay tests,
+Windows/Linux resolver evaluations, native MSVC syntax checking, native provenance,
+Clippy and the unchanged 179-test C++ corpus pass. No new visible grammar kinds.
+The historical 80-source audit now has only 79 paths present: script_system.cc was
+removed outside this work, and ui_tests.cc grew. On identical current ui_tests.cc
+bytes the baseline and new parser both report 179 ERROR nodes / 106951 bytes;
+current original-subset totals are 16 files / 366 nodes / 137690 bytes. These source
+changes must not be presented as a parser regression or as installed MCP health.
+
 To inspect a source file without updating an index:
 
 ```sh
