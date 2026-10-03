@@ -572,7 +572,11 @@ impl Server {
         let _ = vorpal_index::warm_ann_with(&warm_dir, vorpal_index::WarmOptions { text_index: true, ..Default::default() });
       }));
     }
-    let supervisor = Supervisor::discover();
+    let supervisor = if env.cpp_macro_include_roots.is_some() {
+      Supervisor::without_child()
+    } else {
+      Supervisor::discover()
+    };
     // Proactive freshness (D1) is a serve-loop concern now: the protocol loop calls
     // [`Server::tick`] between requests, which drives the SAME retained freshness path
     // queries use. The original stateless worker thread was a second committer — its

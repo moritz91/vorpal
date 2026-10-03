@@ -6,7 +6,7 @@
 //! A consumer must incorporate `dependencies` into product replay identity before
 //! using these bindings to recover a parse.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -52,7 +52,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v1\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v3\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -83,6 +83,8 @@ struct Audit {
   include_roots: Vec<PathBuf>,
   dependencies: BTreeMap<PathBuf, Option<u64>>,
   stack: Vec<PathBuf>,
+  definitely_once: BTreeSet<PathBuf>,
+  possibly_once: BTreeSet<PathBuf>,
   remaining_bytes: usize,
   remaining_files: usize,
 }
@@ -101,8 +103,14 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
   if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
     return Evidence {
       bindings: Vec::new(),
-      dependencies: vec![Dependency { path: std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()), digest: None }],
-      include_roots: include_roots.iter().map(|p| canonical_or_absolute(p)).collect(),
+      dependencies: vec![Dependency {
+        path: std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()),
+        digest: None,
+      }],
+      include_roots: include_roots
+        .iter()
+        .map(|p| canonical_or_absolute(p))
+        .collect(),
     };
   }
   let mut audit = Audit {
@@ -112,13 +120,15 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
       .collect(),
     dependencies: BTreeMap::new(),
     stack: Vec::new(),
+    definitely_once: BTreeSet::new(),
+    possibly_once: BTreeSet::new(),
     remaining_bytes: 4 * 1024 * 1024,
     remaining_files: 128,
   };
   let path = canonical_or_absolute(path);
   let mut environment = BTreeMap::new();
   let mut bindings = Vec::new();
-  audit.visit(&path, source, &mut environment, Some(&mut bindings));
+  audit.visit(&path, source, &mut environment, Some(&mut bindings), true);
   Evidence {
     include_roots: audit.include_roots,
     bindings: bindings
@@ -145,6 +155,7 @@ impl Audit {
     &mut self,
     including: &Path,
     text: &str,
+    definite: bool,
     environment: &mut BTreeMap<String, StatementMacro>,
   ) {
     let (relative, quoted) =
@@ -164,7 +175,7 @@ impl Audit {
     for path in candidates {
       match path.try_exists() {
         Ok(true) => {
-          self.include(&path, environment);
+          self.include(&path, environment, definite);
           return;
         }
         Ok(false) => {
@@ -180,13 +191,24 @@ impl Audit {
     environment.clear();
   }
 
-  fn include(&mut self, path: &Path, environment: &mut BTreeMap<String, StatementMacro>) {
+  fn include(
+    &mut self,
+    path: &Path,
+    environment: &mut BTreeMap<String, StatementMacro>,
+    definite: bool,
+  ) {
     if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
       self.dependencies.insert(path.to_path_buf(), None);
       environment.clear();
       return;
     }
     let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    // Only an unconditional visit can establish that this header has executed
+    // #pragma once. A possible include in an unknown branch cannot suppress a
+    // later unconditional include's effects.
+    if self.definitely_once.contains(&path) {
+      return;
+    }
     if self.remaining_files == 0
       || self.stack.len() >= 16
       || self.stack.contains(&path)
@@ -226,7 +248,21 @@ impl Audit {
       environment.clear();
       return;
     };
-    self.visit(&path, source, environment, None);
+    // A previous possible visit may already have activated #pragma once. The
+    // current include may therefore be skipped: retain only unchanged entering
+    // bindings rather than claiming that new definitions certainly execute.
+    let possibly_skipped = self.possibly_once.contains(&path);
+    let entering = possibly_skipped.then(|| environment.clone());
+    self.visit(
+      &path,
+      source,
+      environment,
+      None,
+      definite && !possibly_skipped,
+    );
+    if let Some(entering) = entering {
+      environment.retain(|name, definition| entering.get(name) == Some(definition));
+    }
   }
 
   fn visit(
@@ -235,6 +271,7 @@ impl Audit {
     source: &str,
     environment: &mut BTreeMap<String, StatementMacro>,
     mut bindings: Option<&mut Vec<Binding>>,
+    definite: bool,
   ) {
     self.stack.push(path.to_path_buf());
     let parsed = SupportLang::Cpp.grep(source);
@@ -291,7 +328,7 @@ impl Audit {
           if !node.has_error()
             && let Some(include) = node.field("path")
           {
-            self.resolve_include(path, &include.text(), environment);
+            self.resolve_include(path, &include.text(), definite, environment);
           } else {
             environment.clear();
           }
@@ -313,9 +350,68 @@ impl Audit {
               .all(|b| b.is_ascii_alphanumeric() || b == b'_')
           {
             environment.remove(argument.trim());
-          } else if !(directive == "#pragma" && argument.trim() == "once") {
+          } else if directive == "#pragma" && argument.trim() == "once" && !node.has_error() {
+            if definite {
+              self.definitely_once.insert(path.to_path_buf());
+            } else {
+              self.possibly_once.insert(path.to_path_buf());
+            }
+          } else {
             environment.clear();
           }
+        }
+        "preproc_ifdef" if !node.has_error() => {
+          // #ifdef/#ifndef do not expand a condition. Inspect every possible
+          // branch for effects, without selecting a branch or adding a binding.
+          // Only definitions entering the group may survive it unchanged.
+          for directive in node.dfs() {
+            match directive.kind().as_ref() {
+              "preproc_def" | "preproc_function_def" => {
+                if let Some(name) = directive.field("name") {
+                  environment.remove(name.text().as_ref());
+                } else {
+                  environment.clear();
+                }
+              }
+              "preproc_include" => {
+                if let Some(include) = directive.field("path") {
+                  let entering = environment.clone();
+                  self.resolve_include(path, &include.text(), false, environment);
+                  environment.retain(|name, definition| entering.get(name) == Some(definition));
+                } else {
+                  environment.clear();
+                }
+              }
+              "preproc_call" => {
+                let directive_name = directive.field("directive");
+                let argument = directive.field("argument");
+                match (directive_name, argument) {
+                  (Some(name), Some(argument)) if name.text() == "#undef" => {
+                    let argument = argument.text();
+                    let name = argument.trim();
+                    if !name.is_empty()
+                      && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                    {
+                      environment.remove(name);
+                    } else {
+                      environment.clear();
+                    }
+                  }
+                  (Some(name), Some(argument))
+                    if name.text() == "#pragma" && argument.text().trim() == "once" =>
+                  {
+                    self.possibly_once.insert(path.to_path_buf());
+                  }
+                  _ => environment.clear(),
+                }
+              }
+              "preproc_ifdef" | "preproc_else" | "preproc_elifdef" | "preproc_params"
+              | "preproc_arg" => {}
+              kind if kind.starts_with("preproc_") => environment.clear(),
+              _ => {}
+            }
+          }
+          environment.retain(|name, definition| previous.get(name) == Some(definition));
         }
         "comment" => {}
         _ => {

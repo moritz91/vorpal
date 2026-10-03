@@ -21,6 +21,28 @@ fn proven_statements_keep_argument_calls_and_following_function_spans() {
 }
 
 #[test]
+fn unchanged_conditional_groups_keep_recovery_and_real_argument_spans() {
+  let prefix = "#define CHECK(x) { function(x); }\n";
+  let body = "void run() { CHECK(value()) after(); }\n";
+  let safe = format!(
+    "{prefix}#ifdef PLATFORM\nstruct First {{}};\n#else\nstruct Second {{}};\n#endif\n{body}"
+  );
+  let report = audit_recovery(Path::new("fixture.cc"), &safe, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  assert_eq!(&safe[report.macro_spans[0].clone()], "CHECK(value())");
+  assert!(!report.calls.iter().any(|(name, _)| name == "CHECK"));
+  for name in ["value", "after"] {
+    let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+    assert_eq!(&safe[span.clone()], format!("{name}()"));
+  }
+  let invalidated = format!("{prefix}#ifdef PLATFORM\n#undef CHECK\n#endif\n{body}");
+  let report = audit_recovery(Path::new("fixture.cc"), &invalidated, &[]);
+  assert!(report.has_error);
+  assert!(report.eligible_names.is_empty());
+}
+
+#[test]
 fn ordinary_calls_bad_arity_and_out_of_lifetime_uses_remain_errors() {
   for source in [
     "void run() { CHECK(value()) }",

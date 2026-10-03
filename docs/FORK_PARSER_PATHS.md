@@ -156,7 +156,7 @@ change: class base lists accept `decltype` in their explicit type context.
 Catch2 improves by one ERROR node and 53 bytes, without the large root error
 of the combined draft. Calls nested inside `decltype` operands are unevaluated
 and do not become runtime graph edges; ordinary calls with the same name retain
-exact spans. Seventeen parser regressions, unchanged corpus, Clippy, native
+exact spans. Eighteen parser regressions, unchanged corpus, Clippy, native
 Windows checks, schema validation and an MSVC base-specifier fixture pass.
 The subset remains 16 error-bearing files, with 361 ERROR nodes and 137650
 damaged bytes. No new visible node kinds are introduced.
@@ -172,11 +172,41 @@ isolated regressions and the unchanged corpus. Catch2 has ordinary CRLF bytes;
 diagnosis must inspect bytes instead of newline-translating console output.
 
 Proof-backed statement recovery is now available through an explicit extraction
-API opt-in. Default extraction and CLI configuration remain unchanged. Set
+API or project-configuration opt-in. Default extraction remains unchanged. Set
 `ExtractionEnv::cpp_macro_include_roots` to `Some(roots)` or construct an extractor
 with `OutlineExtractor::with_cpp_macro_recovery`; an empty root list still allows
-local quoted includes. No roots are inferred. Production CLI/configuration wiring
-is still a follow-up, as is evidence for the uncertain Hades include environment.
+local quoted includes. No roots are inferred. For both `vorpal index` and `vorpal
+mcp`, a project configuration can opt in without custom language declarations:
+
+```yaml
+ruleDirs: []
+cppMacroIncludeRoots:
+  - tests
+  - src
+```
+
+Roots retain their order; relative paths use the configuration file's directory,
+including an external file supplied with `--config`. `cppMacroIncludeRoots: []`
+enables local quoted includes, whereas an absent key keeps recovery disabled.
+Multi-project MCP loading carries each project's own roots. Include proof still
+declines unknown headers and uncertain definitions; configuring roots does not
+assert that their macros are safe or evaluate preprocessor conditions. Evidence
+for the uncertain Hades include environment remains a follow-up.
+
+An opt-in MCP daemon performs rebuilds with its retained extraction environment
+in process. The existing child-indexer protocol cannot transport this exact proof
+configuration, and rediscovering a config under the source directory loses external
+`--config` inputs. This bypass applies to explicit, background and reconcile
+rebuilds. Default extraction retains child supervision. CLI/MCP regression tests
+check roots relative to an external config, empty versus absent roots, explicit
+MCP rebuilds and changed external headers that must restore real syntax errors.
+
+Native Windows pack-root inference now recognizes both path separators without
+rewriting stored keys or matching ambiguous filename suffixes. Previously a native
+Windows index could correctly count parse errors during build while `health` skipped
+their unavailable products and reported clean. Health now refuses missing/invalid
+products rather than treating uninspected files as healthy. A cross-platform regression
+uses clean/damaged files with identical basenames and a damaged product pack.
 
 `cpp_macro_evidence::audit_with_roots` records complete function-like `if`, `try`
 and compound-statement replacements, original definition spans, parameter counts
@@ -186,8 +216,27 @@ are dependencies, so newly created local headers invalidate an earlier SDK hit.
 Present unreadable candidates stop resolution. File symlinks conservatively end
 proof because canonicalization can change their quoted-include directory.
 
-Redefinitions, undef, unknown directives, conditional groups, unresolved includes,
-cycles and depth/file/byte limits end evidence. Expression/function-definition,
+Redefinitions, undef, unknown directives, unresolved includes, cycles and
+depth/file/byte limits end evidence. Well-formed #ifdef/#ifndef groups preserve
+only entering definitions that remain unchanged across every possible branch:
+all branch includes are consulted and tracked, and a possible redefine/undef
+rejects that name. No definitions originating inside those groups are promoted.
+An unconditionally reached top-level `#pragma once` prevents repeated header
+execution, including guarded self-includes. Possible visits through unknown
+branches are tracked separately: a later include may execute or may be skipped,
+so it cannot introduce new proof or mark nested headers as definitely visited.
+A conditional pragma is never treated as unconditional. Unguarded cycles still
+end proof. Header bytes and missing search candidates remain dependencies;
+removing/reinstating `#pragma once` invalidates warm products and normal MCP
+rebuilds. Evidence identity v3 prevents replay under the earlier include rules.
+
+Unknown #if expressions, malformed groups and unknown directives still end proof;
+conditions are never evaluated. The evidence identity is versioned to invalidate
+products built under the previous proof rules. Regression tests cover retained
+spans/calls, branch header edit/removal, genuine errors and normal configured MCP
+rebuilds on Windows/Linux; warm product replay passes in bucketed and flat layouts.
+MSVC accepts the fixture with both defined and undefined platform symbols.
+Expression/function-definition,
 variadic and duplicate-parameter macros, stringification/pasting and comments
 between the macro name and opening parenthesis remain unsupported. The audit does
 not evaluate conditional branches or implement a full C++ preprocessor. Hades
@@ -215,13 +264,13 @@ per-file identity gate. Custom environments bypass default-only live overlay lan
 Callers outside the index pipeline must use the extractor's dependency-aware
 `extraction_identity_for_path`, rather than the free grammar/rules helper.
 
-Seven recovery tests on Windows/Linux cover spans and arguments, wrong arity,
+Eight recovery tests on Windows/Linux cover spans and arguments, wrong arity,
 genuine syntax errors, parser/thread reuse, nested/panic restoration, header edits
-and identical owned/streamed/scan-handoff products. Ten evidence tests pass on both
-platforms, plus a Unix symlink regression. An index regression checks external
+and identical owned/streamed/scan-handoff products. Sixteen evidence tests pass on Windows, with seventeen on Linux including the
+Unix symlink regression. An index regression checks external
 header edit/removal, local shadow creation/removal, warm product replay, hinted live
 builds and scratch/incremental generation equality in bucketed and flat formats.
-Seventeen parser regressions, unchanged corpus, Clippy, native Windows provenance,
+Eighteen parser regressions, unchanged corpus, Clippy, native Windows provenance,
 MSVC fixtures, resolver evaluations and existing live/cutoff/replay tests pass.
 The original 80-file default-parser audit remains 16 error-bearing files, 361 ERROR
 nodes and 137650 affected bytes.
@@ -237,7 +286,69 @@ Remaining C++ boundaries in that audit include macro statements without semicolo
 and additional SDK annotations/conditional linkage blocks. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as
 an orphan closing brace or a trailing `template <typename T>`; these should remain
-reported as parse errors. PowerShell and Markdown grammars are unchanged.
+reported as parse errors. PowerShell numeric size multipliers now accept the
+native parser's case-insensitive spellings, including integer, hex and real
+literals. Original literal spans and malformed-expression errors are retained.
+The unchanged 139-test PowerShell corpus and Windows/Linux extraction regression
+pass. The audited run_per_view_marker_soak.ps1 and
+run_runtime_split_screen_live_test.ps1 are now parse-clean. Reproduction uses
+scripts/patch_powershell_grammar.py and tree-sitter 0.25.10 generate --abi 15
+src/grammar.json in the PowerShell grammar directory. Markdown is unchanged.
+Instance-method invocation precedence also preserves complete calls in command
+arguments, such as $task.GetAwaiter().GetResult(), rather than splitting the first
+argument list away from the member expression. Static invocations are unchanged.
+Native PowerShell AST comparison, Windows/Linux span/error regressions and the
+unchanged corpus pass. run_editor_split_screen_trace_test.ps1 and
+run_save_slot_cold_start_test.ps1 now parse clean too. Native command arguments now
+retain standalone whitespace-delimited -- separators, --name=value tokens with
+literal or simple variable values, and comma-separated bare-word arrays. The
+external scanner validates variable prefixes through their complete lookahead;
+incremental edits match a fresh parse. Variable child spans remain original,
+double commas and incomplete arguments remain errors, and decrement expressions
+are unchanged. All eleven originally damaged PowerShell files now parse clean in
+the read-only source audit. Five Windows/Linux extraction regressions, the
+unchanged 139-test corpus, native provenance and Clippy pass. These are subset
+audit counts, not a new health report from the installed MCP generation.
+
+SDK conventions are also accepted before inline-member declarators, using the
+separate inline_method_definition rule. General field/declaration modifiers are
+unchanged. Inline methods and constructors are retained as members in extraction,
+with their original bodies, call spans, symbol kinds and visibility. A typed
+receiver resolves to the inline SDK method in the index regression. The current
+text_shaper.cc is parse-clean (previously 20 ERROR nodes / 1266 bytes); Catch2 damage
+is unchanged. Eighteen parser regressions, evidence/recovery and replay tests,
+Windows/Linux resolver evaluations, native MSVC syntax checking, native provenance,
+Clippy and the unchanged 179-test C++ corpus pass. No new visible grammar kinds.
+Explicit template instantiations retain a parallel annotation-free parameter
+path for unnamed function pointers returning a user-defined type. The original
+SDK-annotated declarator path remains available; ordinary parameter and expression
+rules are unchanged. Existing function/parameter kinds are aliased, with no new
+visible kinds or schema changes. Qualified instantiations retain their types and
+spans without inventing runtime calls; genuine following calls remain references.
+On identical current test_mocks.h bytes, the previous parser reports 70 ERROR nodes
+and 2196 affected bytes, while the new parser reports zero and retains 32 items.
+Nineteen C++ parser regressions, evidence/recovery, configured MCP, replay, member
+calls, resolver evaluations, native provenance, MSVC and the unchanged corpus
+validate this path. The original subset excludes this header and is unchanged.
+
+Primitive type arguments after a comma (for example va_arg(list, int)) retain
+explicit type nodes. The first argument slot stays unchanged, preserving ordinary
+parenthesized function/member declarations and functional conversions. A C++ call
+with a direct explicit type argument is metadata: its callee is suppressed, while
+calls in value arguments and enclosing runtime calls retain original spans. An
+ordinary same-named function call remains a runtime reference, including after
+#undef. The graph regression prevents linking metadata to that function's body.
+On identical source, stb_image_write.h drops from five ERROR nodes / 33 bytes to
+two / 18; its remaining native-convention declarations are still reported. Catch2
+and other original audit paths are unchanged. Twenty parser regressions, three
+C++ graph regressions, Windows/Linux proof/replay/configured-MCP checks, MSVC,
+Clippy and the unchanged corpus pass. No new visible kinds or schema changes.
+
+The historical 80-source audit now has only 79 paths present: script_system.cc was
+removed outside this work, and ui_tests.cc grew. On identical current ui_tests.cc
+bytes the baseline and new parser both report 179 ERROR nodes / 106951 bytes;
+current original-subset totals are 16 files / 363 nodes / 137675 bytes. These source
+changes must not be presented as a parser regression or as installed MCP health.
 
 To inspect a source file without updating an index:
 

@@ -1995,6 +1995,18 @@ pub(crate) fn walk_reference_tree<'t>(
           }) {
             break 'dispatch;
           }
+          // A direct C++ type argument cannot be an ordinary runtime argument.
+          // Suppress only this callee, retaining calls inside its value arguments.
+          // Nested metadata calls must not suppress their enclosing runtime call.
+          if node.kind().as_ref() == "call_expression"
+            && node.field("arguments").is_some_and(|arguments| {
+              arguments
+                .children()
+                .any(|argument| argument.kind().as_ref() == "macro_type_argument")
+            })
+          {
+            break 'dispatch;
+          }
           let cspec = &spec.calls[idx as usize];
           if suppressed.remove(&node.node_id())
             || is_chain_link(&node, ancestors.last(), spec)

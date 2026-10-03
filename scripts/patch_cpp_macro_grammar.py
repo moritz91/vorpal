@@ -37,6 +37,27 @@ def add_argument_type(node):
             for child in value:
                 if isinstance(child, dict): add_argument_type(child)
 add_argument_type(rules['argument_list'])
+
+# Primitive type keywords after an argument comma are unambiguous type metadata
+# (for example va_arg(list, int)). Do not enable them in the first argument slot:
+# that would compete with ordinary parenthesized function/member declarations.
+rules['_primitive_macro_type_argument'] = {'type': 'PREC_DYNAMIC', 'value': -1,
+    'content': seq(symbol('primitive_type'), repeat(symbol('type_qualifier')),
+                   pointer_or_reference)}
+primitive_argument = {'type': 'ALIAS', 'content': symbol('_primitive_macro_type_argument'),
+                      'named': True, 'value': 'macro_type_argument'}
+def add_trailing_primitive_argument(node):
+    if node.get('type') == 'SEQ' and node.get('members', [None])[0] == {'type': 'STRING', 'value': ','}:
+        argument = node['members'][1]
+        if argument.get('type') == 'CHOICE' and symbol('expression') in argument['members']:
+            if primitive_argument not in argument['members']:
+                argument['members'].append(primitive_argument)
+    for value in node.values():
+        if isinstance(value, dict): add_trailing_primitive_argument(value)
+        elif isinstance(value, list):
+            for child in value:
+                if isinstance(child, dict): add_trailing_primitive_argument(child)
+add_trailing_primitive_argument(rules['argument_list'])
 grammar['conflicts'] = [c for c in grammar['conflicts'] if c != ['type_specifier', 'macro_type_argument']]
 conflict = ['_declaration_modifiers', 'macro_type_argument']
 if conflict not in grammar['conflicts']:
@@ -138,6 +159,13 @@ for name in ['parenthesized_declarator', 'parenthesized_field_declarator',
 definition = rules['function_definition']['members']
 type_position = definition.index(symbol('_declaration_specifiers'))
 definition[type_position + 1] = optional(choice(symbol('ms_call_modifier'), symbol('sdk_call_modifier')))
+
+# Inline members have a distinct definition rule; conventions must precede only
+# their declarator, without broadening general field/declaration modifiers.
+inline_members = rules['inline_method_definition']['members']
+inline_convention = optional(choice(symbol('ms_call_modifier'), symbol('sdk_call_modifier')))
+if inline_members[1] != inline_convention:
+    inline_members.insert(1, inline_convention)
 
 # Keep initializer commas strict, while admitting conditional branches as list entries.
 # Reuse the normal preprocessor shape/aliases so source spans and branch nodes survive.
@@ -242,6 +270,44 @@ for name in ['parameter_declaration', 'optional_parameter_declaration', 'variadi
     annotations = repeat(symbol('sdk_parameter_annotation'))
     if members[0] != annotations:
         members.insert(0, annotations)
+# Explicit instantiations need an annotation-free type path for unnamed callbacks
+# returning a user-defined type. Keep the existing declarator path in parallel:
+# SDK-annotated instantiations must retain their previous parse. Do not widen
+# abstract declarators or change expression/ordinary parameter contexts.
+instantiation_parameters = [
+    'parameter_declaration', 'optional_parameter_declaration',
+    'variadic_parameter_declaration',
+]
+for name in instantiation_parameters:
+    plain = json.loads(json.dumps(rules[name]))
+    plain['members'].pop(0)  # the SDK annotation repeat added immediately above
+    rules['_instantiation_' + name] = plain
+
+def instantiation_parameter_list(node):
+    if isinstance(node, list):
+        return [instantiation_parameter_list(value) for value in node]
+    if not isinstance(node, dict):
+        return node
+    if node.get('type') == 'SYMBOL' and node.get('name') in instantiation_parameters:
+        return alias_rule('_instantiation_' + node['name'], node['name'])
+    return {key: instantiation_parameter_list(value) for key, value in node.items()}
+
+rules['_instantiation_parameter_list'] = instantiation_parameter_list(rules['parameter_list'])
+function_tail = json.loads(json.dumps(rules['_function_declarator_seq']))
+function_tail['members'][0]['content'] = alias_rule('_instantiation_parameter_list', 'parameter_list')
+rules['_instantiation_function'] = {'type': 'PREC_DYNAMIC', 'value': 2, 'content': seq(
+    {'type': 'FIELD', 'name': 'declarator', 'content': choice(
+        symbol('identifier'), symbol('qualified_identifier'), symbol('template_function'))},
+    function_tail)}
+rules['template_instantiation']['members'][2]['content'] = choice(
+    alias_rule('_instantiation_function', 'function_declarator'), symbol('_declarator'))
+for conflict in [
+    ['_declarator', 'type_specifier', '_instantiation_function'],
+    ['_declarator', '_instantiation_function'],
+]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+
 # SDKs conditionally compile an if/else prefix while keeping its final body shared.
 # Require the exact else-before-endif boundary; ordinary dangling else stays invalid.
 grammar['conflicts'] = [c for c in grammar['conflicts']

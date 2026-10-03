@@ -1,6 +1,250 @@
+#[test]
+fn cpp_trailing_primitive_type_arguments_do_not_invent_macro_runtime_callees() {
+  let lf = r#"
+#define TYPE_META(v, t) ((void)(v), sizeof(t))
+int value();
+void consume(unsigned long long);
+void run() {
+  consume(TYPE_META(value(), int));
+  auto size = TYPE_META(value(), int*);
+  auto converted = TYPE_META(int(value()), float);
+}
+#undef TYPE_META
+int TYPE_META(int a, int b) { return a + b; }
+void ordinary() { TYPE_META(1, 2); }
+struct Plain {};
+struct Value {};
+void declarations() { int(Plain::*callback)(int, float); int(Plain::*typed)(Value, int); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(
+      product
+        .items
+        .iter()
+        .any(|item| item.entry.name == "ordinary")
+    );
+    assert!(
+      product
+        .items
+        .iter()
+        .any(|item| item.entry.name == "TYPE_META")
+    );
+    let meta_calls: Vec<_> = product
+      .refs
+      .iter()
+      .filter(|r| r.kind == 0 && r.name == "TYPE_META")
+      .collect();
+    assert_eq!(meta_calls.len(), 1);
+    assert_eq!(
+      &source[meta_calls[0].start as usize..meta_calls[0].end as usize],
+      "TYPE_META(1, 2)"
+    );
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "value")
+        .count(),
+      3
+    );
+    let outer = product
+      .refs
+      .iter()
+      .find(|r| r.kind == 0 && r.name == "consume")
+      .unwrap();
+    assert_eq!(
+      &source[outer.start as usize..outer.end as usize],
+      "consume(TYPE_META(value(), int))"
+    );
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && matches!(r.name.as_str(), "callback" | "typed"))
+    );
+  }
+  for source in [
+    "void run() { TYPE_META(value(), int }",
+    "void run() { TYPE_META(value() int); }",
+  ] {
+    assert!(
+      SgLang::from_path("metadata.cc")
+        .unwrap()
+        .grep(source)
+        .root()
+        .has_error()
+    );
+  }
+}
+
+#[test]
+fn cpp_explicit_template_callbacks_preserve_types_and_runtime_call_spans() {
+  let lf = r#"
+struct Name {};
+struct Vector2 { float x, y; };
+template<class F> void Bind(const Name&, F) {}
+template void Bind(const Name&, Vector2 (*)(float, float));
+namespace Callbacks {
+  template<class F> void Register(const Name&, F) {}
+}
+template void Callbacks::Register(const Name&, Vector2 (*)(float, float));
+#define _In_
+#define _In_reads_(x)
+template void Bind(const Name&, _In_ int (*)(float, float));
+template void Bind(const Name&, _In_reads_(2) int (*)(float, float));
+void following(Name name) { Bind(name, value()); after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(
+      product
+        .items
+        .iter()
+        .any(|item| item.entry.name == "following")
+    );
+    for expected in ["Bind(name, value())", "value()", "after()"] {
+      assert!(
+        product
+          .refs
+          .iter()
+          .any(|r| r.kind == 0 && &source[r.start as usize..r.end as usize] == expected),
+        "missing {expected}"
+      );
+    }
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "Bind")
+        .count(),
+      1
+    );
+    assert!(!product.refs.iter().any(|r| r.kind == 0
+      && matches!(
+        r.name.as_str(),
+        "Register" | "Vector2" | "_In_" | "_In_reads_"
+      )));
+    let parsed = SgLang::from_path("callbacks.cc").unwrap().grep(&source);
+    let instantiations: Vec<_> = parsed
+      .root()
+      .dfs()
+      .filter(|n| n.kind().as_ref() == "template_instantiation")
+      .collect();
+    assert_eq!(instantiations.len(), 4);
+    for node in instantiations {
+      assert_eq!(
+        node.field("declarator").unwrap().kind().as_ref(),
+        "function_declarator"
+      );
+    }
+  }
+  for source in [
+    "template void Bind(Vector2 (*)(float, float);",
+    "template void Bind(Vector2 (*)(float first float second));",
+    "template void Bind(Vector2 (*)(float, float))",
+    "void run() { Bind(value()) missing() }",
+  ] {
+    assert!(
+      SgLang::from_path("callbacks.cc")
+        .unwrap()
+        .grep(source)
+        .root()
+        .has_error(),
+      "silenced {source}"
+    );
+  }
+}
+
 use vorpal_ingest::OutlineExtractor;
 use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;
+
+#[test]
+fn cpp_inline_sdk_member_definitions_preserve_body_and_call_spans() {
+  let source = r#"
+class Base { public: virtual long SDKCALL Draw(int) = 0; };
+class Renderer : public Base {
+public:
+  Renderer() { initialize(); }
+  int Ordinary() { return ordinary(); }
+  long SDKCALL Draw(int value) override { return draw(value); }
+  unsigned SDKCALL AddRef() { return retain(); }
+  long __stdcall Native(int value) { return native(value); }
+};
+void following() { after(); }
+"#;
+  let product = clean_product(source);
+  let renderer = product
+    .items
+    .iter()
+    .find(|item| item.entry.name == "Renderer")
+    .unwrap();
+  for name in ["Draw", "AddRef", "Native", "Ordinary", "Renderer"] {
+    assert!(
+      renderer
+        .members
+        .iter()
+        .any(|member| member.entry.name == name),
+      "missing {name}: {:?}",
+      renderer
+        .members
+        .iter()
+        .map(|m| &m.entry.name)
+        .collect::<Vec<_>>()
+    );
+  }
+  for member in &renderer.members {
+    let expected = if member.entry.name == "Renderer" {
+      vorpal_outline::model::SymbolType::Constructor
+    } else {
+      vorpal_outline::model::SymbolType::Method
+    };
+    assert_eq!(member.entry.symbol_type, expected);
+    assert!(member.is_public);
+  }
+  assert!(
+    product
+      .items
+      .iter()
+      .any(|item| item.entry.name == "following")
+  );
+  for call_text in [
+    "draw(value)",
+    "retain()",
+    "native(value)",
+    "ordinary()",
+    "initialize()",
+    "after()",
+  ] {
+    assert!(
+      product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && &source[r.start as usize..r.end as usize] == call_text),
+      "missing {call_text}"
+    );
+  }
+  assert!(
+    !product
+      .refs
+      .iter()
+      .any(|r| r.kind == 0 && r.name == "SDKCALL")
+  );
+  for invalid in [
+    "struct Broken { long SDKCALL Draw(int) { return value } };",
+    "struct Broken { long SDKCALL Draw(int) { return; };",
+    "void f() { ordinary() }",
+  ] {
+    assert!(
+      SgLang::from_path("sdk.cc")
+        .unwrap()
+        .grep(invalid)
+        .root()
+        .has_error()
+    );
+  }
+}
 
 #[test]
 fn cpp_decltype_bases_preserve_following_definitions() {

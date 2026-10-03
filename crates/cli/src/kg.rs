@@ -530,6 +530,9 @@ fn extraction_env_from_project(
   let Some(project) = project else {
     return Ok(env);
   };
+  env.cpp_macro_include_roots = project.cpp_macro_include_roots.as_ref().map(|roots| {
+    roots.iter().map(|root| project.project_dir.join(root)).collect()
+  });
   let Some(customs) = project.custom_languages.as_ref() else {
     return Ok(env);
   };
@@ -1640,6 +1643,23 @@ mod union_tests {
   use super::*;
   use std::collections::HashMap;
   use vorpal_dynamic::LibraryPath;
+
+  #[test]
+  fn macro_roots_load_without_custom_languages_and_resolve_from_config_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let absolute = temp.path().join("external");
+    let mut yaml = String::from("ruleDirs: []\ncppMacroIncludeRoots:\n  - first\n  - second\n  - ");
+    yaml.push_str(&serde_json::to_string(&absolute).unwrap());
+    yaml.push('\n');
+    std::fs::write(temp.path().join("vorpalconfig.yml"), yaml).unwrap();
+    let project = ProjectConfig::load_unregistered(temp.path()).unwrap().unwrap();
+    let env = extraction_env_from_project(Some(&project)).unwrap();
+    assert_eq!(env.cpp_macro_include_roots, Some(vec![
+      temp.path().join("first"), temp.path().join("second"), absolute,
+    ]));
+    assert!(!env.is_default());
+    assert!(extraction_env_from_project(None).unwrap().is_default());
+  }
 
   fn custom(lib: &str, exts: &[&str]) -> CustomLang {
     CustomLang {

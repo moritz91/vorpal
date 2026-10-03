@@ -20,7 +20,7 @@ fn external_header_changes_and_local_shadowing_rebuild_dependent_products() {
   )
   .unwrap();
   let header = sdk.join("proof.h");
-  fs::write(&header, "#define CHECK(x) { function(x); }\n").unwrap();
+  fs::write(&header, "#define CHECK(x) { function(x); }\n#ifdef PLATFORM\nstruct First {};\n#else\nstruct Second {};\n#endif\n").unwrap();
   let env = ExtractionEnv {
     cpp_macro_include_roots: Some(vec![sdk]),
     ..Default::default()
@@ -37,7 +37,12 @@ fn external_header_changes_and_local_shadowing_rebuild_dependent_products() {
     )
     .unwrap()
   };
-  assert_eq!(build(&out).indexed, 1);
+  let initial = build(&out);
+  assert_eq!(initial.indexed, 1);
+  assert_eq!(
+    initial.error_nodes, 0,
+    "unchanged conditional branches preserve recovery"
+  );
   assert_eq!(
     build(&out).indexed,
     0,
@@ -46,9 +51,17 @@ fn external_header_changes_and_local_shadowing_rebuild_dependent_products() {
   let extractor = env.extractor().unwrap();
   let key = path.to_str().unwrap();
   let first = extractor.extraction_identity_for_path(key).unwrap();
-  fs::write(&header, "#define CHECK(x) function(x)\n").unwrap();
+  fs::write(
+    &header,
+    "#define CHECK(x) { function(x); }\n#ifdef PLATFORM\n#undef CHECK\n#endif\n",
+  )
+  .unwrap();
   assert_ne!(first, extractor.extraction_identity_for_path(key).unwrap());
   let edited = build(&out);
+  assert!(
+    edited.error_nodes > 0,
+    "a possible undef restores real parse errors"
+  );
   assert!(!edited.reused && !edited.graph_reused);
   assert_eq!(
     edited.indexed, 1,
@@ -80,4 +93,53 @@ fn external_header_changes_and_local_shadowing_rebuild_dependent_products() {
     fs::read(scratch.join("CURRENT")).unwrap()
   );
   // Temporary index artifacts remain under this test's unique temp directory.
+}
+
+#[test]
+fn pragma_once_header_changes_invalidate_warm_products() {
+  let nonce = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_nanos();
+  let root =
+    std::env::temp_dir().join(format!("vorpal-once-replay-{}-{nonce}", std::process::id()));
+  let src = root.join("src");
+  let sdk = root.join("sdk");
+  fs::create_dir_all(&src).unwrap();
+  fs::create_dir(&sdk).unwrap();
+  let header = sdk.join("once.h");
+  fs::write(&header, "#pragma once\n#undef CHECK\n").unwrap();
+  fs::write(src.join("run.cc"), "#include <once.h>\n#define CHECK(x) { effect(x); }\n#include <once.h>\nvoid run() { CHECK(value()) after(); }\n").unwrap();
+  let env = ExtractionEnv {
+    cpp_macro_include_roots: Some(vec![sdk]),
+    ..Default::default()
+  };
+  let out = root.join("index");
+  let build = |out: &Path| {
+    build_index_env(
+      &src,
+      out,
+      CacheMode::default(),
+      ParseHealthPolicy::default(),
+      &env,
+    )
+    .unwrap()
+  };
+  assert_eq!(build(&out).error_nodes, 0);
+  assert_eq!(build(&out).indexed, 0);
+  fs::write(&header, "#undef CHECK\n").unwrap();
+  let changed = build(&out);
+  assert_eq!(changed.indexed, 1);
+  assert!(changed.error_nodes > 0);
+  assert!(!changed.reused && !changed.graph_reused);
+  fs::write(&header, "#pragma once\n#undef CHECK\n").unwrap();
+  let restored = build(&out);
+  assert_eq!(restored.indexed, 1);
+  assert_eq!(restored.error_nodes, 0);
+  let scratch = root.join("scratch");
+  build(&scratch);
+  assert_eq!(
+    fs::read(out.join("CURRENT")).unwrap(),
+    fs::read(scratch.join("CURRENT")).unwrap()
+  );
 }
