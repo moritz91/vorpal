@@ -4437,6 +4437,10 @@
           "named": true
         },
         {
+          "type": "sdk_parameter_annotation",
+          "named": true
+        },
+        {
           "type": "storage_class_specifier",
           "named": true
         },
@@ -4516,6 +4520,10 @@
         },
         {
           "type": "ms_declspec_modifier",
+          "named": true
+        },
+        {
+          "type": "sdk_parameter_annotation",
           "named": true
         },
         {
@@ -5982,6 +5990,25 @@
     }
   },
   {
+    "type": "sdk_parameter_annotation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "argument_list",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "seh_except_clause",
     "named": true,
     "fields": {
@@ -7312,6 +7339,10 @@
         },
         {
           "type": "ms_declspec_modifier",
+          "named": true
+        },
+        {
+          "type": "sdk_parameter_annotation",
           "named": true
         },
         {

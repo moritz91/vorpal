@@ -3,6 +3,27 @@ use vorpal_core::{Language, tree_sitter::LanguageExt};
 use vorpal_lang_registry::SgLang;
 
 #[test]
+fn cpp_sdk_parameter_annotations_are_metadata() {
+  let source = r#"
+void target();
+void copy(_Out_writes_to_ptr_(limit) unsigned long*& destination,
+          _In_ unsigned long limit, _In_reads_bytes_(size) const void* data,
+          _When_(size > 0, _Out_writes_(size)) char* buffer = nullptr) {
+  target();
+}
+int _In_(int value) { return value; }
+int run() { return _In_(1); }
+"#;
+  let product = clean_product(source);
+  for name in ["target", "_In_"] {
+    let call = product.refs.iter().find(|r| r.name == name && r.kind == 0).unwrap();
+    assert_eq!(&source[call.start as usize..call.end as usize], format!("{name}({})", if name == "_In_" { "1" } else { "" }));
+  }
+  assert!(!product.refs.iter().any(|r| r.kind == 0 && r.name == "_Out_writes_"));
+  assert!(SgLang::from_path("sdk.cc").unwrap().grep("void run() { target() }").root().has_error());
+}
+
+#[test]
 fn cpp_abstract_member_function_types_preserve_global_delete() {
   let source = r#"
 template <typename F> struct Traits;

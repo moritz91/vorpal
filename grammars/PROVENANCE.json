@@ -60,10 +60,11 @@
       "SDK convention/export identifiers in declaration and callback positions, with negative dynamic precedence preserving ordinary declarations; source-byte-preserving grammar extension via scripts/patch_cpp_macro_grammar.py.",
       "Conditional initializer-list entries with nested preprocessor branch aliases and original source spans; ordinary list commas remain required; reproduce via scripts/patch_cpp_macro_grammar.py.",
       "Unnamed pointer default parameters and class-scoped pointer fields; named member scope and negative precedence preserve existing declaration and global delete parses; reproduce via scripts/patch_cpp_macro_grammar.py.",
-      "Admit abstract member-function pointers only in explicit type descriptors, retaining global-delete parses."
+      "Admit abstract member-function pointers only in explicit type descriptors, retaining global-delete parses.",
+      "Parameter SDK annotations with contextual identifiers and negative precedence; retain spans and exclude annotation arguments from runtime call references."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:5b647b64b0d076fa",
+    "source_digest": "xxh3:58f166236621ac16",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

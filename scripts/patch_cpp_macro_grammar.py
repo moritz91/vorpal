@@ -223,6 +223,25 @@ descriptor = rules['type_descriptor']['content']['members'][-1]['content']['memb
 member_function = alias_rule('_abstract_member_function', 'abstract_function_declarator')
 if member_function not in descriptor:
     descriptor.insert(1, member_function)
+# Parameter annotations are declaration metadata, never runtime calls.
+# Their identifiers do not introduce lexer tokens or affect expression contexts.
+rules['sdk_parameter_annotation'] = {'type': 'PREC_DYNAMIC', 'value': -1, 'content': choice(
+    seq(symbol('identifier'), symbol('argument_list')), symbol('identifier'))}
+for conflict in [
+    ['sized_type_specifier', 'sdk_parameter_annotation'],
+    ['type_specifier', 'expression', 'sdk_parameter_annotation'],
+    ['type_specifier', 'sdk_call_modifier', 'sdk_parameter_annotation'],
+    ['_declarator', 'type_specifier', 'sdk_call_modifier', 'sdk_parameter_annotation'],
+    ['_declarator', 'type_specifier', 'sdk_parameter_annotation'],
+    ['type_specifier', 'sdk_parameter_annotation'],
+]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+for name in ['parameter_declaration', 'optional_parameter_declaration', 'variadic_parameter_declaration']:
+    members = rules[name]['members']
+    annotations = repeat(symbol('sdk_parameter_annotation'))
+    if members[0] != annotations:
+        members.insert(0, annotations)
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 
 if '--finalize' in sys.argv:

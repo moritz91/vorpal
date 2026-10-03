@@ -6243,6 +6243,13 @@
       "type": "SEQ",
       "members": [
         {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "sdk_parameter_annotation"
+          }
+        },
+        {
           "type": "SYMBOL",
           "name": "_declaration_specifiers"
         },
@@ -12154,6 +12161,13 @@
       "type": "SEQ",
       "members": [
         {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "sdk_parameter_annotation"
+          }
+        },
+        {
           "type": "SYMBOL",
           "name": "_declaration_specifiers"
         },
@@ -12203,6 +12217,13 @@
     "variadic_parameter_declaration": {
       "type": "SEQ",
       "members": [
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "sdk_parameter_annotation"
+          }
+        },
         {
           "type": "SYMBOL",
           "name": "_declaration_specifiers"
@@ -17871,6 +17892,32 @@
           "name": "_function_declarator_seq"
         }
       ]
+    },
+    "sdk_parameter_annotation": {
+      "type": "PREC_DYNAMIC",
+      "value": -1,
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "identifier"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "argument_list"
+              }
+            ]
+          },
+          {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        ]
+      }
     }
   },
   "extras": [
@@ -18078,6 +18125,35 @@
     [
       "_scope_resolution",
       "_member_pointer_scope"
+    ],
+    [
+      "type_specifier",
+      "sdk_parameter_annotation"
+    ],
+    [
+      "sized_type_specifier",
+      "sdk_parameter_annotation"
+    ],
+    [
+      "type_specifier",
+      "expression",
+      "sdk_parameter_annotation"
+    ],
+    [
+      "type_specifier",
+      "sdk_call_modifier",
+      "sdk_parameter_annotation"
+    ],
+    [
+      "_declarator",
+      "type_specifier",
+      "sdk_call_modifier",
+      "sdk_parameter_annotation"
+    ],
+    [
+      "_declarator",
+      "type_specifier",
+      "sdk_parameter_annotation"
     ]
   ],
   "precedences": [

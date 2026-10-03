@@ -1989,6 +1989,10 @@ pub(crate) fn walk_reference_tree<'t>(
           pending,
         ),
         Chain::Call(idx) => {
+          // SAL annotation arguments describe a declaration, not runtime calls.
+          if ancestors.iter().any(|ancestor| ancestor.kind().as_ref() == "sdk_parameter_annotation") {
+            break 'dispatch;
+          }
           let cspec = &spec.calls[idx as usize];
           if suppressed.remove(&node.node_id())
             || is_chain_link(&node, ancestors.last(), spec)

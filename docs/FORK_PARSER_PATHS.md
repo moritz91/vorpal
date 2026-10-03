@@ -93,6 +93,17 @@ parse. Eleven regressions verify source spans, following calls and invalid type
 syntax. The unchanged corpus and native Windows checks pass. The audit subset
 is now 24 error-bearing files (621 ERROR nodes, 537648 damaged bytes).
 
+The parameter-annotation follow-up accepts SAL-style metadata only in parameter
+contexts, retaining original identifier/argument spans and negative precedence
+for ordinary declarations. Nested annotation arguments produce no runtime call
+references; ordinary calls with the same spelling remain calls. `d3dx12.h` and
+`pix3.h` now parse cleanly. The audit subset is 22 error-bearing files (403 ERROR
+nodes, 532676 damaged bytes). Twelve parser regressions, the unchanged corpus,
+Clippy, native Windows provenance/member calls/resolver evaluations and generated
+schema validation pass. The new `sdk_parameter_annotation` kind is in the C++
+rule schema. Conditional `else` structures and one pointer-return convention in
+PIX headers remain for subsequent work.
+
 Remaining C++ boundaries in that audit include macro statements without semicolons
 and additional SDK annotations/conditional linkage blocks. Third-party C headers forced through the C++ grammar by `*.h` also
 remain problematic. Some files are actually incomplete source fragments, such as
