@@ -477,3 +477,94 @@ fn possibly_skipped_outer_headers_do_not_mark_nested_once_as_definite() {
       .is_none()
   );
 }
+
+#[test]
+fn nonexpanding_conditions_preserve_only_unchanged_entering_definitions() {
+  for condition in [
+    "0",
+    "1",
+    "defined(PLATFORM)",
+    "defined PLATFORM",
+    "defined(A) && !defined(B)",
+    "(0 || defined(A)) && 1",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#elif !defined(OTHER) || 0\nstruct Second {{}};\n#else\nstruct Third {{}};\n#endif\nCHECK(value())\n"
+    );
+    let evidence = audit(Path::new("proof.cc"), &source);
+    assert!(
+      evidence
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_some(),
+      "{condition}"
+    );
+    let changed = source.replace("struct Second {};", "#undef CHECK");
+    assert!(
+      audit(Path::new("proof.cc"), &changed)
+        .at("CHECK", changed.find("CHECK(value").unwrap())
+        .is_none(),
+      "possible undef: {condition}"
+    );
+  }
+  for condition in [
+    "UNKNOWN",
+    "UNKNOWN()",
+    "1 / 0",
+    "defined(A) && UNKNOWN",
+    "2",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#endif\nCHECK(value())\n"
+    );
+    assert!(
+      audit(Path::new("proof.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none(),
+      "{condition}"
+    );
+  }
+}
+
+#[test]
+fn literal_condition_branches_do_not_promote_new_definitions_or_skip_effects() {
+  for condition in ["0", "1", "defined(PLATFORM)"] {
+    let source =
+      format!("#if {condition}\n#define NEW(x) {{ effect(x); }}\n#endif\nNEW(value())\n");
+    assert!(audit(Path::new("proof.cc"), &source).bindings.is_empty());
+    let source = format!(
+      "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#elif UNKNOWN\nstruct Second {{}};\n#endif\nCHECK(value())\n"
+    );
+    assert!(
+      audit(Path::new("proof.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none()
+    );
+  }
+}
+
+#[test]
+fn nonexpanding_condition_includes_track_even_literal_inactive_branches() {
+  let fixture = Fixture::new();
+  let first = fixture.0.join("first.h");
+  let second = fixture.0.join("second.h");
+  std::fs::write(&first, "struct First {};\n").unwrap();
+  std::fs::write(&second, "struct Second {};\n").unwrap();
+  let source = "#define CHECK(x) { effect(x); }\n#if 0\n#include \"first.h\"\n#else\n#include \"second.h\"\n#endif\nCHECK(value())\n";
+  let path = fixture.0.join("proof.cc");
+  let before = audit(&path, source);
+  assert!(
+    before
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_some()
+  );
+  assert_eq!(before.dependencies.len(), 2);
+  std::fs::write(&first, "#undef CHECK\n").unwrap();
+  let changed = audit(&path, source);
+  assert_ne!(before.dependency_identity(), changed.dependency_identity());
+  assert!(
+    changed
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none(),
+    "the audit must not evaluate #if 0"
+  );
+}

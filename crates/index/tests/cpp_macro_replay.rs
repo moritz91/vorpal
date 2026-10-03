@@ -20,7 +20,7 @@ fn external_header_changes_and_local_shadowing_rebuild_dependent_products() {
   )
   .unwrap();
   let header = sdk.join("proof.h");
-  fs::write(&header, "#define CHECK(x) { function(x); }\n#ifdef PLATFORM\nstruct First {};\n#else\nstruct Second {};\n#endif\n").unwrap();
+  fs::write(&header, "#define CHECK(x) { function(x); }\n#if defined(PLATFORM)\nstruct First {};\n#else\nstruct Second {};\n#endif\n").unwrap();
   let env = ExtractionEnv {
     cpp_macro_include_roots: Some(vec![sdk]),
     ..Default::default()
@@ -53,7 +53,7 @@ fn external_header_changes_and_local_shadowing_rebuild_dependent_products() {
   let first = extractor.extraction_identity_for_path(key).unwrap();
   fs::write(
     &header,
-    "#define CHECK(x) { function(x); }\n#ifdef PLATFORM\n#undef CHECK\n#endif\n",
+    "#define CHECK(x) { function(x); }\n#if defined(PLATFORM)\n#undef CHECK\n#endif\n",
   )
   .unwrap();
   assert_ne!(first, extractor.extraction_identity_for_path(key).unwrap());

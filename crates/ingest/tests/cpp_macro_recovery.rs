@@ -258,3 +258,23 @@ void run() { const char* text = R"(__pragma ## _Pragma)"; CHECK(value()) }
   assert_eq!(report.eligible_names, ["CHECK"]);
   assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
 }
+
+#[test]
+fn nonexpanding_conditions_keep_recovery_without_selecting_a_branch() {
+  for condition in ["0", "1", "defined(A) && !defined(B)"] {
+    let source = format!(
+      "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#else\nstruct Second {{}};\n#endif\nvoid run() {{ CHECK(value()) after(); }}\n"
+    );
+    for source in [source.clone(), source.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("fixture.cc"), &source, &[]);
+      assert!(!report.has_error, "{condition}: {report:?}");
+      assert_eq!(report.eligible_names, ["CHECK"]);
+      assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+      for name in ["value", "after"] {
+        let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+        assert_eq!(&source[span.clone()], format!("{name}()"));
+      }
+      assert!(!report.calls.iter().any(|(name, _)| name == "CHECK"));
+    }
+  }
+}

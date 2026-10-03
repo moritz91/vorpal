@@ -52,7 +52,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v4\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v5\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -449,9 +449,16 @@ impl Audit {
             environment.clear();
           }
         }
-        "preproc_ifdef" if !node.has_error() => {
-          // #ifdef/#ifndef do not expand a condition. Inspect every possible
-          // branch for effects, without selecting a branch or adding a binding.
+        "preproc_ifdef" | "preproc_if"
+          if !node.has_error()
+            && (node.kind().as_ref() == "preproc_ifdef"
+              || node
+                .field("condition")
+                .is_some_and(|condition| nonexpanding_condition(&condition.text()))) =>
+        {
+          // Definedness and the admitted literal/logical conditions do not
+          // expand operands. Inspect every possible branch for effects, without
+          // selecting a branch or adding a binding.
           // Only definitions entering the group may survive it unchanged.
           for directive in node.dfs() {
             match directive.kind().as_ref() {
@@ -494,8 +501,16 @@ impl Audit {
                   _ => environment.clear(),
                 }
               }
+              "preproc_if" | "preproc_elif" => {
+                if !directive
+                  .field("condition")
+                  .is_some_and(|condition| nonexpanding_condition(&condition.text()))
+                {
+                  environment.clear();
+                }
+              }
               "preproc_ifdef" | "preproc_else" | "preproc_elifdef" | "preproc_params"
-              | "preproc_arg" => {}
+              | "preproc_arg" | "preproc_defined" => {}
               kind if kind.starts_with("preproc_") => environment.clear(),
               _ => {}
             }
@@ -597,4 +612,40 @@ fn effect_tokens(replacement: &str) -> (BTreeSet<String>, bool) {
         && !protected.iter().any(|range| range.contains(&offset))
     });
   (names, pasted)
+}
+
+// These conditions contain no expanding operands. Inspect all branches; never
+// choose one based on the compiler's platform or invent predefined macros.
+fn nonexpanding_condition(condition: &str) -> bool {
+  let parsed = SupportLang::Cpp.grep(format!("#if {condition}\n#endif\n"));
+  let root = parsed.root();
+  if root.has_error() {
+    return false;
+  }
+  let Some(group) = root.children().find(|n| n.kind().as_ref() == "preproc_if") else {
+    return false;
+  };
+  let Some(expression) = group.field("condition") else {
+    return false;
+  };
+  let defined: Vec<_> = expression
+    .dfs()
+    .filter(|n| n.kind().as_ref() == "preproc_defined")
+    .map(|n| n.range())
+    .collect();
+  expression
+    .dfs()
+    .filter(|n| n.is_named())
+    .all(|node| match node.kind().as_ref() {
+      "preproc_defined" | "parenthesized_expression" | "comment" => true,
+      "identifier" => defined
+        .iter()
+        .any(|range| range.contains(&node.range().start)),
+      "number_literal" => matches!(node.text().as_ref(), "0" | "1"),
+      "binary_expression" => node
+        .field("operator")
+        .is_some_and(|op| matches!(op.text().as_ref(), "&&" | "||")),
+      "unary_expression" => node.field("operator").is_some_and(|op| op.text() == "!"),
+      _ => false,
+    })
 }

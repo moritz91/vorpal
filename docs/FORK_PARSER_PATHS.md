@@ -217,7 +217,8 @@ Present unreadable candidates stop resolution. File symlinks conservatively end
 proof because canonicalization can change their quoted-include directory.
 
 Redefinitions, undef, unknown directives, unresolved includes, cycles and
-depth/file/byte limits end evidence. Well-formed #ifdef/#ifndef groups preserve
+depth/file/byte limits end evidence. Well-formed #ifdef/#ifndef groups and #if/#elif
+conditions composed only of 0, 1, defined operands, parentheses and !/&&/|| preserve
 only entering definitions that remain unchanged across every possible branch:
 all branch includes are consulted and tracked, and a possible redefine/undef
 rejects that name. No definitions originating inside those groups are promoted.
@@ -228,7 +229,8 @@ so it cannot introduce new proof or mark nested headers as definitely visited.
 A conditional pragma is never treated as unconditional. Unguarded cycles still
 end proof. Header bytes and missing search candidates remain dependencies;
 removing/reinstating `#pragma once` invalidates warm products and normal MCP
-rebuilds. Evidence identity v4 also rejects opaque pragma effects. Literal `_Pragma` or
+rebuilds. Evidence identity v5 includes these nonexpanding conditions and rejects
+opaque pragma effects. Literal `_Pragma` or
 `__pragma` operators in a translation unit or consulted replacement lists disable
 its recovery, including operators joined by continuation lines. Invoked token-pasting
 macros (`##` or `%:%:`) and their transitive replacement wrappers also disable
@@ -238,7 +240,8 @@ expand those macros. Comments, string contents and unused paste definitions do n
 supply effects. Header edits introducing/removing these effects invalidate warm
 products; regression checks compare the rebuilt graph with a scratch build.
 
-Unknown #if expressions, malformed groups and unknown directives still end proof;
+Bare identifiers, macro calls, arithmetic and other unknown #if expressions,
+malformed groups and unknown directives still end proof;
 conditions are never evaluated. The evidence identity is versioned to invalidate
 products built under the previous proof rules. Regression tests cover retained
 spans/calls, branch header edit/removal, genuine errors and normal configured MCP
