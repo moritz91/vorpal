@@ -290,9 +290,16 @@ arguments, such as $task.GetAwaiter().GetResult(), rather than splitting the fir
 argument list away from the member expression. Static invocations are unchanged.
 Native PowerShell AST comparison, Windows/Linux span/error regressions and the
 unchanged corpus pass. run_editor_split_screen_trace_test.ps1 and
-run_save_slot_cold_start_test.ps1 now parse clean too; seven of the original eleven
-PowerShell files still have command-argument errors. These are subset audit counts,
-not a new health report from the installed MCP generation.
+run_save_slot_cold_start_test.ps1 now parse clean too. Native command arguments now
+retain standalone whitespace-delimited -- separators, --name=value tokens with
+literal or simple variable values, and comma-separated bare-word arrays. The
+external scanner validates variable prefixes through their complete lookahead;
+incremental edits match a fresh parse. Variable child spans remain original,
+double commas and incomplete arguments remain errors, and decrement expressions
+are unchanged. All eleven originally damaged PowerShell files now parse clean in
+the read-only source audit. Five Windows/Linux extraction regressions, the
+unchanged 139-test corpus, native provenance and Clippy pass. These are subset
+audit counts, not a new health report from the installed MCP generation.
 
 To inspect a source file without updating an index:
 

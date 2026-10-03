@@ -10,7 +10,7 @@ const PREC = {
 export default grammar({
   name: 'powershell',
 
-  externals: ($) => [$._statement_terminator],
+  externals: ($) => [$._statement_terminator, $._native_argument_separator, $._native_assignment_prefix],
 
   extras: ($) => [
     $.comment,
@@ -26,6 +26,7 @@ export default grammar({
     [$.class_method_definition, $.attribute],
     [$.expandable_string_literal],
     [$.path_command_name, $._value],
+    [$.array_literal_expression, $._native_array_argument],
   ],
 
   rules: {
@@ -306,7 +307,7 @@ export default grammar({
 
     // Commands
     generic_token: ($) =>
-      token(/[^\(\)\$\"\'\-\{\}@\|\[`\&\s][^\&\s\(\)\}\|;,]*/),
+      token(/[^\(\)\$\"\'\-\{\}@\|\[`\&\s,;][^\&\s\(\)\}\|;,]*/),
 
     _command_token: ($) => token(/[^\(\)\{\}\s;\&]+/),
 
@@ -765,6 +766,7 @@ export default grammar({
       prec.right(
         choice(
           $.command_parameter,
+          alias($._native_argument_separator, $.command_parameter),
           seq($._command_argument, optional($.argument_list)),
           $.redirection,
           $.stop_parsing,
@@ -788,8 +790,22 @@ export default grammar({
           seq($.command_argument_sep, $.array_literal_expression),
           $.parenthesized_expression,
           $.script_block_expression,
+          seq($.command_argument_sep, alias($._native_assignment_argument, $.generic_token)),
+          seq($.command_argument_sep, alias($._native_array_argument, $.array_literal_expression)),
         ),
       ),
+
+    _native_assignment_argument: ($) => choice(
+      token(seq(/--[a-zA-Z_][a-zA-Z0-9_-]*=/,
+        choice(/'([^']|'')*'/, /[^\s;,|&(){}"'$`]+/, ''))),
+      seq($._native_assignment_prefix,
+        alias(token.immediate(/\$(?:[a-zA-Z0-9_]+:)?[a-zA-Z0-9_]+/), $.variable)),
+    ),
+
+    _native_array_argument: ($) => prec.right(7, seq(
+      choice($.generic_token, $.unary_expression),
+      repeat1(seq(',', choice($.generic_token, $.unary_expression))),
+    )),
 
     verbatim_command_argument: ($) =>
       seq('--%', $._verbatim_command_argument_chars),
