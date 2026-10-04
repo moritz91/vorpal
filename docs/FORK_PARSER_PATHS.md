@@ -393,3 +393,16 @@ replayed products. Positive thresholds remain affected-byte ratios. Product
 format generation 23 re-keys earlier products and the whole-tree fast path, so
 missing-only files previously reported as clean cannot replay that diagnosis.
 Historical ERROR-only audit totals above do not count MISSING tokens.
+
+Braced parameter defaults (`Options value = {}` / `{value()}`) now retain an
+initializer_list in that explicit context instead of inventing a missing type.
+Named typed defaults and ordinary call contexts are unchanged. Across all 73
+C++ paths reported by the v23 full health audit, this removes 220 MISSING tokens
+and makes 46 paths clean with no worsened counts; affected bytes are unchanged.
+Catch2, PIX array references and actual semicolonless ASSERT recovery remain
+open. The unchanged 179-test corpus, LF/CRLF parser/span regressions, native MSVC,
+proof/replay/configured-MCP checks and native provenance validate the extension.
+
+The broader read-only audit checks all 900 C++ paths from the source manifest:
+27 retain syntax errors, and no previously clean C++ path gains errors.
+This per-parser audit is not a newly installed MCP index or a macro-recovery claim.

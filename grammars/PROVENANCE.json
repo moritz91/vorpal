@@ -68,10 +68,11 @@
       "Multiple replacement-list fragments separated by block comments in object/function macro definitions; preserve original preproc_arg/comment spans with LF or CRLF continuations.",
       "Accept decltype base-specifiers in class base lists without changing declaration calling-convention paths; retain original operand spans.",
       "Scoped proof-backed statement-macro scanner and macro_statement audit node; default parsing keeps scanner context empty.",
-      "SDK calling conventions before inline member definitions, with existing declaration contexts unchanged; patch_cpp_macro_grammar.py, tree-sitter 0.25.10 ABI 14 and --finalize ASCII fast path."
+      "SDK calling conventions before inline member definitions, with existing declaration contexts unchanged; patch_cpp_macro_grammar.py, tree-sitter 0.25.10 ABI 14 and --finalize ASCII fast path.",
+      "Braced default parameter values retain initializer_list nodes without invented missing types; explicit default-value context only, ABI 14 and original spans preserved via patch_cpp_macro_grammar.py."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:500664b5fd576228",
+    "source_digest": "xxh3:78c58bc0db63a507",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

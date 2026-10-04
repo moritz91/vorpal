@@ -631,3 +631,34 @@ fn missing_tokens_are_reported_without_inventing_damaged_bytes() {
   owned[4..8].copy_from_slice(&22u32.to_le_bytes());
   assert!(vorpal_ingest::decode_product_view(&owned).is_err());
 }
+
+#[test]
+fn cpp_braced_parameter_defaults_preserve_types_calls_and_missing_semicolons() {
+  let source = r#"
+struct Options { int value; };
+Options make();
+int value();
+void configure(const Options& options = {}, Options other = {value()});
+void named(Options options = Options{});
+void unnamed(const Options& = {});
+template<typename T> void generic(T argument = {});
+void after() { configure(); }
+"#;
+  for source in [source.to_owned(), source.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["value", "configure"] {
+      let call = product.refs.iter().find(|r| r.name == name && r.kind == 0).unwrap();
+      assert_eq!(&source[call.start as usize..call.end as usize], format!("{name}()"));
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && r.name == "Options"));
+    let parsed = SgLang::from_path("defaults.cc").unwrap().grep(&source);
+    assert!(parsed.root().dfs().any(|node| node.kind() == "initializer_list" && node.text() == "{}"));
+  }
+  for source in [
+    "void configure(int x = {1 2});",
+    "void configure(int x = {1);",
+    "void after() { configure() }",
+  ] {
+    assert!(SgLang::from_path("defaults.cc").unwrap().grep(source).root().has_error(), "{source}");
+  }
+}

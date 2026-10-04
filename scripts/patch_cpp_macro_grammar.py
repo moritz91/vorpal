@@ -270,6 +270,11 @@ for name in ['parameter_declaration', 'optional_parameter_declaration', 'variadi
     annotations = repeat(symbol('sdk_parameter_annotation'))
     if members[0] != annotations:
         members.insert(0, annotations)
+# C++ permits braced defaults without an explicit type: parameter = {} or {value}.
+# Admit initializer lists only in the explicit parameter default-value context.
+field = rules['optional_parameter_declaration']['members'][-1]
+if field['content'] == symbol('expression'):
+    field['content'] = choice(symbol('expression'), symbol('initializer_list'))
 # Explicit instantiations need an annotation-free type path for unnamed callbacks
 # returning a user-defined type. Keep the existing declarator path in parallel:
 # SDK-annotated instantiations must retain their previous parse. Do not widen

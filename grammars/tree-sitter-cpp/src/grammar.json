@@ -12345,8 +12345,17 @@
           "type": "FIELD",
           "name": "default_value",
           "content": {
-            "type": "SYMBOL",
-            "name": "expression"
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "expression"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "initializer_list"
+              }
+            ]
           }
         }
       ]
@@ -18593,8 +18602,17 @@
           "type": "FIELD",
           "name": "default_value",
           "content": {
-            "type": "SYMBOL",
-            "name": "expression"
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "expression"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "initializer_list"
+              }
+            ]
           }
         }
       ]
