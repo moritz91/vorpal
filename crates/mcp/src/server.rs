@@ -550,10 +550,17 @@ impl Server {
   pub fn with_profile_env_rebuild(
     index_dir: PathBuf,
     profile: Profile,
-    env: ExtractionEnv,
+    mut env: ExtractionEnv,
     watch_rebuild: bool,
   ) -> Self {
     let watch = watch_root(&index_dir).and_then(|src| SourceWatch::start(&src));
+    if watch.is_some() && env.cpp_macro_include_roots.is_some() {
+      env.cpp_macro_freshness = Some(Arc::new(
+        vorpal_ingest::cpp_macro_freshness::MacroFreshness::default(),
+      ));
+    } else {
+      env.cpp_macro_freshness = None;
+    }
     // Boot-time warm: if the persisted index exists with a stale (or absent) vector tier,
     // start building it now instead of on the first semantic search. The generation must be
     // resolved first — artifacts live in `gen/<id>/`, never at the index root. When the
@@ -1353,7 +1360,22 @@ impl Server {
 
   fn ensure_fresh(&mut self) -> Result<(), String> {
     self.advance_background();
-    self.refresh(false)
+    // Source-watch silence says nothing about external, ignored or missing
+    // include candidates. Observe exact proof inputs even on a quiet query.
+    if let Some(freshness) = &self.env.cpp_macro_freshness
+      && freshness.has_changed()
+      && let Some(watch) = &self.watch {
+      watch.mark_dirty();
+    }
+    self.refresh(false)?;
+    if let Some(freshness) = &self.env.cpp_macro_freshness {
+      freshness.finish_refresh();
+      if freshness.has_changed() {
+        if let Some(watch) = &self.watch { watch.mark_dirty(); }
+        return Err("C++ macro inputs changed during revalidation; retry the query".to_owned());
+      }
+    }
+    Ok(())
   }
 
   /// The freshness path proper. `background: false` is the query path — any full pipeline
@@ -1431,6 +1453,9 @@ impl Server {
     // complete capture is empty — and an empty hint set would route to the probe
     // short-circuit, not the sweep this entry exists to run.
     let hints = if backstop { None } else { watch.take_changes() };
+    if let Some(freshness) = &self.env.cpp_macro_freshness {
+      freshness.begin_refresh();
+    }
     // Decision telemetry (VORPAL_PHASE_TRACE): which freshness tier a dirty pass takes is
     // the first question every daemon-latency investigation asks — stamp the input.
     match &hints {
@@ -2049,6 +2074,9 @@ impl Server {
         // An explicit rebuild is a commit: drain the proactive rebuild first so commits
         // stay single-file (its generation lands, then this one supersedes it).
         self.reap_rebuilding(true);
+        if let Some(freshness) = &self.env.cpp_macro_freshness {
+          freshness.begin_refresh();
+        }
         // Optional embedding-tier selection: written to the index ROOT before the build,
         // because the selection file is the single cross-process truth every warm reads
         // (in-daemon or child indexer alike). Absent = keep the existing selection.
@@ -2099,6 +2127,9 @@ impl Server {
         let dir = vorpal_kg::resolve_index_dir(&self.index_dir);
         self.kg = Some(Arc::new(Kg::load(&dir).map_err(|err| err.to_string())?));
         self.kg_dir = Some(dir);
+        if let Some(freshness) = &self.env.cpp_macro_freshness {
+          freshness.finish_refresh();
+        }
         // An explicit rebuild moved the committed tree with no change-set capture: the
         // overlay cannot be trusted to match — retire it and rebuild from the new generation.
         // The live ANN tier goes with it (lifecycle law 5): this commit carried no eid-churn

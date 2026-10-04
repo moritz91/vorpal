@@ -75,6 +75,7 @@ impl Evidence {
 
   /// Arguments containing another observed macro are not proven expressions.
   /// Preserve literal/comment contents; inspect phase-two continuation joining.
+  #[cfg(feature = "builtin-parser")]
   pub(crate) fn contains_expanding_tokens(&self, source: &str) -> bool {
     let (tokens, _) = effect_tokens(source);
     tokens.iter().any(|token| self.macro_names.contains(token))

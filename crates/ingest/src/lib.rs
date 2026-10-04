@@ -13,6 +13,7 @@
 //! A single [`Ingestor`] is a single-writer-per-shard sink (§7.5); scale-out shards it by path.
 
 pub mod cpp_macro_evidence;
+pub mod cpp_macro_freshness;
 #[cfg(feature = "builtin-parser")]
 pub mod cpp_macro_recovery;
 mod tree_cache;
@@ -67,6 +68,9 @@ pub struct ExtractionEnv {
   /// Opt-in proof-backed C++ statement recovery. `Some([])` enables local
   /// quoted includes; additional roots are searched in the given order.
   pub cpp_macro_include_roots: Option<Vec<std::path::PathBuf>>,
+  /// Optional ephemeral input observations for a running MCP server. These do
+  /// not change extraction identity or serialize proof into products.
+  pub cpp_macro_freshness: Option<std::sync::Arc<cpp_macro_freshness::MacroFreshness>>,
 }
 
 /// One dynamic language's extraction canary: `source` is extracted as `path` and must yield at
@@ -103,7 +107,10 @@ impl ExtractionEnv {
       self.injection_config.as_ref(),
     )?;
     match &self.cpp_macro_include_roots {
-      Some(roots) => extractor.with_cpp_macro_recovery(roots),
+      Some(roots) => extractor.with_cpp_macro_recovery(roots).map(|mut extractor| {
+        extractor.cpp_macro_freshness = self.cpp_macro_freshness.clone();
+        extractor
+      }),
       None => Ok(extractor),
     }
   }

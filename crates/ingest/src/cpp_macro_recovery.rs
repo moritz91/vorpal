@@ -27,7 +27,7 @@ fn parse_without_context(
   path: &Path,
   source: &str,
   roots: &[PathBuf],
-) -> (crate::ParsedRoot, Vec<String>, u64) {
+) -> (crate::ParsedRoot, Vec<String>, crate::cpp_macro_evidence::Evidence) {
   let lang = SgLang::Builtin(SupportLang::Cpp);
   let raw = lang.grep(source);
   let evidence = crate::cpp_macro_evidence::audit_with_roots(path, source, roots);
@@ -105,7 +105,7 @@ fn parse_without_context(
     .filter(|name| name.len() <= 128 && name.is_ascii() && !rejected.contains(name))
     .collect();
   let parsed = vorpal_language::with_cpp_statement_macros(&eligible_names, || lang.grep(source));
-  (parsed, eligible_names, evidence.dependency_identity())
+  (parsed, eligible_names, evidence)
 }
 
 fn statement_space(byte: &u8) -> bool {
@@ -155,15 +155,16 @@ pub(crate) fn parse_recovery(
   path: &Path,
   source: &str,
   roots: &[PathBuf],
-) -> (crate::ParsedRoot, u64) {
+) -> (crate::ParsedRoot, crate::cpp_macro_evidence::Evidence) {
   vorpal_language::with_cpp_statement_macros(&[], || {
-    let (parsed, _, identity) = parse_without_context(path, source, roots);
-    (parsed, identity)
+    let (parsed, _, evidence) = parse_without_context(path, source, roots);
+    (parsed, evidence)
   })
 }
 
 fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> RecoveryAudit {
-  let (parsed, eligible_names, dependency_identity) = parse_without_context(path, source, roots);
+  let (parsed, eligible_names, evidence) = parse_without_context(path, source, roots);
+  let dependency_identity = evidence.dependency_identity();
   let root = parsed.root();
   let macro_spans = root
     .dfs()

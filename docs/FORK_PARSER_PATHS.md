@@ -515,3 +515,21 @@ The 900-path native audit changes only Catch2: 138 to 137 ERROR/MISSING nodes,
 1793 nodes and 137622 bytes. The unchanged 179-test corpus, 28 Windows/Linux
 parser regressions, proof/recovery, configured MCP, replay in both layouts,
 member-call/resolver tests, native MSVC, Clippy, schema and provenance pass.
+
+Watched MCP servers with configured C++ macro recovery also revalidate the
+exact consulted source/header inputs before answering quiet queries. External
+header edits, removal/recreation, ignored local shadows and redirected paths
+cannot rely on source-watch events. Content fingerprints detect same-length
+edits with restored timestamps. Extraction and warm replay publish observations
+from their actual audits; mixed header contents within one build require a new
+epoch. Built-in and configured virtual canaries publish no filesystem inputs.
+These observations are ephemeral, contain no macro bindings or parser context,
+and do not change product identity or enable recovered-tree caching.
+
+A changed input requests normal revalidation with an uncertain change set;
+prior build workers are drained before resetting observations. A mutation still
+visible after revalidation returns a retry error instead of certifying a stale
+graph. Quiet queries hash the observed inputs but do not reparse unchanged
+files. Explicit external-index servers without a source watcher retain their
+manual rebuild semantics. Recovery remains opt-in; the installed .2 tunnel
+and its external index are unchanged.

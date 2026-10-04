@@ -152,6 +152,7 @@ pub struct OutlineExtractor {
   /// grammar digest alone cannot see a rule change.
   rules_digest: u64,
   cpp_macro_roots: Option<Vec<std::path::PathBuf>>,
+  pub(crate) cpp_macro_freshness: Option<Arc<crate::cpp_macro_freshness::MacroFreshness>>,
 }
 
 
@@ -252,6 +253,7 @@ impl OutlineExtractor {
     Ok(Self {
       by_lang,
       cpp_macro_roots: None,
+      cpp_macro_freshness: None,
       dynamic_specs: HashMap::new(),
       rules_digest: xxhash_rust::xxh3::xxh3_64(DEFAULT_OUTLINE_RULES.as_bytes()),
     })
@@ -262,6 +264,7 @@ impl OutlineExtractor {
     Ok(Self {
       by_lang: Arc::new(ExtractorSet::Eager(compile_rules(rules_yaml)?)),
       cpp_macro_roots: None,
+      cpp_macro_freshness: None,
       dynamic_specs: HashMap::new(),
       rules_digest: xxhash_rust::xxh3::xxh3_64(rules_yaml.as_bytes()),
     })
@@ -380,6 +383,7 @@ impl OutlineExtractor {
       by_lang: Arc::new(ExtractorSet::Eager(compile_groups(rules)?)),
       dynamic_specs,
       cpp_macro_roots: None,
+      cpp_macro_freshness: None,
       rules_digest: h.digest(),
     })
   }
@@ -447,6 +451,9 @@ impl OutlineExtractor {
       && SgLang::from_path(path) == Some(SgLang::Builtin(vorpal_language::SupportLang::Cpp)) {
       let source = std::fs::read_to_string(path).ok()?;
       let evidence = crate::cpp_macro_evidence::audit_with_roots(std::path::Path::new(path), &source, roots);
+      if let Some(freshness) = &self.cpp_macro_freshness {
+        freshness.observe(std::path::Path::new(path), &source, &evidence);
+      }
       return Some(macro_product_identity(base, evidence.dependency_identity()));
     }
     Some(base)
@@ -528,6 +535,12 @@ impl OutlineExtractor {
     self.extract_with(path, source, product_from_parts)
   }
 
+  /// Manufactured canary bytes use identical extraction without publishing
+  /// their virtual paths as filesystem freshness observations.
+  pub(crate) fn extract_canary_product(&self, path: &str, source: &str) -> Option<FileProduct> {
+    self.extract_with_parser(path, source, crate::tree_cache::grep_cached, false, product_from_parts)
+  }
+
   /// [`OutlineExtractor::extract_product`] that never materializes the owned product: the
   /// borrowed extraction is encoded straight into `buf` as stamped `.vpb` bytes —
   /// byte-identical to `encode_product` of the stamped owned product (pinned by test). The
@@ -564,7 +577,7 @@ impl OutlineExtractor {
     source: &str,
     finish: impl FnOnce(product::ExtractedParts<'_>) -> R,
   ) -> Option<R> {
-    self.extract_with_parser(path, source, crate::tree_cache::grep_cached, finish)
+    self.extract_with_parser(path, source, crate::tree_cache::grep_cached, true, finish)
   }
 
   /// [`OutlineExtractor::extract_product`] with an injected parser — the tree-cache
@@ -576,7 +589,7 @@ impl OutlineExtractor {
     source: &str,
     parse: fn(SgLang, &str, &str) -> vorpal_core::Vorpal<vorpal_core::tree_sitter::StrDoc<SgLang>>,
     ) -> Option<crate::FileProduct> {
-    self.extract_with_parser(path, source, parse, product_from_parts)
+    self.extract_with_parser(path, source, parse, true, product_from_parts)
   }
 
   fn extract_with_parser<R>(
@@ -584,8 +597,11 @@ impl OutlineExtractor {
     path: &str,
     source: &str,
     parse: fn(SgLang, &str, &str) -> ParsedRoot,
+    observe_freshness: bool,
     finish: impl FnOnce(product::ExtractedParts<'_>) -> R,
   ) -> Option<R> {
+    #[cfg(not(feature = "builtin-parser"))]
+    let _ = observe_freshness;
     let lang = SgLang::from_path(path)?;
     // The rules-or-spec gate runs BEFORE the parse is paid for (the body re-derives it).
     if !self.extracts(lang) {
@@ -598,9 +614,12 @@ impl OutlineExtractor {
     if self.cpp_macro_recovery_enabled() && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
       // Recovery always reparses: cached trees/walk snapshots have no proof identity.
       let _ = crate::tree_cache::take_reuse(path);
-      let (grep, dependency) = crate::cpp_macro_recovery::parse_recovery(
+      let (grep, evidence) = crate::cpp_macro_recovery::parse_recovery(
         std::path::Path::new(path), source, self.cpp_macro_roots.as_deref().unwrap());
-      return self.extract_from_grep(lang, path, source, &grep, Some(dependency), finish);
+      if observe_freshness && let Some(freshness) = &self.cpp_macro_freshness {
+        freshness.observe(std::path::Path::new(path), source, &evidence);
+      }
+      return self.extract_from_grep(lang, path, source, &grep, Some(evidence.dependency_identity()), finish);
     }
     #[cfg(feature = "builtin-parser")]
     let grep = if lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
