@@ -346,6 +346,24 @@ members = convention['content']['content']['members']
 members.insert(-1, choice(symbol('ms_call_modifier'), symbol('sdk_call_modifier')))
 members[-1]['content'] = alias_rule('_sdk_pointer_function', 'function_declarator')
 rules['pointer_declarator'] = choice(original, convention)
+# A directly named pointer-return function also needs an annotation-free type
+# path. Otherwise `Word (&buffer)[size]` can be consumed as an SDK annotation
+# followed by an invented missing type. Preserve the SDK path in parallel and
+# keep this alternative out of general declarators and expression contexts.
+plain_pointer_function = json.loads(json.dumps(rules['_instantiation_function']))
+plain_pointer_function['content']['members'][0]['content'] = symbol('identifier')
+rules['_plain_pointer_function'] = plain_pointer_function
+plain_pointer = json.loads(json.dumps(original))
+plain_pointer['content']['content']['members'][-1]['content'] = alias_rule(
+    '_plain_pointer_function', 'function_declarator')
+rules['pointer_declarator']['members'].append(plain_pointer)
+for conflict in [
+    ['_declarator', 'expression', '_plain_pointer_function'],
+    ['_plain_pointer_function'],
+    ['_declarator', '_plain_pointer_function'],
+]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
 # C-compatible SDK headers guard linkage braces independently of their contents.
 # Require complete guarded opening/closing groups, including nested guards.
 rules['conditional_linkage_open'] = seq(choice(*headers), choice(

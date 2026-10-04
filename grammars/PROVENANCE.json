@@ -69,10 +69,11 @@
       "Accept decltype base-specifiers in class base lists without changing declaration calling-convention paths; retain original operand spans.",
       "Scoped proof-backed statement-macro scanner and macro_statement audit node; default parsing keeps scanner context empty.",
       "SDK calling conventions before inline member definitions, with existing declaration contexts unchanged; patch_cpp_macro_grammar.py, tree-sitter 0.25.10 ABI 14 and --finalize ASCII fast path.",
-      "Braced default parameter values retain initializer_list nodes without invented missing types; explicit default-value context only, ABI 14 and original spans preserved via patch_cpp_macro_grammar.py."
+      "Braced default parameter values retain initializer_list nodes without invented missing types; explicit default-value context only, ABI 14 and original spans preserved via patch_cpp_macro_grammar.py.",
+      "Annotation-free parameter path only for directly named pointer-return functions, preserving array-reference parameters without missing types. Existing SDK path stays parallel; aliases retain visible kinds. scripts/patch_cpp_macro_grammar.py, ABI 14."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:78c58bc0db63a507",
+    "source_digest": "xxh3:9bf58f5a96356cbc",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

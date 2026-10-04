@@ -415,3 +415,17 @@ including the six missing-only paths exposed by generation 23 telemetry. Native
 PowerShell parsing, six Windows/Linux extraction regressions, the unchanged
 139-test corpus, Clippy and native provenance validate this narrow lexical fix.
 There are no new visible kinds; the installed MCP release remains unchanged.
+
+Directly named pointer-return functions retain a parallel annotation-free
+parameter path, reusing the explicit-instantiation parameter productions. This
+keeps `Word (&buffer)[size]` as an array/reference declarator rather than an SDK
+annotation followed by an invented missing type. SDK-annotated parameters retain
+their existing path. General declarators and expression contexts are unchanged;
+a broader trial changed parameter-pack interpretation and remains withheld.
+PIXEventsLegacy.h loses its two MISSING tokens and retains all 30 extracted
+entries. Across the same 900 C++ paths, no other error/byte/item counts change:
+26 paths retain 1802 ERROR/MISSING nodes and 137675 affected bytes. The unchanged
+179-test corpus, 23 Windows/Linux parser regressions, proof/recovery, configured
+MCP, replay in both layouts, resolver/member-call tests, MSVC, Clippy, schema and
+native provenance validate this extension. Actual Hades ASSERT recovery remains
+unproven; the production MCP installation is unchanged.

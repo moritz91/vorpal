@@ -662,3 +662,49 @@ void after() { configure(); }
     assert!(SgLang::from_path("defaults.cc").unwrap().grep(source).root().has_error(), "{source}");
   }
 }
+
+#[test]
+fn cpp_pointer_return_array_references_keep_parameters_and_runtime_calls() {
+  let lf = r#"
+using Word = unsigned long long;
+#define _In_reads_(n)
+template<unsigned size> Word* encode(Word (&buffer)[size], Word value) {
+  buffer[0] = value;
+  return buffer;
+}
+template<unsigned size> const Word* inspect(const Word (&buffer)[size]) {
+  return buffer;
+}
+Word* annotated(_In_reads_(limit()) Word* buffer) { return buffer; }
+void following() {
+  Word buffer[4]{};
+  encode(buffer, 1);
+  inspect(buffer);
+  annotated(buffer);
+  auto owned = new Word[2];
+  ::delete[] owned;
+}
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["encode", "inspect", "annotated", "following"] {
+      assert!(product.items.iter().any(|item| item.entry.name == name), "missing {name}");
+    }
+    for (name, spelling) in [("encode", "encode(buffer, 1)"), ("inspect", "inspect(buffer)"), ("annotated", "annotated(buffer)")] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), 1, "{name}");
+      assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], spelling);
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && ["_In_reads_", "limit", "Word", "buffer"].contains(&r.name.as_str())));
+    let parsed = SgLang::from_path("pointer.cc").unwrap().grep(&source);
+    let arrays: Vec<_> = parsed.root().dfs().filter(|n| n.kind() == "array_declarator" && n.text() == "(&buffer)[size]").collect();
+    assert_eq!(arrays.len(), 2);
+    for array in arrays {
+      assert_eq!(&source[array.range()], "(&buffer)[size]");
+      assert!(array.dfs().any(|n| n.kind() == "reference_declarator" && n.text() == "&buffer"));
+    }
+  }
+  for bad in ["Word* broken(Word (&buffer)[);", "void broken() { encode(buffer, 1) }"] {
+    assert!(SgLang::from_path("pointer.cc").unwrap().grep(bad).root().has_error(), "{bad}");
+  }
+}
