@@ -2503,6 +2503,10 @@
           "named": true
         },
         {
+          "type": "ms_call_modifier",
+          "named": true
+        },
+        {
           "type": "ms_declspec_modifier",
           "named": true
         },

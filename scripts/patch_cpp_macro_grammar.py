@@ -418,6 +418,30 @@ for conflict in [
 ]:
     if conflict not in grammar['conflicts']:
         grammar['conflicts'].append(conflict)
+# Native DLL declarations require both an explicit __declspec modifier and a
+# native calling-convention keyword. Keep this separate from general declaration
+# modifiers: widening those changes Catch2's recovery and ordinary declarations.
+rules['_native_dll_declaration'] = {'type': 'PREC_DYNAMIC', 'value': -1, 'content': seq(
+    optional(symbol('sdk_call_modifier')), symbol('ms_declspec_modifier'),
+    {'type': 'FIELD', 'name': 'type', 'content': symbol('primitive_type')},
+    symbol('ms_call_modifier'),
+    {'type': 'FIELD', 'name': 'declarator', 'content': choice(
+        alias_rule('_plain_pointer_function', 'function_declarator'),
+        alias_rule('_sdk_pointer_function', 'function_declarator'))},
+    {'type': 'STRING', 'value': ';'})}
+native_dll = alias_rule('_native_dll_declaration', 'declaration')
+for name in ['_top_level_item', '_block_item']:
+    if native_dll not in rules[name]['members']:
+        rules[name]['members'].append(native_dll)
+for conflict in [
+    ['_declaration_modifiers', '_native_dll_declaration'],
+    ['parameter_list', '_instantiation_parameter_list'],
+    ['parameter_declaration', '_instantiation_parameter_declaration'],
+    ['variadic_parameter_declaration', '_instantiation_variadic_parameter_declaration'],
+    ['optional_parameter_declaration', '_instantiation_optional_parameter_declaration'],
+]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
 # C-compatible SDK headers guard linkage braces independently of their contents.
 # Require complete guarded opening/closing groups, including nested guards.
 rules['conditional_linkage_open'] = seq(choice(*headers), choice(

@@ -446,3 +446,20 @@ A completed external whole-index verification at 8c11c24 reports 29 of 1735 path
 with 1878 ERROR/MISSING nodes and 138026 affected bytes through normal MCP health.
 That test index does not replace the installed .2 generation, and the metric must
 not be compared directly with historical ERROR-only health coverage.
+
+The subsequent verified whole-index build at cf2d722 reports 28 of 1735 paths,
+1877 ERROR/MISSING nodes and 138026 damaged bytes through normal MCP health.
+It contains 63846 graph nodes, including the restored GatherShadowCascades
+function. The initial local build reused an older Cargo CLI executable; verify
+the compiled grammar surface before whole-index measurements after regeneration.
+
+Native DLL function declarations have a separate alternative requiring both
+an explicit __declspec modifier and a native calling-convention keyword. It
+reuses declaration/function kinds in top-level/block contexts, with annotation
+metadata preserved. General declaration modifiers remain unchanged. This makes
+stb_image_write.h clean and removes two __stdcall errors from stb_image.h.
+The 900-path native audit retains every prior item count and otherwise identical
+error spans: 24 C++ paths, 1797 ERROR/MISSING nodes, 137639 affected bytes.
+Catch2 is unchanged. The 179-test corpus, 25 Windows/Linux parser regressions,
+proof/recovery, configured MCP, replay in both layouts, member-call/resolver
+tests, native MSVC, Clippy, schema and C++-only provenance checks pass.

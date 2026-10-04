@@ -718,6 +718,7 @@ void gather(void* device, Handle (&cascades)[4]) {
   for (Handle& handle : cascades) handle = 0;
   observe();
 }
+
 void ordinary(void* device, Handle (&cascades)[4]);
 void variadic(Handle (&values)[4], ...);
 void following() {
@@ -745,5 +746,41 @@ void following() {
   }
   for bad in ["void broken(void* device, Handle (&cascades)[);", "void broken() { gather(nullptr, cascades) }", "void broken(..., Handle (&cascades)[4]);"] {
     assert!(SgLang::from_path("array.cc").unwrap().grep(bad).root().has_error(), "{bad}");
+  }
+}
+
+#[test]
+fn cpp_native_dll_declarations_keep_metadata_and_runtime_call_spans() {
+  let lf = r#"
+#define API extern
+#define _In_(n)
+API __declspec(dllimport) int __stdcall convert(const char* input, int size);
+__declspec(dllimport) int __cdecl plain(int value);
+API __declspec(dllimport) int __stdcall annotated(_In_(limit()) int value);
+void following() {
+  convert("value", 5);
+  plain(1);
+  annotated(2);
+}
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(product.items.iter().any(|item| item.entry.name == "following"));
+    for (name, spelling) in [("convert", "convert(\"value\", 5)"), ("plain", "plain(1)"), ("annotated", "annotated(2)")] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), 1, "{name}");
+      assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], spelling);
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && ["API", "_In_", "limit", "__declspec", "dllimport", "__stdcall", "__cdecl"].contains(&r.name.as_str())));
+    let parsed = SgLang::from_path("dll.cc").unwrap().grep(&source);
+    assert_eq!(parsed.root().dfs().filter(|n| n.kind() == "ms_declspec_modifier").count(), 3);
+    assert_eq!(parsed.root().dfs().filter(|n| n.kind() == "ms_call_modifier").count(), 3);
+  }
+  for bad in [
+    "API __declspec(dllimport) int __stdcall convert(int value)",
+    "API __declspec(dllimport) int __stdcall convert(int value;",
+    "void following() { convert(1) }",
+  ] {
+    assert!(SgLang::from_path("dll.cc").unwrap().grep(bad).root().has_error(), "{bad}");
   }
 }
