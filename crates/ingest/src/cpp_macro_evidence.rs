@@ -52,7 +52,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v6\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v7\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -193,6 +193,14 @@ fn canonical_or_absolute(path: &Path) -> PathBuf {
 }
 
 impl Audit {
+  // Every opaque boundary must clear current bindings and prevent later local
+  // definitions from restarting proof. Keep those effects inseparable, including
+  // uncertain directives inside otherwise nonexpanding conditional groups.
+  fn invalidate_environment(&mut self, environment: &mut BTreeMap<String, StatementMacro>) {
+    self.opaque_environment = true;
+    environment.clear();
+  }
+
   // A pragma operator can restore definitions saved before this audit's active
   // interval. Opaque replacements can also manufacture it with token pasting.
   // Decline the translation unit rather than pretending to expand such macros.
@@ -283,8 +291,7 @@ impl Audit {
       } else if let Some(relative) = text.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
         (relative, false)
       } else {
-        self.opaque_environment = true;
-        environment.clear();
+        self.invalidate_environment(environment);
         return;
       };
     let mut candidates = Vec::new();
@@ -303,14 +310,12 @@ impl Audit {
         }
         Err(_) => {
           self.dependencies.insert(path, None);
-          self.opaque_environment = true;
-          environment.clear();
+          self.invalidate_environment(environment);
           return;
         }
       }
     }
-    self.opaque_environment = true;
-    environment.clear();
+    self.invalidate_environment(environment);
   }
 
   fn include(
@@ -321,8 +326,7 @@ impl Audit {
   ) {
     if path_has_redirected_components(path) {
       self.dependencies.insert(path.to_path_buf(), None);
-      self.opaque_environment = true;
-      environment.clear();
+      self.invalidate_environment(environment);
       return;
     }
     let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
@@ -338,8 +342,7 @@ impl Audit {
       || std::fs::metadata(&path).is_ok_and(|m| m.len() > self.remaining_bytes as u64)
     {
       self.dependencies.insert(path, None);
-      self.opaque_environment = true;
-      environment.clear();
+      self.invalidate_environment(environment);
       return;
     }
     let bytes = std::fs::File::open(&path).ok().and_then(|file| {
@@ -355,8 +358,7 @@ impl Audit {
       bytes.as_ref().map(|b| xxhash_rust::xxh3::xxh3_64(b)),
     );
     let Some(bytes) = bytes else {
-      self.opaque_environment = true;
-      environment.clear();
+      self.invalidate_environment(environment);
       return;
     };
     if self.stack.len() >= 16
@@ -364,15 +366,13 @@ impl Audit {
       || self.remaining_files == 0
       || bytes.len() > self.remaining_bytes
     {
-      self.opaque_environment = true;
-      environment.clear();
+      self.invalidate_environment(environment);
       return;
     }
     self.remaining_files -= 1;
     self.remaining_bytes -= bytes.len();
     let Ok(source) = std::str::from_utf8(&bytes) else {
-      self.opaque_environment = true;
-      environment.clear();
+      self.invalidate_environment(environment);
       return;
     };
     // A previous possible visit may already have activated #pragma once. The
@@ -443,16 +443,14 @@ impl Audit {
               }
             }
           } else {
-            self.opaque_environment = true;
-            environment.clear();
+            self.invalidate_environment(environment);
           }
         }
         "preproc_def" => {
           if let Some(name) = node.field("name") {
             environment.remove(name.text().as_ref());
           } else {
-            self.opaque_environment = true;
-            environment.clear();
+            self.invalidate_environment(environment);
           }
         }
         "preproc_include" => {
@@ -461,8 +459,7 @@ impl Audit {
           {
             self.resolve_include(path, &include.text(), definite, environment);
           } else {
-            self.opaque_environment = true;
-            environment.clear();
+            self.invalidate_environment(environment);
           }
         }
         "preproc_call" => {
@@ -489,8 +486,7 @@ impl Audit {
               self.possibly_once.insert(path.to_path_buf());
             }
           } else {
-            self.opaque_environment = true;
-            environment.clear();
+            self.invalidate_environment(environment);
           }
         }
         "preproc_ifdef" | "preproc_if"
@@ -510,8 +506,7 @@ impl Audit {
                 if let Some(name) = directive.field("name") {
                   environment.remove(name.text().as_ref());
                 } else {
-                  self.opaque_environment = true;
-                  environment.clear();
+                  self.invalidate_environment(environment);
                 }
               }
               "preproc_include" => {
@@ -520,8 +515,7 @@ impl Audit {
                   self.resolve_include(path, &include.text(), false, environment);
                   environment.retain(|name, definition| entering.get(name) == Some(definition));
                 } else {
-                  self.opaque_environment = true;
-                  environment.clear();
+                  self.invalidate_environment(environment);
                 }
               }
               "preproc_call" => {
@@ -536,8 +530,7 @@ impl Audit {
                     {
                       environment.remove(name);
                     } else {
-                      self.opaque_environment = true;
-                      environment.clear();
+                      self.invalidate_environment(environment);
                     }
                   }
                   (Some(name), Some(argument))
@@ -545,7 +538,7 @@ impl Audit {
                   {
                     self.possibly_once.insert(path.to_path_buf());
                   }
-                  _ => environment.clear(),
+                  _ => self.invalidate_environment(environment),
                 }
               }
               "preproc_if" | "preproc_elif" => {
@@ -553,13 +546,12 @@ impl Audit {
                   .field("condition")
                   .is_some_and(|condition| nonexpanding_condition(&condition.text()))
                 {
-                  self.opaque_environment = true;
-                  environment.clear();
+                  self.invalidate_environment(environment);
                 }
               }
               "preproc_ifdef" | "preproc_else" | "preproc_elifdef" | "preproc_params"
               | "preproc_arg" | "preproc_defined" => {}
-              kind if kind.starts_with("preproc_") => environment.clear(),
+              kind if kind.starts_with("preproc_") => self.invalidate_environment(environment),
               _ => {}
             }
           }
@@ -573,8 +565,7 @@ impl Audit {
             .dfs()
             .any(|n| n.kind().starts_with("preproc_") || n.is_error() && n.text().contains('#'))
           {
-            self.opaque_environment = true;
-            environment.clear();
+            self.invalidate_environment(environment);
           }
         }
       }

@@ -224,7 +224,8 @@ root behavior. Use compiler-consistent physical paths for proof-backed recovery.
 Redefinitions, undef, unknown directives, unresolved includes, cycles and
 depth/file/byte limits end evidence. Opaque include/directive effects also prevent
 later definitions from restarting proof: unseen replacement helpers can restore
-saved macros or redirect future includes. Earlier intervals retain their original
+saved macros or redirect future includes. This boundary also applies to opaque
+directives in otherwise admitted conditional groups. Earlier intervals retain their original
 boundaries, and the whole-name scanner gate still rejects any later unproved use.
 Well-formed #ifdef/#ifndef groups and #if/#elif
 conditions composed only of 0, 1, defined operands, parentheses and !/&&/|| preserve
@@ -238,7 +239,7 @@ so it cannot introduce new proof or mark nested headers as definitely visited.
 A conditional pragma is never treated as unconditional. Unguarded cycles still
 end proof. Header bytes and missing search candidates remain dependencies;
 removing/reinstating `#pragma once` invalidates warm products and normal MCP
-rebuilds. Evidence identity v6 includes path-component/opaque-effect guards and rejects
+rebuilds. Evidence identity v7 includes path-component/opaque-effect guards and rejects
 opaque pragma effects. Literal `_Pragma` or
 `__pragma` operators in a translation unit or consulted replacement lists disable
 its recovery, including operators joined by continuation lines. Invoked token-pasting

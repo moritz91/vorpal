@@ -281,11 +281,19 @@ fn nonexpanding_conditions_keep_recovery_without_selecting_a_branch() {
 
 #[test]
 fn opaque_headers_cannot_supply_hidden_restore_macros_to_later_local_proof() {
-  let source = "#include \"unavailable.h\"\n#define CHECK(x) { effect(x); }\nRESTORE();\nvoid run() { CHECK(value()) after(); }\n";
-  let report = audit_recovery(Path::new("fixture.cc"), source, &[]);
-  assert!(report.has_error, "{report:?}");
-  assert!(report.eligible_names.is_empty());
-  assert!(report.macro_spans.is_empty());
+  for boundary in [
+    "#include \"unavailable.h\"",
+    "#if defined(PLATFORM)\n#pragma push_macro(\"CHECK\")\n#endif",
+    "#ifdef PLATFORM\n#unknown effect\n#endif",
+  ] {
+    let source = format!(
+      "{boundary}\n#define CHECK(x) {{ effect(x); }}\nRESTORE();\nvoid run() {{ CHECK(value()) after(); }}\n"
+    );
+    let report = audit_recovery(Path::new("fixture.cc"), &source, &[]);
+    assert!(report.has_error, "{report:?}");
+    assert!(report.eligible_names.is_empty());
+    assert!(report.macro_spans.is_empty());
+  }
 }
 
 // Some platforms spell their temp directory through a system symlink. Ordinary

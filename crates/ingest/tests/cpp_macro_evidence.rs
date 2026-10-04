@@ -575,6 +575,8 @@ fn opaque_include_or_directive_effects_prevent_later_proof_restarts() {
     "#include \"unknown.h\"",
     "#pragma push_macro(\"CHECK\")",
     "#if UNKNOWN\nstruct First {};\n#endif",
+    "#if defined(PLATFORM)\n#pragma push_macro(\"CHECK\")\n#endif",
+    "#ifdef PLATFORM\n#unknown effect\n#endif",
   ] {
     let source =
       format!("{boundary}\n#define CHECK(x) {{ effect(x); }}\nRESTORE();\nCHECK(value())\n");
