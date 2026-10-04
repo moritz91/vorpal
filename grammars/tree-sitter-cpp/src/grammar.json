@@ -8857,6 +8857,15 @@
                   "type": "ALIAS",
                   "content": {
                     "type": "SYMBOL",
+                    "name": "_abstract_member_pointer"
+                  },
+                  "named": true,
+                  "value": "abstract_pointer_declarator"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
                     "name": "_abstract_member_function"
                   },
                   "named": true,

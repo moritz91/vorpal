@@ -860,3 +860,41 @@ void runtime() {
     assert!(!product.refs.iter().any(|r| r.kind == 0 && ["OTHER_AVAILABLE", "other"].contains(&r.name.as_str())));
   }
 }
+#[test]
+fn cpp_abstract_member_data_types_preserve_named_scopes_and_global_delete() {
+  let lf = r#"
+void observe();
+template <typename T> struct StringMaker {};
+struct Owner { int value; };
+template <typename R, typename C> struct StringMaker<R C::*> {
+  static bool convert(R C::* p) { observe(); return p != nullptr; }
+};
+using Member = int Owner::*;
+using Qualified = int Owner::* const;
+void following(int* values) {
+  observe();
+  ::delete[] values;
+  ::delete[] ::new int[4];
+}
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(product.items.iter().any(|item| item.entry.name == "following"));
+    let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == "observe").collect();
+    assert_eq!(calls.len(), 2);
+    for call in calls {
+      assert_eq!(&source[call.start as usize..call.end as usize], "observe()");
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && ["StringMaker", "convert", "Owner", "C", "R"].contains(&r.name.as_str())));
+    let parsed = SgLang::from_path("member.cc").unwrap().grep(&source);
+    for (spelling, scope) in [("C::*", "C"), ("Owner::*", "Owner"), ("Owner::* const", "Owner")] {
+      let pointer = parsed.root().dfs().find(|n| n.kind() == "abstract_pointer_declarator" && n.text() == spelling).unwrap();
+      assert_eq!(&source[pointer.range()], spelling);
+      assert_eq!(pointer.field("scope").unwrap().text(), scope);
+    }
+    assert_eq!(parsed.root().dfs().filter(|n| n.kind() == "delete_expression").count(), 2);
+  }
+  for bad in ["using Broken = int ::*;", "using Broken = int Owner::;", "using Broken = int Owner::*", "void run() { observe() }"] {
+    assert!(SgLang::from_path("member.cc").unwrap().grep(bad).root().has_error(), "{bad}");
+  }
+}

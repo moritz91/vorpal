@@ -500,3 +500,18 @@ nodes and 47 to 35 affected bytes, with all 326 items retained. Totals are
 error/byte/item count stay unchanged. The 179-test corpus, 27 Windows/Linux
 parser regressions, proof/recovery, configured MCP, replay in both layouts,
 member-call/resolver tests, native MSVC, Clippy, schema and C++ provenance pass.
+
+The verified external candidate including guarded storage declarations reports
+27 of 1735 paths, 1870 ERROR/MISSING nodes and 137978 affected bytes through
+normal MCP health. Preprocessor-condition calls are absent from runtime edges;
+63846 graph nodes are retained. This is a scratch index, not the installed .2.
+
+Abstract member-data pointers now use the existing named-scope production only
+in explicit type_descriptor contexts. Their visible declarator kind is reused;
+the global abstract-pointer rule remains unchanged. LF/CRLF tests retain alias
+and template-specialization spans, scope names, following calls and ::delete[].
+The 900-path native audit changes only Catch2: 138 to 137 ERROR/MISSING nodes,
+30256 to 30251 bytes, with all 2317 extracted items retained. Totals are 24 paths,
+1793 nodes and 137622 bytes. The unchanged 179-test corpus, 28 Windows/Linux
+parser regressions, proof/recovery, configured MCP, replay in both layouts,
+member-call/resolver tests, native MSVC, Clippy, schema and provenance pass.

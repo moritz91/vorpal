@@ -232,7 +232,7 @@ for name in ['pointer_field_declarator']:
 conflict = ['_scope_resolution', '_member_pointer_scope']
 if conflict not in grammar['conflicts']:
     grammar['conflicts'].append(conflict)
-# Abstract member-function pointers are admitted only as explicit type descriptors.
+# Abstract member pointers are admitted only as explicit type descriptors.
 # Keep the global abstract-pointer production unchanged (notably ::delete[]).
 def alias_rule(name, visible):
     return {'type': 'ALIAS', 'content': symbol(name), 'named': True, 'value': visible}
@@ -251,6 +251,9 @@ descriptor = rules['type_descriptor']['content']['members'][-1]['content']['memb
 member_function = alias_rule('_abstract_member_function', 'abstract_function_declarator')
 if member_function not in descriptor:
     descriptor.insert(1, member_function)
+member_data = alias_rule('_abstract_member_pointer', 'abstract_pointer_declarator')
+if member_data not in descriptor:
+    descriptor.insert(1, member_data)
 # Parameter annotations are declaration metadata, never runtime calls.
 # Their identifiers do not introduce lexer tokens or affect expression contexts.
 rules['sdk_parameter_annotation'] = {'type': 'PREC_DYNAMIC', 'value': -1, 'content': choice(
