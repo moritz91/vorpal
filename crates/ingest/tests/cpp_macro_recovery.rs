@@ -342,3 +342,75 @@ fn unused_macros_and_names_inside_literals_do_not_block_argument_recovery() {
       .any(|(name, range)| name == "value" && &source[range.clone()] == "value()")
   );
 }
+
+#[test]
+fn invocation_comments_keep_original_spans_and_match_production_paths() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let lf = "#define CHECK(x) { effect(x); }\nvoid run() {\nCHECK /* α CHECK(other()) */ /***/ (value())\nCHECK // CHECK(other())\n \t\x0b\x0c(value())\nafter();\n}\nvoid following() { next(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let audit = audit_recovery(Path::new("comments.cc"), &source, &[]);
+    assert!(!audit.has_error, "{audit:?}");
+    assert_eq!(audit.eligible_names, ["CHECK"]);
+    assert_eq!(audit.macro_spans.len(), 2);
+    let recovered = vorpal_language::with_cpp_statement_macros(&audit.eligible_names, || {
+      SgLang::from_path("comments.cc").unwrap().grep(&source)
+    });
+    assert_eq!(recovered.root().dfs().filter(|n| n.kind() == "comment").count(), 3);
+    for node in recovered.root().dfs().filter(|n| n.kind() == "macro_statement") {
+      let name = node.field("name").unwrap();
+      assert_eq!(&source[name.range()], "CHECK");
+      assert!(node.text().starts_with("CHECK "));
+    }
+    assert!(!audit.calls.iter().any(|(name, _)| ["CHECK", "other"].contains(&name.as_str())));
+    for name in ["value", "after", "next"] {
+      for (_, span) in audit.calls.iter().filter(|(n, _)| n == name) {
+        assert_eq!(&source[span.clone()], format!("{name}()"));
+      }
+    }
+    assert_eq!(audit.calls.iter().filter(|(n, _)| n == "value").count(), 2);
+    let extractor = OutlineExtractor::new().unwrap().with_cpp_macro_recovery(&[]).unwrap();
+    let product = extractor.extract_product("comments.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor.extract_product_encoded("comments.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let raw = SgLang::from_path("comments.cc").unwrap().grep(&source);
+    assert!(raw.root().has_error());
+    let handoff = extractor.extract_product_from_root("comments.cc", &raw).unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handoff, &mut encoded);
+    assert_eq!(owned, encoded);
+  }
+}
+
+#[test]
+fn comment_and_control_whitespace_invocations_cannot_escape_proof_intervals() {
+  for spacing in ["\x0b", " /* note */ ", " // note\n "] {
+    let source = format!("void before() {{ CHECK{spacing}(value()) }}\n#define CHECK(x) {{ effect(x); }}\nvoid run() {{ CHECK(value()) }}\n");
+    let audit = audit_recovery(Path::new("comments.cc"), &source, &[]);
+    assert!(audit.has_error, "{spacing:?}: {audit:?}");
+    assert!(audit.eligible_names.is_empty(), "{spacing:?}: {audit:?}");
+    assert!(audit.macro_spans.is_empty());
+  }
+  for invocation in [
+    "CHECK /* note */ (value(), second())",
+    "CHECK // note\n (value(,))",
+    "CHECK(\x0b)",
+    "CHECK /* line\\\nsplice */ (value())",
+    "CHECK // line\\\nsplice\n (value())",
+    "CHECK /* trigraph??/ splice */ (value())",
+    "CHECK // trigraph??/ splice\n (value())",
+    "CHECK /* unterminated (value())",
+    "CHECK /* note */ (value()) genuine()",
+  ] {
+    let source = format!("#define CHECK(x) {{ effect(x); }}\nvoid run() {{ {invocation} }}\n");
+    let audit = audit_recovery(Path::new("comments.cc"), &source, &[]);
+    assert!(audit.has_error, "{invocation:?}: {audit:?}");
+  }
+  assert!(audit_recovery(Path::new("ordinary.cc"), "void run() { CHECK /* note */ (value()) }", &[]).has_error);
+}

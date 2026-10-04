@@ -72,12 +72,12 @@ fn parse_without_context(
       if !known.contains(name) {
         continue;
       }
-      let mut next = i;
-      while next < bytes.len() && bytes[next].is_ascii_whitespace() {
-        next += 1;
-      }
-      // The scanner accepts only names followed by '('. A comment before '(' is
-      // currently unsupported, so cannot create an unverified scanner token.
+      let Some(next) = invocation_spacing(bytes, i) else {
+        rejected.insert(name.to_owned());
+        continue;
+      };
+      // Comments are whitespace between the name and '('; the offset-free
+      // scanner must use exactly the same conservative spacing rules.
       if bytes.get(next) == Some(&b'(') {
         let proven = evidence.at(name, start).and_then(|definition| {
           let end = argument_end(source, next, &protected)?;
@@ -106,6 +106,49 @@ fn parse_without_context(
     .collect();
   let parsed = vorpal_language::with_cpp_statement_macros(&eligible_names, || lang.grep(source));
   (parsed, eligible_names, evidence.dependency_identity())
+}
+
+fn statement_space(byte: &u8) -> bool {
+  matches!(*byte, b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' | b'\x0b')
+}
+
+fn invocation_spacing(bytes: &[u8], mut i: usize) -> Option<usize> {
+  loop {
+    while bytes.get(i).is_some_and(statement_space) {
+      i += 1;
+    }
+    if bytes.get(i) != Some(&b'/') {
+      return Some(i);
+    }
+    match bytes.get(i + 1) {
+      Some(b'/') => {
+        i += 2;
+        while i < bytes.len() && !matches!(bytes[i], b'\r' | b'\n') {
+          if bytes[i] == b'\\' || bytes.get(i..i + 3) == Some(b"??/") {
+            return None;
+          }
+          i += 1;
+        }
+      }
+      Some(b'*') => {
+        i += 2;
+        loop {
+          if bytes.get(i..i + 3) == Some(b"??/") {
+            return None;
+          }
+          match bytes.get(i) {
+            None | Some(b'\\') => return None,
+            Some(b'*') if bytes.get(i + 1) == Some(&b'/') => {
+              i += 2;
+              break;
+            }
+            _ => i += 1,
+          }
+        }
+      }
+      _ => return None,
+    }
+  }
 }
 
 pub(crate) fn parse_recovery(
@@ -176,7 +219,7 @@ fn arity(source: &str, range: Range<usize>, protected: &[(Range<usize>, bool)]) 
       b',' if nesting == 0 => {
         commas += 1;
       }
-      b if b.is_ascii_whitespace() => {}
+      b if statement_space(&b) => {}
       _ => {
         value = true;
       }

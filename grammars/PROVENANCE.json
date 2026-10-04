@@ -72,10 +72,11 @@
       "Braced default parameter values retain initializer_list nodes without invented missing types; explicit default-value context only, ABI 14 and original spans preserved via patch_cpp_macro_grammar.py.",
       "Annotation-free parameter path only for directly named pointer-return functions, preserving array-reference parameters without missing types. Existing SDK path stays parallel; aliases retain visible kinds. scripts/patch_cpp_macro_grammar.py, ABI 14.",
       "Annotation-free explicit function declaration/definition alternative requires a named array-reference parameter; preserves reference declarators following pointer parameters without widening general declarators/expressions. scripts/patch_cpp_macro_grammar.py, ABI 14.",
-      "Native DLL function declarations require explicit __declspec and native calling convention in top-level/block contexts; retain existing declaration/function kinds and annotation metadata without general modifier widening. scripts/patch_cpp_macro_grammar.py, ABI 14."
+      "Native DLL function declarations require explicit __declspec and native calling convention in top-level/block contexts; retain existing declaration/function kinds and annotation metadata without general modifier widening. scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Proof-backed invocation spacing accepts original block/line comments and all six C++ ASCII whitespace characters; scanner/audit rules match, splice/trigraph comments are declined, recovered product identity v2 invalidates older proofs. scripts/cpp_statement_macro_scanner.c."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:329c8eab941107d3",
+    "source_digest": "xxh3:e6f31b3d3fe31660",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

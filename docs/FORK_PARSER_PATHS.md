@@ -463,3 +463,26 @@ error spans: 24 C++ paths, 1797 ERROR/MISSING nodes, 137639 affected bytes.
 Catch2 is unchanged. The 179-test corpus, 25 Windows/Linux parser regressions,
 proof/recovery, configured MCP, replay in both layouts, member-call/resolver
 tests, native MSVC, Clippy, schema and C++-only provenance checks pass.
+
+Proof-backed invocation spacing now accepts ordinary block/line comments between
+the name and opening parenthesis. Name, comment and argument spans remain original;
+comments do not become part of the identifier token. The audit and scanner both
+use all six C++ ASCII whitespace characters, including vertical tab. The previous
+Rust/C difference could miss an out-of-interval invocation while enabling its
+name from a later valid use. Comment continuations/trigraphs and unterminated
+comments are declined. Missing semicolons, wrong arity and unknown macros retain
+errors. Owned, streaming and scan handoff agree; normal configured MCP rebuilds
+and header invalidation exercise commented invocations too.
+
+Recovered product identity is v2: scanner-only changes do not necessarily change
+the grammar's structural fingerprint. A migration regression seeds a v1
+false-clean loose product for an earlier undefined invocation, verifies a fresh
+parse exposes its error, then verifies packed replay and scratch convergence.
+Its negative control fails with the old v1 identity. Six replay tests pass on
+Windows/Linux and Linux flat layout; sixteen recovery tests and the unchanged
+evidence/parser suites pass, with native MSVC and Clippy validation.
+
+The latest external candidate index, including the native DLL and invocation
+spacing fixes, reports 27 of 1735 paths, 1873 ERROR/MISSING nodes and 137990
+affected bytes through normal MCP health. The installed .2 runtime is unchanged;
+actual Hades ASSERT recovery after opaque includes remains unproven.

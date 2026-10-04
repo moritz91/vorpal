@@ -21,6 +21,45 @@ const char *tree_sitter_cpp_set_statement_macros(const char *names) {
 static bool statement_space(int32_t c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
 }
+static bool statement_comment_char(int32_t c, unsigned *questions) {
+    if (c == '\\' || (c == '/' && *questions >= 2)) return false;
+    *questions = c == '?' ? *questions + 1 : 0;
+    if (*questions > 2) *questions = 2;
+    return true;
+}
+// Match invocation_spacing in the Rust proof audit. Keep mark_end at the name:
+// comments remain ordinary extra nodes with their original source spans.
+static bool statement_spacing(TSLexer *lexer) {
+    for (;;) {
+        while (statement_space(lexer->lookahead)) lexer->advance(lexer, false);
+        if (lexer->lookahead != '/') return true;
+        lexer->advance(lexer, false);
+        unsigned questions = 0;
+        if (lexer->lookahead == '/') {
+            while (!lexer->eof(lexer) && lexer->lookahead != '\r' && lexer->lookahead != '\n') {
+                if (!statement_comment_char(lexer->lookahead, &questions)) return false;
+                lexer->advance(lexer, false);
+            }
+        } else if (lexer->lookahead == '*') {
+            lexer->advance(lexer, false);
+            bool star = false;
+            bool closed = false;
+            while (!lexer->eof(lexer)) {
+                if (!statement_comment_char(lexer->lookahead, &questions)) return false;
+                if (star && lexer->lookahead == '/') {
+                    lexer->advance(lexer, false);
+                    closed = true;
+                    break;
+                }
+                star = lexer->lookahead == '*';
+                lexer->advance(lexer, false);
+            }
+            if (!closed) return false;
+        } else {
+            return false;
+        }
+    }
+}
 static bool scan_statement_macro(TSLexer *lexer) {
     if (!statement_macros) return false;
     while (statement_space(lexer->lookahead)) lexer->advance(lexer, true);
@@ -35,8 +74,7 @@ static bool scan_statement_macro(TSLexer *lexer) {
     }
     if (!length) return false;
     lexer->mark_end(lexer);
-    while (statement_space(lexer->lookahead)) lexer->advance(lexer, false);
-    if (lexer->lookahead != '(') return false;
+    if (!statement_spacing(lexer) || lexer->lookahead != '(') return false;
     for (const char *entry = statement_macros; *entry;) {
         const char *end = strchr(entry, '\n');
         if (!end) return false;

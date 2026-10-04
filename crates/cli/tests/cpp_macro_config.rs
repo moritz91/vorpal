@@ -76,7 +76,7 @@ fn configured_roots_and_external_header_edits_reach_cli_and_mcp() {
   fs::write(&header, "#define CHECK(x) { effect(x); }\n#if defined(PLATFORM)\nstruct First {};\n#else\nstruct Second {};\n#endif\n").unwrap();
   fs::write(
     src.join("run.cc"),
-    "#include <proof.h>\nvoid run() { CHECK(value()) after(); }\n",
+    "#include <proof.h>\nvoid run() { CHECK /* invocation */ (value()) after(); }\n",
   )
   .unwrap();
   let out = temp.path().join("index");
