@@ -2703,6 +2703,10 @@
           "named": true
         },
         {
+          "type": "comma_expression",
+          "named": true
+        },
+        {
           "type": "expression",
           "named": true
         }

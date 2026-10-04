@@ -898,3 +898,41 @@ void following(int* values) {
     assert!(SgLang::from_path("member.cc").unwrap().grep(bad).root().has_error(), "{bad}");
   }
 }
+
+#[test]
+fn cpp_decltype_comma_operands_remain_unevaluated_and_keep_original_spans() {
+  let lf = r#"
+struct Stream {};
+Stream& stream();
+int left();
+bool right();
+Stream& operator<<(Stream&, int);
+template <typename T> T&& obtain();
+struct TrueType {};
+template <typename U> struct Probe {
+  static auto test(int) -> decltype(stream() << obtain<U>(), TrueType());
+};
+using Result = decltype(left(), right());
+void runtime() { left(); right(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(product.items.iter().any(|item| item.entry.name == "runtime"));
+    for name in ["left", "right"] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), 1, "{name}: {calls:?}");
+      assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], format!("{name}()"));
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && ["stream", "obtain", "TrueType", "test"].contains(&r.name.as_str())));
+    let parsed = SgLang::from_path("decltype.cc").unwrap().grep(&source);
+    let operands: Vec<_> = parsed.root().dfs().filter(|n| n.is_named() && n.kind() == "decltype").collect();
+    assert_eq!(operands.len(), 2);
+    for operand in operands {
+      assert_eq!(&source[operand.range()], operand.text());
+      assert!(operand.children().any(|n| n.kind() == "comma_expression"));
+    }
+  }
+  for bad in ["using Broken = decltype(left(),);", "using Broken = decltype(,right());", "using Broken = decltype(left(), right()); void run() { left() }"] {
+    assert!(SgLang::from_path("decltype.cc").unwrap().grep(bad).root().has_error(), "{bad}");
+  }
+}

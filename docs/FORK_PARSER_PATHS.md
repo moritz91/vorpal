@@ -516,6 +516,21 @@ The 900-path native audit changes only Catch2: 138 to 137 ERROR/MISSING nodes,
 parser regressions, proof/recovery, configured MCP, replay in both layouts,
 member-call/resolver tests, native MSVC, Clippy, schema and provenance pass.
 
+Comma expressions are admitted only as complete unevaluated decltype operands.
+They retain original spans and the existing exclusion of operand callees from
+runtime edges; ordinary same-named calls still retain their original spans.
+The 900-path native audit changes only Catch2: 137 to 136 ERROR/MISSING nodes
+and 30251 to 30206 bytes, retaining all 2317 items. Totals are 24 C++ paths,
+1792 nodes and 137577 affected bytes. All 29 Windows/Linux parser regressions,
+the unchanged 179-test corpus, proof/recovery, configured and running MCP,
+replay in both layouts, member/resolver tests, native MSVC, Clippy, schema and
+provenance checks pass. No new visible kinds or schema changes are introduced.
+
+The verified a4a615c external candidate, before the comma-operand extension,
+reports 27 of 1735 paths, 1869 ERROR/MISSING nodes and 137973 affected bytes
+through normal MCP health, with 63846 graph nodes retained. The installed .2
+runtime remains unchanged.
+
 Watched MCP servers with configured C++ macro recovery also revalidate the
 exact consulted source/header inputs before answering quiet queries. External
 header edits, removal/recreation, ignored local shadows and redirected paths
