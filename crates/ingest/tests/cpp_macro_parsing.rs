@@ -602,3 +602,32 @@ void run(Value* pointer, Value& value, void (Value::*method)()) {
   assert!(product.refs.iter().any(|r| r.name == "direct" && r.kind == 0));
   assert!(!product.refs.iter().any(|r| r.name == "method" && r.kind == 0));
 }
+#[test]
+fn missing_tokens_are_reported_without_inventing_damaged_bytes() {
+  let path = "missing.cc";
+  let source = "int damaged() { return 1 }\nvoid after() {}\n";
+  let raw = SgLang::from_path(path).unwrap().grep(source);
+  assert!(raw.root().has_error());
+  let missing: Vec<_> = raw.root().dfs().filter(|n| n.is_missing()).map(|n| n.range()).collect();
+  assert!(!missing.is_empty());
+  assert!(!raw.root().dfs().any(|n| n.is_error()));
+  let extractor = OutlineExtractor::new().unwrap();
+  let product = extractor.extract_product(path, source).unwrap();
+  assert_eq!(product.error_nodes as usize, missing.len());
+  assert_eq!(product.error_bytes, 0);
+  for span in &product.error_spans {
+    assert_eq!(span.0, span.1);
+    assert!(missing.iter().any(|range| range.start == span.0 as usize));
+  }
+  let mut owned = Vec::new();
+  vorpal_ingest::encode_product_into(&product, &mut owned);
+  let mut streamed = Vec::new();
+  extractor.extract_product_encoded(path, source, 0, 0, &mut streamed).unwrap();
+  assert_eq!(owned, streamed);
+  let handoff = extractor.extract_product_from_root(path, &raw).unwrap();
+  assert_eq!(handoff.error_nodes, product.error_nodes);
+  assert_eq!(handoff.error_spans, product.error_spans);
+  // Prior products must not replay their incorrect clean telemetry.
+  owned[4..8].copy_from_slice(&22u32.to_le_bytes());
+  assert!(vorpal_ingest::decode_product_view(&owned).is_err());
+}

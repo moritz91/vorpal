@@ -488,7 +488,7 @@ pub struct DeadFilter {
 }
 
 /// Parse-damage suppression threshold: candidates in files with more than this fraction of
-/// bytes inside ERROR nodes are reported as suppressed, not dead.
+/// bytes inside ERROR/MISSING nodes are reported as suppressed, not dead.
 const DEAD_DAMAGE_RATIO: f64 = 0.10;
 
 /// Whole-graph dead-definition scan, page-materialized. Deterministic: candidates in

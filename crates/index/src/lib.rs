@@ -73,11 +73,11 @@ pub struct IndexReport {
   pub indexed: u64,
   /// Files whose cached extraction product was replayed without a parse.
   pub skipped: u64,
-  /// Files whose tree-sitter parse produced ERROR nodes — some of their definitions may be
+  /// Files whose tree-sitter parse produced ERROR/MISSING nodes — some of their definitions may be
   /// missing from the graph. A language-agnostic parse-health signal (graceful degradation
   /// made visible), 0 when every file parsed cleanly.
   pub error_files: u64,
-  /// Total tree-sitter ERROR nodes across all files — the magnitude behind `error_files`, so a
+  /// Total tree-sitter ERROR/MISSING nodes across all files — the magnitude behind `error_files`, so a
   /// corpus with one badly-broken file reads differently from one with many lightly-broken files.
   pub error_nodes: u64,
   /// Total bytes covered by (merged) ERROR ranges across all files — with per-file sizes, the
@@ -184,7 +184,7 @@ impl CacheMode {
   }
 }
 
-/// What a build does about files whose parse produced ERROR nodes (IMPROVEMENTS #11).
+/// What a build does about files whose parse produced ERROR/MISSING nodes (IMPROVEMENTS #11).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ParseHealthMode {
   /// Ingest everything, report the damage (the default — graceful degradation, visible).
@@ -200,7 +200,8 @@ pub enum ParseHealthMode {
 }
 
 /// The threshold a [`ParseHealthMode`] acts on: a file is unhealthy when its merged
-/// ERROR-covered bytes exceed `max_error_ratio` of its size (0.0 = any error byte).
+/// ERROR-covered bytes exceed `max_error_ratio` of its size. At 0.0 every syntax
+/// error, including a zero-length MISSING token, crosses the threshold.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ParseHealthPolicy {
   pub mode: ParseHealthMode,
@@ -221,6 +222,10 @@ impl ParseHealthPolicy {
   pub fn is_unhealthy(&self, error_bytes: u64, size: u64) -> bool {
     error_bytes > 0
       && (size == 0 || error_bytes as f64 / size as f64 > self.max_error_ratio)
+  }
+
+  fn has_unhealthy_parse(&self, nodes: u32, bytes: u64, size: u64) -> bool {
+    self.is_unhealthy(bytes, size) || (self.max_error_ratio == 0.0 && nodes > 0)
   }
 }
 
@@ -965,7 +970,7 @@ fn build_index_inner(
                 error_nodes.fetch_add(product.error_nodes as u64, std::sync::atomic::Ordering::Relaxed);
                 error_bytes.fetch_add(product.error_bytes, std::sync::atomic::Ordering::Relaxed);
               }
-              let unhealthy = policy.is_unhealthy(product.error_bytes, entry.size);
+              let unhealthy = policy.has_unhealthy_parse(product.error_nodes, product.error_bytes, entry.size);
               if unhealthy && policy.mode == ParseHealthMode::Fail {
                 note_unhealthy(&entry.path, product.error_bytes, entry.size);
               }
@@ -1008,7 +1013,7 @@ fn build_index_inner(
               error_nodes.fetch_add(ec as u64, std::sync::atomic::Ordering::Relaxed);
               error_bytes.fetch_add(eb, std::sync::atomic::Ordering::Relaxed);
             }
-            let unhealthy = policy.is_unhealthy(eb, entry.size);
+            let unhealthy = policy.has_unhealthy_parse(ec, eb, entry.size);
             if unhealthy && policy.mode == ParseHealthMode::Fail {
               note_unhealthy(&entry.path, eb, entry.size);
             }
@@ -1049,7 +1054,7 @@ fn build_index_inner(
         error_nodes.fetch_add(stats.error_nodes as u64, std::sync::atomic::Ordering::Relaxed);
         error_bytes.fetch_add(stats.error_bytes, std::sync::atomic::Ordering::Relaxed);
       }
-      let unhealthy = policy.is_unhealthy(stats.error_bytes, entry.size);
+      let unhealthy = policy.has_unhealthy_parse(stats.error_nodes, stats.error_bytes, entry.size);
       if unhealthy && policy.mode == ParseHealthMode::Fail {
         note_unhealthy(&entry.path, stats.error_bytes, entry.size);
       }
@@ -7331,7 +7336,7 @@ pub fn parse_health_report(index_dir: &Path) -> Result<String, Box<dyn Error>> {
     let language = vorpal_ingest::language_name_of(path).unwrap_or_else(|| "?".to_string());
     let _ = writeln!(
       out,
-      "{path} [{language}; extraction-id {:016x}]: {} ERROR nodes, {} of {} bytes ({ratio:.1}%)",
+      "{path} [{language}; extraction-id {:016x}]: {} ERROR/MISSING nodes, {} of {} bytes ({ratio:.1}%)",
       product.grammar_digest, product.error_nodes, product.error_bytes, product.source_size
     );
     for &(start, end) in &product.error_spans {
@@ -7369,7 +7374,7 @@ pub fn parse_health_report(index_dir: &Path) -> Result<String, Box<dyn Error>> {
       if product
         .error_spans
         .iter()
-        .any(|&(es, ee)| s < ee && es < e)
+        .any(|&(es, ee)| if es == ee { s <= es && es < e } else { s < ee && es < e })
       {
         affected.push(format!("{} [{:?}] (id {id})", view.name, view.kind));
       }
@@ -7379,7 +7384,7 @@ pub fn parse_health_report(index_dir: &Path) -> Result<String, Box<dyn Error>> {
     }
   }
   if unhealthy == 0 {
-    return Ok("parse health: clean — every indexed file parsed without ERROR nodes\n".into());
+    return Ok("parse health: clean — every indexed file parsed without ERROR/MISSING nodes\n".into());
   }
   let recovered = if recovered_files > 0 {
     format!(
@@ -7389,7 +7394,7 @@ pub fn parse_health_report(index_dir: &Path) -> Result<String, Box<dyn Error>> {
     String::new()
   };
   Ok(format!(
-    "parse health: {unhealthy} of {} files carry ERROR nodes ({total_error_bytes} damaged bytes total{recovered})\n{out}",
+    "parse health: {unhealthy} of {} files carry ERROR/MISSING nodes ({total_error_bytes} damaged bytes total{recovered})\n{out}",
     files.len()
   ))
 }

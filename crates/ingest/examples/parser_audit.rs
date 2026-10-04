@@ -18,11 +18,11 @@ fn main() {
     let parsed = lang.grep(&source);
     let product = extractor.extract_product(&path, &source).unwrap();
     println!("{}: errors {}, damaged {}, items {}", path, product.error_nodes, product.error_bytes, product.items.len());
-    for node in parsed.root().dfs().filter(|n| n.is_error()).take(25) {
+    for node in parsed.root().dfs().filter(|n| n.is_error() || n.is_missing()).take(25) {
       let range = node.range();
       let text = node.text();
       let preview: String = text.chars().take(140).collect();
-      println!("  {:?} {:?}", range, preview);
+      println!("  {} {:?} {:?}", if node.is_missing() { "MISSING" } else { "ERROR" }, range, preview);
     }
   }
 }

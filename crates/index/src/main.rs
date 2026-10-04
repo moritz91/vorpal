@@ -286,7 +286,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         if report.error_files > 0 {
           println!(
-            "note: {} files had parse errors ({} ERROR nodes across {} bytes; some definitions may be missing — see the 'health' verb)",
+            "note: {} files had parse errors ({} ERROR/MISSING nodes across {} bytes; some definitions may be missing — see the 'health' verb)",
             report.error_files, report.error_nodes, report.error_bytes
           );
         }

@@ -385,3 +385,11 @@ To inspect a source file without updating an index:
 ```sh
 cargo run -p vorpal-ingest --example parser_audit -- --cpp-headers path/to/file.h
 ```
+
+Parse-health telemetry now counts both ERROR and zero-length MISSING tokens.
+Missing tokens keep their original insertion positions without invented affected
+bytes; strict zero-threshold Fail/Exclude policies include them on fresh and
+replayed products. Positive thresholds remain affected-byte ratios. Product
+format generation 23 re-keys earlier products and the whole-tree fast path, so
+missing-only files previously reported as clean cannot replay that diagnosis.
+Historical ERROR-only audit totals above do not count MISSING tokens.

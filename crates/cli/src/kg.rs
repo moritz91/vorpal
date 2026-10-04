@@ -672,7 +672,7 @@ pub fn run_index(arg: IndexArg, project: Result<ProjectConfig>) -> Result<ExitCo
     );
     if report.error_files > 0 {
       println!(
-        "note: {} files had parse errors ({} ERROR nodes total; some definitions may be \
+        "note: {} files had parse errors ({} ERROR/MISSING nodes total; some definitions may be \
          missing) — tree-sitter could not fully parse them",
         report.error_files, report.error_nodes
       );

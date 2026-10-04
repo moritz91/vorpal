@@ -106,14 +106,14 @@ fn configured_roots_and_external_header_edits_reach_cli_and_mcp() {
     response["result"]["content"][0]["text"]
       .as_str()
       .unwrap()
-      .contains("carry ERROR nodes"),
+      .contains("carry ERROR/MISSING nodes"),
     "{response}"
   );
   index(&src, &out, &config);
   assert!(
     vorpal_index::parse_health_report(&out)
       .unwrap()
-      .contains("carry ERROR nodes")
+      .contains("carry ERROR/MISSING nodes")
   );
   // A later header edit can alter the replacement's syntax without redefining
   // CHECK itself. Normal MCP rebuilds must decline that expanded body too.
@@ -122,7 +122,7 @@ fn configured_roots_and_external_header_edits_reach_cli_and_mcp() {
     "#define CHECK(x) { effect(x); }\n#define effect }\n",
   )
   .unwrap();
-  assert!(health(mcp_rebuild(&src, &out, &config)).contains("carry ERROR nodes"));
+  assert!(health(mcp_rebuild(&src, &out, &config)).contains("carry ERROR/MISSING nodes"));
   fs::write(&header, "#define CHECK(x) { effect(x); }\n").unwrap();
   assert!(health(mcp_rebuild(&src, &out, &config)).contains("parse health: clean"));
 }
@@ -145,7 +145,7 @@ fn empty_roots_enable_local_includes_and_absent_config_keeps_default_errors() {
   assert!(
     vorpal_index::parse_health_report(&out)
       .unwrap()
-      .contains("carry ERROR nodes")
+      .contains("carry ERROR/MISSING nodes")
   );
   fs::write(&config, "ruleDirs: []\ncppMacroIncludeRoots: []\n").unwrap();
   index(&src, &out, &config);
@@ -172,7 +172,7 @@ fn repeated_once_headers_recover_in_mcp_and_header_edits_restore_errors() {
   index(&src, &out, &config);
   assert!(health(mcp_rebuild(&src, &out, &config)).contains("parse health: clean"));
   fs::write(&header, "#undef CHECK\n").unwrap();
-  assert!(health(mcp_rebuild(&src, &out, &config)).contains("carry ERROR nodes"));
+  assert!(health(mcp_rebuild(&src, &out, &config)).contains("carry ERROR/MISSING nodes"));
   fs::write(&header, "#pragma once\n#undef CHECK\n").unwrap();
   assert!(health(mcp_rebuild(&src, &out, &config)).contains("parse health: clean"));
 }
@@ -189,4 +189,25 @@ fn health(response: Value) -> String {
     .as_str()
     .unwrap()
     .to_owned()
+}
+
+#[test]
+fn normal_mcp_health_reports_missing_only_tokens_on_warm_products() {
+  let temp = fixture_dir();
+  let src = temp.path().join("src");
+  fs::create_dir(&src).unwrap();
+  fs::write(src.join("missing.cc"), "int damaged() { return 1 }\n").unwrap();
+  let config = temp.path().join("vorpalconfig.yml");
+  fs::write(&config, "ruleDirs: []\ncppMacroIncludeRoots: []\n").unwrap();
+  let out = temp.path().join("index");
+  index(&src, &out, &config);
+  for _ in 0..2 {
+    let report = health(mcp_rebuild(&src, &out, &config));
+    assert!(
+      report.contains("1 of 1 files carry ERROR/MISSING nodes"),
+      "{report}"
+    );
+    assert!(report.contains("0 damaged bytes"), "{report}");
+    assert!(report.contains("missing.cc"), "{report}");
+  }
 }

@@ -21,7 +21,7 @@ fn parse_health_native_paths_preserve_damage_and_missing_products_are_not_clean(
   assert_eq!(build.error_files, 1);
   let report = vorpal_index::parse_health_report(&out).unwrap();
   assert!(
-    report.contains("1 of 2 files carry ERROR nodes"),
+    report.contains("1 of 2 files carry ERROR/MISSING nodes"),
     "{report}"
   );
   assert!(report.contains("damaged"), "{report}");
@@ -45,4 +45,64 @@ fn parse_health_native_paths_preserve_damage_and_missing_products_are_not_clean(
   }
   assert!(vorpal_index::parse_health_report(&out).is_err());
   let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn missing_only_health_survives_replay_and_strict_policies() {
+  use vorpal_index::{CacheMode, ParseHealthMode, ParseHealthPolicy, build_index_full};
+  let nonce = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_nanos();
+  let root = std::env::temp_dir().join(format!(
+    "vorpal-missing-health-{}-{nonce}",
+    std::process::id()
+  ));
+  let src = root.join("src");
+  fs::create_dir_all(&src).unwrap();
+  fs::write(src.join("missing.cc"), "int damaged() { return 1 }\n").unwrap();
+  fs::write(src.join("clean.cc"), "void clean() {}\n").unwrap();
+  let out = root.join("index");
+  for _ in 0..2 {
+    let built = build_index_full(
+      &src,
+      &out,
+      CacheMode::Verified,
+      ParseHealthPolicy::default(),
+      None,
+    )
+    .unwrap();
+    assert_eq!(built.error_files, 1);
+    assert!(built.error_nodes > 0);
+    assert_eq!(built.error_bytes, 0);
+    let health = vorpal_index::parse_health_report(&out).unwrap();
+    assert!(
+      health.contains("1 of 2 files carry ERROR/MISSING nodes"),
+      "{health}"
+    );
+    assert!(health.contains("0 damaged bytes"), "{health}");
+    assert!(
+      health.contains("entities in damaged regions: damaged"),
+      "{health}"
+    );
+  }
+  let strict = ParseHealthPolicy {
+    mode: ParseHealthMode::Fail,
+    max_error_ratio: 0.0,
+  };
+  let error = build_index_full(&src, &out, CacheMode::Verified, strict, None).unwrap_err();
+  assert!(error.to_string().contains("missing.cc"), "{error}");
+  let exclude = ParseHealthPolicy {
+    mode: ParseHealthMode::Exclude,
+    max_error_ratio: 0.0,
+  };
+  let excluded = build_index_full(&src, &out, CacheMode::Verified, exclude, None).unwrap();
+  assert_eq!(excluded.excluded_files, 1);
+  // Positive thresholds remain byte ratios, without inventing an error-byte width.
+  let lenient = ParseHealthPolicy {
+    mode: ParseHealthMode::Fail,
+    max_error_ratio: 0.1,
+  };
+  build_index_full(&src, &out, CacheMode::Verified, lenient, None).unwrap();
+  fs::remove_dir_all(root).unwrap();
 }

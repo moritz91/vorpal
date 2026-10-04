@@ -669,22 +669,22 @@ impl OutlineExtractor {
       Vec::new()
     };
     let root = grep.root();
-    // Graceful-degradation telemetry (all languages): count the tree-sitter ERROR nodes this
-    // parse produced (0 = clean) AND measure the damage — merged error ranges give an honest
+    // Graceful-degradation telemetry (all languages): count tree-sitter syntax-error nodes this
+    // parse produced, including MISSING nodes (0 = clean), and measure the damage.
+    // Merged error ranges give an honest
     // affected-byte count (nested ERRORs never double-count) plus up to eight representative
     // spans, so health policies can threshold on a ratio and humans can look at the wreckage
     // without re-parsing (IMPROVEMENTS #11).
     //
     // The scan is gated on the root's O(1) `has_error` subtree flag: a clean parse (the
-    // overwhelming majority of files) has provably zero ERROR nodes, so we skip the full-tree
-    // DFS entirely. When the flag is set we walk exactly as before — a MISSING-only tree (flag
-    // set, no ERROR node) still yields `(0, 0, [])`, byte-identical to the ungated result.
+    // overwhelming majority of files) has zero ERROR or MISSING nodes, so skip its DFS.
+    // Missing tokens retain zero-length insertion spans and contribute no affected bytes.
     let (error_nodes, error_bytes, error_spans) = if root.has_error()
       || injected.iter().any(|sub| sub.root().has_error())
     {
       let mut error_ranges: Vec<(u32, u32)> = root
         .dfs()
-        .filter(|node| node.is_error())
+        .filter(|node| node.is_error() || node.is_missing())
         .map(|node| {
           let range = node.range();
           (range.start as u32, range.end as u32)
@@ -692,7 +692,7 @@ impl OutlineExtractor {
         .collect();
       for sub in &injected {
         let sub_root = sub.root();
-        error_ranges.extend(sub_root.dfs().filter(|node| node.is_error()).map(|node| {
+        error_ranges.extend(sub_root.dfs().filter(|node| node.is_error() || node.is_missing()).map(|node| {
           let range = node.range();
           (range.start as u32, range.end as u32)
         }));
