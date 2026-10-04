@@ -67,5 +67,25 @@ fn conflicting_observations_require_a_new_epoch_and_canaries_publish_no_inputs()
   assert!(!freshness.has_changed());
   fs::remove_file(&header).unwrap();
   assert!(freshness.has_changed());
+  #[cfg(unix)]
+  {
+    let alias = base.join("alias.cc");
+    std::os::unix::fs::symlink(path, &alias).unwrap();
+    freshness.begin_refresh();
+    extractor
+      .extract_product(alias.to_str().unwrap(), source)
+      .unwrap();
+    freshness.finish_refresh();
+    assert!(
+      !freshness.has_changed(),
+      "declining redirected source proof is not a perpetual freshness failure"
+    );
+    fs::remove_file(&alias).unwrap();
+    fs::write(&alias, source).unwrap();
+    assert!(
+      freshness.has_changed(),
+      "removing source redirection changes its observation even with equal bytes"
+    );
+  }
   fs::remove_dir_all(base).unwrap();
 }

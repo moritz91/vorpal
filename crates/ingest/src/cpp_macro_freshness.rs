@@ -14,9 +14,10 @@ struct Fingerprint {
 fn fingerprint(path: &Path) -> Fingerprint {
   let redirected = crate::cpp_macro_evidence::path_has_redirected_components(path);
   let digest = (|| {
-    // Declined redirected paths and non-files are state observations only;
-    // opening a named pipe before checking its type could block a query.
-    if redirected || !std::fs::metadata(path).ok()?.is_file() {
+    // Check the target type before opening: a named pipe could block a query.
+    // Reading a regular redirected target is a freshness observation only;
+    // macro evidence still rejects redirected paths independently.
+    if !std::fs::metadata(path).ok()?.is_file() {
       return None;
     }
     let mut file = std::fs::File::open(path).ok()?;
