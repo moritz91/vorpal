@@ -64,7 +64,7 @@ fn mcp_rebuild(src: &std::path::Path, out: &std::path::Path, config: &std::path:
 
 #[test]
 fn configured_roots_and_external_header_edits_reach_cli_and_mcp() {
-  let temp = tempfile::tempdir().unwrap();
+  let temp = fixture_dir();
   let src = temp.path().join("src");
   let cfg = temp.path().join("settings");
   let sdk = cfg.join("sdk");
@@ -119,7 +119,7 @@ fn configured_roots_and_external_header_edits_reach_cli_and_mcp() {
 
 #[test]
 fn empty_roots_enable_local_includes_and_absent_config_keeps_default_errors() {
-  let temp = tempfile::tempdir().unwrap();
+  let temp = fixture_dir();
   let src = temp.path().join("src");
   fs::create_dir(&src).unwrap();
   fs::write(src.join("proof.h"), "#define CHECK(x) { effect(x); }\n").unwrap();
@@ -148,7 +148,7 @@ fn empty_roots_enable_local_includes_and_absent_config_keeps_default_errors() {
 
 #[test]
 fn repeated_once_headers_recover_in_mcp_and_header_edits_restore_errors() {
-  let temp = tempfile::tempdir().unwrap();
+  let temp = fixture_dir();
   let src = temp.path().join("src");
   let sdk = temp.path().join("sdk");
   fs::create_dir(&src).unwrap();
@@ -171,4 +171,11 @@ fn repeated_once_headers_recover_in_mcp_and_header_edits_restore_errors() {
   assert!(health(mcp_rebuild(&src, &out, &config)).contains("carry ERROR nodes"));
   fs::write(&header, "#pragma once\n#undef CHECK\n").unwrap();
   assert!(health(mcp_rebuild(&src, &out, &config)).contains("parse health: clean"));
+}
+
+fn fixture_dir() -> tempfile::TempDir {
+  let path = std::env::temp_dir();
+  #[cfg(unix)]
+  let path = path.canonicalize().unwrap_or(path);
+  tempfile::tempdir_in(path).unwrap()
 }

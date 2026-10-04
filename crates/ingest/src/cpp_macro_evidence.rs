@@ -52,7 +52,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v5\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v6\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -89,6 +89,7 @@ struct Audit {
   pasted_names: BTreeSet<String>,
   ordinary_names: BTreeSet<String>,
   pragma_operator: bool,
+  opaque_environment: bool,
   remaining_bytes: usize,
   remaining_files: usize,
 }
@@ -102,26 +103,20 @@ pub fn audit(path: &Path, source: &str) -> Evidence {
 /// Search quoted includes locally first, then in the supplied root order.
 /// Angle includes search only the supplied roots. Never infer a search root.
 pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) -> Evidence {
-  // Canonicalizing a file symlink can change the directory used for quoted
-  // includes. Decline proof instead of silently choosing the target's directory.
-  if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+  // Canonicalizing a file or ancestor-directory redirect can change quoted
+  // include lookup. Decline proof instead of choosing a different directory.
+  if path_has_redirected_components(path) {
     return Evidence {
       bindings: Vec::new(),
       dependencies: vec![Dependency {
         path: std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()),
         digest: None,
       }],
-      include_roots: include_roots
-        .iter()
-        .map(|p| canonical_or_absolute(p))
-        .collect(),
+      include_roots: include_roots.iter().map(|p| lexical_absolute(p)).collect(),
     };
   }
   let mut audit = Audit {
-    include_roots: include_roots
-      .iter()
-      .map(|p| canonical_or_absolute(p))
-      .collect(),
+    include_roots: include_roots.iter().map(|p| lexical_absolute(p)).collect(),
     dependencies: BTreeMap::new(),
     stack: Vec::new(),
     definitely_once: BTreeSet::new(),
@@ -130,6 +125,7 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
     pasted_names: BTreeSet::new(),
     ordinary_names: BTreeSet::new(),
     pragma_operator: false,
+    opaque_environment: false,
     remaining_bytes: 4 * 1024 * 1024,
     remaining_files: 128,
   };
@@ -152,6 +148,41 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
       .map(|(path, digest)| Dependency { path, digest })
       .collect(),
   }
+}
+
+// Preserve include-root spelling until each candidate has been checked. A
+// canonical root would erase directory aliases before proof can reject them.
+fn lexical_absolute(path: &Path) -> PathBuf {
+  if path.is_absolute() {
+    path.to_path_buf()
+  } else {
+    std::env::current_dir()
+      .map(|dir| dir.join(path))
+      .unwrap_or_else(|_| path.to_path_buf())
+  }
+}
+
+/// Check proof inputs before canonicalization erases source/include redirects.
+/// A redirected source root must not enter an opt-in index build.
+pub fn path_has_redirected_components(path: &Path) -> bool {
+  let path = lexical_absolute(path);
+  path.ancestors().any(|component| {
+    let Ok(metadata) = std::fs::symlink_metadata(component) else {
+      return false;
+    };
+    if metadata.file_type().is_symlink() {
+      return true;
+    }
+    #[cfg(windows)]
+    {
+      use std::os::windows::fs::MetadataExt;
+      // Junctions and other reparse points need not be file symlinks.
+      if metadata.file_attributes() & 0x400 != 0 {
+        return true;
+      }
+    }
+    false
+  })
 }
 
 fn canonical_or_absolute(path: &Path) -> PathBuf {
@@ -252,6 +283,7 @@ impl Audit {
       } else if let Some(relative) = text.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
         (relative, false)
       } else {
+        self.opaque_environment = true;
         environment.clear();
         return;
       };
@@ -271,11 +303,13 @@ impl Audit {
         }
         Err(_) => {
           self.dependencies.insert(path, None);
+          self.opaque_environment = true;
           environment.clear();
           return;
         }
       }
     }
+    self.opaque_environment = true;
     environment.clear();
   }
 
@@ -285,8 +319,9 @@ impl Audit {
     environment: &mut BTreeMap<String, StatementMacro>,
     definite: bool,
   ) {
-    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+    if path_has_redirected_components(path) {
       self.dependencies.insert(path.to_path_buf(), None);
+      self.opaque_environment = true;
       environment.clear();
       return;
     }
@@ -303,6 +338,7 @@ impl Audit {
       || std::fs::metadata(&path).is_ok_and(|m| m.len() > self.remaining_bytes as u64)
     {
       self.dependencies.insert(path, None);
+      self.opaque_environment = true;
       environment.clear();
       return;
     }
@@ -319,6 +355,7 @@ impl Audit {
       bytes.as_ref().map(|b| xxhash_rust::xxh3::xxh3_64(b)),
     );
     let Some(bytes) = bytes else {
+      self.opaque_environment = true;
       environment.clear();
       return;
     };
@@ -327,12 +364,14 @@ impl Audit {
       || self.remaining_files == 0
       || bytes.len() > self.remaining_bytes
     {
+      self.opaque_environment = true;
       environment.clear();
       return;
     }
     self.remaining_files -= 1;
     self.remaining_bytes -= bytes.len();
     let Ok(source) = std::str::from_utf8(&bytes) else {
+      self.opaque_environment = true;
       environment.clear();
       return;
     };
@@ -387,7 +426,8 @@ impl Audit {
               let parameters: Vec<_> = parameters.children().filter(|n| n.is_named()).collect();
               let unique: std::collections::BTreeSet<_> =
                 parameters.iter().map(|n| n.text().into_owned()).collect();
-              if simple_parameters
+              if !self.opaque_environment
+                && simple_parameters
                 && unique.len() == parameters.len()
                 && complete_statement(&source[first.range().start..last.range().end])
               {
@@ -403,6 +443,7 @@ impl Audit {
               }
             }
           } else {
+            self.opaque_environment = true;
             environment.clear();
           }
         }
@@ -410,6 +451,7 @@ impl Audit {
           if let Some(name) = node.field("name") {
             environment.remove(name.text().as_ref());
           } else {
+            self.opaque_environment = true;
             environment.clear();
           }
         }
@@ -419,6 +461,7 @@ impl Audit {
           {
             self.resolve_include(path, &include.text(), definite, environment);
           } else {
+            self.opaque_environment = true;
             environment.clear();
           }
         }
@@ -446,6 +489,7 @@ impl Audit {
               self.possibly_once.insert(path.to_path_buf());
             }
           } else {
+            self.opaque_environment = true;
             environment.clear();
           }
         }
@@ -466,6 +510,7 @@ impl Audit {
                 if let Some(name) = directive.field("name") {
                   environment.remove(name.text().as_ref());
                 } else {
+                  self.opaque_environment = true;
                   environment.clear();
                 }
               }
@@ -475,6 +520,7 @@ impl Audit {
                   self.resolve_include(path, &include.text(), false, environment);
                   environment.retain(|name, definition| entering.get(name) == Some(definition));
                 } else {
+                  self.opaque_environment = true;
                   environment.clear();
                 }
               }
@@ -490,6 +536,7 @@ impl Audit {
                     {
                       environment.remove(name);
                     } else {
+                      self.opaque_environment = true;
                       environment.clear();
                     }
                   }
@@ -506,6 +553,7 @@ impl Audit {
                   .field("condition")
                   .is_some_and(|condition| nonexpanding_condition(&condition.text()))
                 {
+                  self.opaque_environment = true;
                   environment.clear();
                 }
               }
@@ -525,6 +573,7 @@ impl Audit {
             .dfs()
             .any(|n| n.kind().starts_with("preproc_") || n.is_error() && n.text().contains('#'))
           {
+            self.opaque_environment = true;
             environment.clear();
           }
         }

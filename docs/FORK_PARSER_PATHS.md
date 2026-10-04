@@ -213,11 +213,20 @@ and compound-statement replacements, original definition spans, parameter counts
 and ordered active intervals. Quoted includes search locally before explicit
 ordered roots; angle includes search only those roots. Missing earlier candidates
 are dependencies, so newly created local headers invalidate an earlier SDK hit.
-Present unreadable candidates stop resolution. File symlinks conservatively end
-proof because canonicalization can change their quoted-include directory.
+Present unreadable candidates stop resolution. Source/header file symlinks,
+ancestor-directory symlinks and Windows reparse points (including junctions)
+conservatively end proof: canonicalization can choose a different quoted header
+than the compiler. Include-root spelling is retained until candidate components
+are checked. Opt-in full/live builds reject redirected source roots before the
+shared canonicalizer erases their spelling; default indexing retains its existing
+root behavior. Use compiler-consistent physical paths for proof-backed recovery.
 
 Redefinitions, undef, unknown directives, unresolved includes, cycles and
-depth/file/byte limits end evidence. Well-formed #ifdef/#ifndef groups and #if/#elif
+depth/file/byte limits end evidence. Opaque include/directive effects also prevent
+later definitions from restarting proof: unseen replacement helpers can restore
+saved macros or redirect future includes. Earlier intervals retain their original
+boundaries, and the whole-name scanner gate still rejects any later unproved use.
+Well-formed #ifdef/#ifndef groups and #if/#elif
 conditions composed only of 0, 1, defined operands, parentheses and !/&&/|| preserve
 only entering definitions that remain unchanged across every possible branch:
 all branch includes are consulted and tracked, and a possible redefine/undef
@@ -229,7 +238,7 @@ so it cannot introduce new proof or mark nested headers as definitely visited.
 A conditional pragma is never treated as unconditional. Unguarded cycles still
 end proof. Header bytes and missing search candidates remain dependencies;
 removing/reinstating `#pragma once` invalidates warm products and normal MCP
-rebuilds. Evidence identity v5 includes these nonexpanding conditions and rejects
+rebuilds. Evidence identity v6 includes path-component/opaque-effect guards and rejects
 opaque pragma effects. Literal `_Pragma` or
 `__pragma` operators in a translation unit or consulted replacement lists disable
 its recovery, including operators joined by continuation lines. Invoked token-pasting
@@ -275,16 +284,18 @@ per-file identity gate. Custom environments bypass default-only live overlay lan
 Callers outside the index pipeline must use the extractor's dependency-aware
 `extraction_identity_for_path`, rather than the free grammar/rules helper.
 
-Eight recovery tests on Windows/Linux cover spans and arguments, wrong arity,
-genuine syntax errors, parser/thread reuse, nested/panic restoration, header edits
-and identical owned/streamed/scan-handoff products. Sixteen evidence tests pass on Windows, with seventeen on Linux including the
-Unix symlink regression. An index regression checks external
-header edit/removal, local shadow creation/removal, warm product replay, hinted live
-builds and scratch/incremental generation equality in bucketed and flat formats.
-Eighteen parser regressions, unchanged corpus, Clippy, native Windows provenance,
-MSVC fixtures, resolver evaluations and existing live/cutoff/replay tests pass.
-The original 80-file default-parser audit remains 16 error-bearing files, 361 ERROR
-nodes and 137650 affected bytes.
+Twelve recovery tests on Windows/Linux cover spans and arguments, wrong arity,
+genuine syntax errors, parser/thread reuse, nested/panic restoration, header edits,
+opaque effects and identical owned/streamed/scan-handoff products. Twenty-one
+evidence tests pass on Windows and twenty-two on Linux, including directory
+redirects and the Unix file-symlink case. Four index regressions check external
+header edit/removal, local shadow creation/removal, warm product replay, hinted
+live builds, opaque effects, directory redirects and scratch/incremental generation
+equality in bucketed and flat formats. Three configured CLI/MCP tests pass on both
+platforms. Twenty parser regressions, unchanged corpus, Clippy, native Windows
+provenance, MSVC fixtures, resolver evaluations and existing live/cutoff/replay
+checks pass. The historical subset audit is recorded below; it must not be confused
+with installed MCP health.
 
 Inspect evidence or a recovered tree report without writing an index:
 

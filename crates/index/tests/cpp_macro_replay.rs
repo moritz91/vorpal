@@ -8,7 +8,7 @@ fn external_header_changes_and_local_shadowing_rebuild_dependent_products() {
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap()
     .as_nanos();
-  let root = std::env::temp_dir().join(format!("vorpal-cpp-replay-{}-{nonce}", std::process::id()));
+  let root = physical_temp_dir().join(format!("vorpal-cpp-replay-{}-{nonce}", std::process::id()));
   let src = root.join("src");
   let sdk = root.join("sdk");
   fs::create_dir_all(&src).unwrap();
@@ -101,8 +101,7 @@ fn pragma_once_header_changes_invalidate_warm_products() {
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap()
     .as_nanos();
-  let root =
-    std::env::temp_dir().join(format!("vorpal-once-replay-{}-{nonce}", std::process::id()));
+  let root = physical_temp_dir().join(format!("vorpal-once-replay-{}-{nonce}", std::process::id()));
   let src = root.join("src");
   let sdk = root.join("sdk");
   fs::create_dir_all(&src).unwrap();
@@ -150,7 +149,7 @@ fn header_pragma_operator_invalidates_recovered_products() {
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap()
     .as_nanos();
-  let root = std::env::temp_dir().join(format!(
+  let root = physical_temp_dir().join(format!(
     "vorpal-pragma-effect-replay-{}-{nonce}",
     std::process::id()
   ));
@@ -205,4 +204,137 @@ fn header_pragma_operator_invalidates_recovered_products() {
     fs::read(out.join("CURRENT")).unwrap(),
     fs::read(scratch.join("CURRENT")).unwrap()
   );
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn directory_redirect_creation_and_removal_invalidates_macro_products() {
+  let nonce = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_nanos();
+  let root = physical_temp_dir().join(format!(
+    "vorpal-directory-replay-{}-{nonce}",
+    std::process::id()
+  ));
+  let src = root.join("src");
+  let sdk = root.join("sdk");
+  let real = root.join("real");
+  fs::create_dir_all(&src).unwrap();
+  fs::create_dir(&sdk).unwrap();
+  fs::create_dir(&real).unwrap();
+  let safe = "#define CHECK(x) { effect(x); }\n";
+  fs::write(sdk.join("proof.h"), safe).unwrap();
+  fs::write(real.join("proof.h"), safe).unwrap();
+  fs::write(
+    src.join("run.cc"),
+    "#include <proof.h>\nvoid run() { CHECK(value()) after(); }\n",
+  )
+  .unwrap();
+  let env = ExtractionEnv {
+    cpp_macro_include_roots: Some(vec![sdk.clone()]),
+    ..Default::default()
+  };
+  let out = root.join("index");
+  let build = |out: &Path| {
+    build_index_env(
+      &src,
+      out,
+      CacheMode::default(),
+      ParseHealthPolicy::default(),
+      &env,
+    )
+    .unwrap()
+  };
+  assert_eq!(build(&out).error_nodes, 0);
+  assert_eq!(build(&out).indexed, 0);
+  fs::remove_file(sdk.join("proof.h")).unwrap();
+  fs::remove_dir(&sdk).unwrap();
+  #[cfg(unix)]
+  std::os::unix::fs::symlink(&real, &sdk).unwrap();
+  #[cfg(windows)]
+  {
+    let result = std::process::Command::new("cmd")
+      .args(["/d", "/c", "mklink", "/J"])
+      .arg(&sdk)
+      .arg(&real)
+      .output()
+      .unwrap();
+    assert!(
+      result.status.success(),
+      "{}",
+      String::from_utf8_lossy(&result.stderr)
+    );
+  }
+  // Both full and live entry points must reject source aliases before their
+  // shared canonicalizer can silently choose different quoted headers.
+  let alias_env = ExtractionEnv {
+    cpp_macro_include_roots: Some(vec![]),
+    ..Default::default()
+  };
+  let rejected = build_index_env(
+    &sdk,
+    &root.join("aliased-index"),
+    CacheMode::default(),
+    ParseHealthPolicy::default(),
+    &alias_env,
+  );
+  assert!(
+    rejected
+      .unwrap_err()
+      .to_string()
+      .contains("unredirected source root")
+  );
+  let rejected = vorpal_index::build_index_live(&sdk, &root.join("aliased-live"), None, &alias_env);
+  match rejected {
+    Err(error) => assert!(error.to_string().contains("unredirected source root")),
+    Ok(_) => panic!("live builds must reject redirected source roots"),
+  }
+  assert!(
+    build_index_env(
+      &sdk,
+      &root.join("aliased-default"),
+      CacheMode::default(),
+      ParseHealthPolicy::default(),
+      &ExtractionEnv::default()
+    )
+    .is_ok(),
+    "default indexing keeps its existing canonical-root behavior"
+  );
+  let redirected = build(&out);
+  assert_eq!(
+    redirected.indexed, 1,
+    "an unchanged header behind a redirect must not replay its old proof"
+  );
+  assert!(redirected.error_nodes > 0);
+  assert!(!redirected.reused && !redirected.graph_reused);
+  #[cfg(windows)]
+  fs::remove_dir(&sdk).unwrap();
+  #[cfg(unix)]
+  fs::remove_file(&sdk).unwrap();
+  fs::create_dir(&sdk).unwrap();
+  fs::write(sdk.join("proof.h"), safe).unwrap();
+  let restored = build(&out);
+  assert_eq!(restored.indexed, 1);
+  assert_eq!(restored.error_nodes, 0);
+  let scratch = root.join("scratch");
+  build(&scratch);
+  assert_eq!(
+    fs::read(out.join("CURRENT")).unwrap(),
+    fs::read(scratch.join("CURRENT")).unwrap()
+  );
+}
+
+// Some platforms spell their temp directory through a system symlink. Ordinary
+// fixtures use the physical path; alias tests create their own explicit redirects.
+fn physical_temp_dir() -> std::path::PathBuf {
+  let path = std::env::temp_dir();
+  #[cfg(unix)]
+  {
+    path.canonicalize().unwrap_or(path)
+  }
+  #[cfg(not(unix))]
+  {
+    path
+  }
 }

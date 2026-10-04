@@ -156,7 +156,7 @@ struct Fixture(std::path::PathBuf);
 impl Fixture {
   fn new() -> Self {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let path = std::env::temp_dir().join(format!(
+    let path = physical_temp_dir().join(format!(
       "vorpal-macro-evidence-{}-{}",
       std::process::id(),
       NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -567,4 +567,102 @@ fn nonexpanding_condition_includes_track_even_literal_inactive_branches() {
       .is_none(),
     "the audit must not evaluate #if 0"
   );
+}
+
+#[test]
+fn opaque_include_or_directive_effects_prevent_later_proof_restarts() {
+  for boundary in [
+    "#include \"unknown.h\"",
+    "#pragma push_macro(\"CHECK\")",
+    "#if UNKNOWN\nstruct First {};\n#endif",
+  ] {
+    let source =
+      format!("{boundary}\n#define CHECK(x) {{ effect(x); }}\nRESTORE();\nCHECK(value())\n");
+    assert!(
+      audit(Path::new("proof.cc"), &source).bindings.is_empty(),
+      "{boundary}"
+    );
+  }
+}
+
+#[cfg(any(unix, windows))]
+fn make_directory_alias(target: &std::path::Path, alias: &std::path::Path) {
+  #[cfg(unix)]
+  std::os::unix::fs::symlink(target, alias).unwrap();
+  #[cfg(windows)]
+  {
+    let result = std::process::Command::new("cmd")
+      .args(["/d", "/c", "mklink", "/J"])
+      .arg(alias)
+      .arg(target)
+      .output()
+      .unwrap();
+    assert!(
+      result.status.success(),
+      "{}",
+      String::from_utf8_lossy(&result.stderr)
+    );
+  }
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn directory_aliases_cannot_change_quoted_include_proofs() {
+  let fixture = Fixture::new();
+  let real = fixture.0.join("real");
+  let headers = real.join("headers");
+  std::fs::create_dir_all(&headers).unwrap();
+  let alias = fixture.0.join("alias");
+  make_directory_alias(&headers, &alias);
+  std::fs::write(headers.join("proof.h"), "#include \"../detail.h\"\n").unwrap();
+  std::fs::write(real.join("detail.h"), "#define CHECK(x) { effect(x); }\n").unwrap();
+  std::fs::write(
+    fixture.0.join("detail.h"),
+    "#define CHECK(x) expression(x)\n",
+  )
+  .unwrap();
+  let source = "#include \"alias/proof.h\"\nCHECK(value())\n";
+  let evidence = audit(&fixture.0.join("run.cc"), source);
+  assert!(evidence.bindings.is_empty());
+  assert!(
+    evidence
+      .dependencies
+      .iter()
+      .any(|d| d.path.ends_with("alias/proof.h") && d.digest.is_none())
+  );
+  let rooted = audit_with_roots(
+    &fixture.0.join("run.cc"),
+    "#include <proof.h>\nCHECK(value())\n",
+    std::slice::from_ref(&alias),
+  );
+  assert!(rooted.bindings.is_empty());
+  assert_eq!(
+    rooted.include_roots.as_slice(),
+    std::slice::from_ref(&alias),
+    "root spelling must not erase the alias"
+  );
+  let direct = "#define CHECK(x) { effect(x); }\nCHECK(value())\n";
+  assert!(
+    audit(&alias.join("run.cc"), direct).bindings.is_empty(),
+    "source parent aliases are also rejected"
+  );
+  // The alias is removed directly; no recursive operation follows its target.
+  #[cfg(windows)]
+  std::fs::remove_dir(&alias).unwrap();
+  #[cfg(unix)]
+  std::fs::remove_file(&alias).unwrap();
+}
+
+// Some platforms spell their temp directory through a system symlink. Ordinary
+// fixtures use the physical path; alias tests create their own explicit redirects.
+fn physical_temp_dir() -> std::path::PathBuf {
+  let path = std::env::temp_dir();
+  #[cfg(unix)]
+  {
+    path.canonicalize().unwrap_or(path)
+  }
+  #[cfg(not(unix))]
+  {
+    path
+  }
 }

@@ -526,6 +526,13 @@ fn build_index_inner(
   live: Option<&mut LiveSlots>,
   env: &vorpal_ingest::ExtractionEnv,
 ) -> Result<IndexReport, Box<dyn Error>> {
+  if env.cpp_macro_include_roots.is_some()
+    && vorpal_ingest::cpp_macro_evidence::path_has_redirected_components(src)
+  {
+    return Err(io::Error::other(
+      "C++ macro recovery requires an unredirected source root; use compiler-consistent physical paths",
+    ).into());
+  }
   // One tree, ONE spelling: canonicalize the root so every producer — CLI argv, daemon
   // watch root, bindings — keys manifests, pack entries, and node identities (eids hash
   // the path) identically. Without this a daemon-committed generation (canonical watch

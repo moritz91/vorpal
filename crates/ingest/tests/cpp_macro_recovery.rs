@@ -130,7 +130,7 @@ fn header_edit_creation_and_removal_change_fresh_recovery_proof() {
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap()
     .as_nanos();
-  let dir = std::env::temp_dir().join(format!(
+  let dir = physical_temp_dir().join(format!(
     "vorpal-macro-recovery-{}-{nonce}",
     std::process::id()
   ));
@@ -276,5 +276,28 @@ fn nonexpanding_conditions_keep_recovery_without_selecting_a_branch() {
       }
       assert!(!report.calls.iter().any(|(name, _)| name == "CHECK"));
     }
+  }
+}
+
+#[test]
+fn opaque_headers_cannot_supply_hidden_restore_macros_to_later_local_proof() {
+  let source = "#include \"unavailable.h\"\n#define CHECK(x) { effect(x); }\nRESTORE();\nvoid run() { CHECK(value()) after(); }\n";
+  let report = audit_recovery(Path::new("fixture.cc"), source, &[]);
+  assert!(report.has_error, "{report:?}");
+  assert!(report.eligible_names.is_empty());
+  assert!(report.macro_spans.is_empty());
+}
+
+// Some platforms spell their temp directory through a system symlink. Ordinary
+// fixtures use the physical path; alias tests create their own explicit redirects.
+fn physical_temp_dir() -> std::path::PathBuf {
+  let path = std::env::temp_dir();
+  #[cfg(unix)]
+  {
+    path.canonicalize().unwrap_or(path)
+  }
+  #[cfg(not(unix))]
+  {
+    path
   }
 }
