@@ -1918,6 +1918,7 @@ pub(crate) fn walk_reference_tree<'t>(
   mut signer: Option<&mut crate::signature::Signer>,
 ) {
   let spec = &*resolved.spec;
+  let cpp_conditions = *scope.lang() == SgLang::Builtin(SupportLang::Cpp);
   let binders = &mut walk.binders;
   let pending = &mut walk.pending;
   // Definition-head calls suppressed by a SkipDefinition rule (`def foo(x)` → `foo(x)`).
@@ -1989,9 +1990,28 @@ pub(crate) fn walk_reference_tree<'t>(
           pending,
         ),
         Chain::Call(idx) => {
-          // SAL metadata and decltype operands are unevaluated declaration contexts.
+          // Declaration metadata and preprocessor conditions are not runtime
+          // calls. Conditional nodes can also contain real runtime bodies, so
+          // suppress their condition field rather than their entire subtree.
+          let call_range = node.range();
           if ancestors.iter().any(|ancestor| {
-            matches!(ancestor.kind().as_ref(), "sdk_parameter_annotation" | "decltype")
+            let kind = ancestor.kind();
+            if matches!(kind.as_ref(), "sdk_parameter_annotation" | "decltype") {
+              return true;
+            }
+            if !cpp_conditions {
+              return false;
+            }
+            let field = match kind.as_ref() {
+              "conditional_storage_modifier" => return true,
+              "conditional_if_statement" | "conditional_linkage_open" | "conditional_linkage_close" => "preproc_condition",
+              "preproc_if" | "preproc_elif" => "condition",
+              _ => return false,
+            };
+            ancestor.field(field).is_some_and(|condition| {
+              let range = condition.range();
+              range.start <= call_range.start && call_range.end <= range.end
+            })
           }) {
             break 'dispatch;
           }

@@ -442,6 +442,22 @@ for conflict in [
 ]:
     if conflict not in grammar['conflicts']:
         grammar['conflicts'].append(conflict)
+# A guarded storage modifier can split a static/extern variable declaration.
+# Keep the complete guard in this explicit declaration context; do not admit
+# preprocessor groups as general declaration modifiers or select a branch.
+storage_modifiers = choice(symbol('storage_class_specifier'), symbol('type_qualifier'),
+    symbol('ms_declspec_modifier'), symbol('sdk_call_modifier'))
+rules['conditional_storage_modifier'] = {'type': 'PREC_DYNAMIC', 'value': -1, 'content': seq(
+    choice(*headers), {'type': 'REPEAT1', 'content': storage_modifiers}, endif)}
+storage_prefix = {'type': 'ALIAS', 'content': choice(
+    {'type': 'STRING', 'value': 'static'}, {'type': 'STRING', 'value': 'extern'}),
+    'named': True, 'value': 'storage_class_specifier'}
+rules['_conditional_storage_declaration'] = {'type': 'PREC_DYNAMIC', 'value': -1, 'content': seq(
+    storage_prefix, symbol('conditional_storage_modifier'), *rules['declaration']['members'])}
+guarded_storage = alias_rule('_conditional_storage_declaration', 'declaration')
+for name in ['_top_level_item', '_block_item']:
+    if guarded_storage not in rules[name]['members']:
+        rules[name]['members'].append(guarded_storage)
 # C-compatible SDK headers guard linkage braces independently of their contents.
 # Require complete guarded opening/closing groups, including nested guards.
 rules['conditional_linkage_open'] = seq(choice(*headers), choice(

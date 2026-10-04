@@ -784,3 +784,79 @@ void following() {
     assert!(SgLang::from_path("dll.cc").unwrap().grep(bad).root().has_error(), "{bad}");
   }
 }
+
+#[test]
+fn cpp_guarded_storage_modifiers_keep_conditions_and_variable_spans() {
+  let lf = r#"
+#define local_storage thread_local
+#define LOCAL_ENABLED() 1
+const char* format();
+static
+#if LOCAL_ENABLED()
+local_storage
+#endif
+const char *reason;
+static
+#ifdef USE_NATIVE
+__declspec(thread)
+#endif
+int count;
+void following() { reason = format(); count = 1; }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(product.items.iter().any(|item| item.entry.name == "following"));
+    let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == "format").collect();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], "format()");
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && ["LOCAL_ENABLED", "local_storage", "__declspec", "thread"].contains(&r.name.as_str())));
+    let parsed = SgLang::from_path("storage.cc").unwrap().grep(&source);
+    let guards: Vec<_> = parsed.root().dfs().filter(|n| n.kind() == "conditional_storage_modifier").collect();
+    assert_eq!(guards.len(), 2);
+    for guard in guards {
+      assert!(guard.text().contains("#endif"));
+      assert_eq!(&source[guard.range()], guard.text());
+      assert!(guard.field("preproc_condition").is_some());
+    }
+    let variable = parsed.root().dfs().find(|n| n.kind() == "declaration" && n.text().contains("*reason;")).unwrap();
+    assert!(variable.text().starts_with("static"));
+    assert_eq!(variable.field("type").unwrap().text(), "char");
+    assert_eq!(variable.field("declarator").unwrap().text(), "*reason");
+  }
+  for bad in [
+    "static\n#ifdef LOCAL\nthread_local\n#endif\nint value",
+    "static\n#ifdef LOCAL\nthread_local\nint value;",
+    "static\n#ifdef LOCAL\nordinary()\n#endif\nint value;",
+    "void following() { format() }",
+  ] {
+    assert!(SgLang::from_path("storage.cc").unwrap().grep(bad).root().has_error(), "{bad}");
+  }
+}
+#[test]
+fn cpp_preprocessor_conditions_keep_runtime_bodies_and_same_named_calls() {
+  let lf = r#"
+#if FEATURE_AVAILABLE(probe())
+void first() { inside(); }
+#elif OTHER_AVAILABLE(other())
+void second() { inside(); }
+#endif
+void runtime() {
+#if FEATURE_AVAILABLE(probe())
+  if (ready()) { fast(); } else
+#endif
+  { slow(); }
+  FEATURE_AVAILABLE(probe());
+}
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["FEATURE_AVAILABLE", "probe", "ready", "fast", "slow"] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), 1, "{name}: {calls:?}");
+      let expected = if name == "FEATURE_AVAILABLE" { "FEATURE_AVAILABLE(probe())".to_owned() } else { format!("{name}()") };
+      assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], expected);
+    }
+    assert_eq!(product.refs.iter().filter(|r| r.kind == 0 && r.name == "inside").count(), 2);
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && ["OTHER_AVAILABLE", "other"].contains(&r.name.as_str())));
+  }
+}

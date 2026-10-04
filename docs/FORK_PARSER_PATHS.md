@@ -486,3 +486,17 @@ The latest external candidate index, including the native DLL and invocation
 spacing fixes, reports 27 of 1735 paths, 1873 ERROR/MISSING nodes and 137990
 affected bytes through normal MCP health. The installed .2 runtime is unchanged;
 actual Hades ASSERT recovery after opaque includes remains unproven.
+
+Static/extern variable declarations can retain one complete guarded storage
+modifier group without widening general declaration modifiers or selecting a
+preprocessor branch. The new conditional_storage_modifier kind preserves its
+condition and full original span; the C++ rule schema includes that kind.
+Preprocessor condition calls are declaration metadata, while calls in guarded
+runtime bodies and ordinary same-named calls retain their original spans.
+LF/CRLF regressions cover both paths and genuine malformed declarations.
+The 900-path native audit changes only stb_image.h: 33 to 30 ERROR/MISSING
+nodes and 47 to 35 affected bytes, with all 326 items retained. Totals are
+24 C++ paths, 1794 ERROR/MISSING nodes and 137627 bytes; Catch2 and every other
+error/byte/item count stay unchanged. The 179-test corpus, 27 Windows/Linux
+parser regressions, proof/recovery, configured MCP, replay in both layouts,
+member-call/resolver tests, native MSVC, Clippy, schema and C++ provenance pass.
