@@ -115,6 +115,16 @@ fn configured_roots_and_external_header_edits_reach_cli_and_mcp() {
       .unwrap()
       .contains("carry ERROR nodes")
   );
+  // A later header edit can alter the replacement's syntax without redefining
+  // CHECK itself. Normal MCP rebuilds must decline that expanded body too.
+  fs::write(
+    &header,
+    "#define CHECK(x) { effect(x); }\n#define effect }\n",
+  )
+  .unwrap();
+  assert!(health(mcp_rebuild(&src, &out, &config)).contains("carry ERROR nodes"));
+  fs::write(&header, "#define CHECK(x) { effect(x); }\n").unwrap();
+  assert!(health(mcp_rebuild(&src, &out, &config)).contains("parse health: clean"));
 }
 
 #[test]
@@ -160,12 +170,6 @@ fn repeated_once_headers_recover_in_mcp_and_header_edits_restore_errors() {
   fs::write(src.join("run.cc"), "#include <once.h>\n#define CHECK(x) { effect(x); }\n#include <once.h>\nvoid run() { CHECK(value()) after(); }\n").unwrap();
   let out = temp.path().join("index");
   index(&src, &out, &config);
-  let health = |response: Value| {
-    response["result"]["content"][0]["text"]
-      .as_str()
-      .unwrap()
-      .to_owned()
-  };
   assert!(health(mcp_rebuild(&src, &out, &config)).contains("parse health: clean"));
   fs::write(&header, "#undef CHECK\n").unwrap();
   assert!(health(mcp_rebuild(&src, &out, &config)).contains("carry ERROR nodes"));
@@ -178,4 +182,11 @@ fn fixture_dir() -> tempfile::TempDir {
   #[cfg(unix)]
   let path = path.canonicalize().unwrap_or(path);
   tempfile::tempdir_in(path).unwrap()
+}
+
+fn health(response: Value) -> String {
+  response["result"]["content"][0]["text"]
+    .as_str()
+    .unwrap()
+    .to_owned()
 }

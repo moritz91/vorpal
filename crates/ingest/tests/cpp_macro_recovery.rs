@@ -309,3 +309,36 @@ fn physical_temp_dir() -> std::path::PathBuf {
     path
   }
 }
+
+#[test]
+fn expanding_argument_and_keyword_macros_cannot_hide_real_syntax_errors() {
+  for source in [
+    "void effect(int);\n#define END }\n#define CHECK(x) { effect(x); }\nvoid run() { CHECK(END) after(); }\n",
+    "void effect(int);\n#define END }\n#define CHECK(x) { effect(x); }\nvoid run() { CHECK(EN\\\nD) after(); }\n",
+    "void effect(int);\n#define if(x) effect(x)\n#define CHECK(x) if(x) effect(x);\nvoid run() { CHECK(1) after(); }\n",
+    "#define effect }\n#define CHECK(x) { effect(x); }\nvoid run() { CHECK(1) after(); }\n",
+  ] {
+    for newline in ["\n", "\r\n"] {
+      let source = source.replace('\n', newline);
+      let report = audit_recovery(Path::new("expanding.cc"), &source, &[]);
+      assert!(report.has_error, "{report:?}");
+      assert!(report.eligible_names.is_empty(), "{report:?}");
+      assert!(report.macro_spans.is_empty());
+    }
+  }
+}
+
+#[test]
+fn unused_macros_and_names_inside_literals_do_not_block_argument_recovery() {
+  let source = "#define END }\n#define CHECK(x) { effect(x); }\nvoid run() { CHECK(\"END\") CHECK(value() /* END */) }\n";
+  let report = audit_recovery(Path::new("literal.cc"), source, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  assert_eq!(report.macro_spans.len(), 2);
+  assert!(
+    report
+      .calls
+      .iter()
+      .any(|(name, range)| name == "value" && &source[range.clone()] == "value()")
+  );
+}

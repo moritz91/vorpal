@@ -239,10 +239,17 @@ so it cannot introduce new proof or mark nested headers as definitely visited.
 A conditional pragma is never treated as unconditional. Unguarded cycles still
 end proof. Header bytes and missing search candidates remain dependencies;
 removing/reinstating `#pragma once` invalidates warm products and normal MCP
-rebuilds. Evidence identity v7 includes path-component/opaque-effect guards and rejects
+rebuilds. Evidence identity v8 includes path-component/opaque-effect guards and rejects
 opaque pragma effects. Literal `_Pragma` or
 `__pragma` operators in a translation unit or consulted replacement lists disable
-its recovery, including operators joined by continuation lines. Invoked token-pasting
+its recovery, including operators joined by continuation lines. Replacements and
+invocation arguments that reference other observed macros are also declined:
+this audit does not prove their expanded token shape. The observed-name set
+includes empty replacements, keyword-like names and all possible branches; undef
+does not erase that conservative boundary. Literal/comment contents remain inert,
+and continuation joining is inspected only for evidence, never to replace source
+or spans. Header edits introducing/removing such expansions invalidate recovered
+products and normal configured MCP rebuilds. Invoked token-pasting
 macros (`##` or `%:%:`) and their transitive replacement wrappers also disable
 recovery: they can manufacture a pragma operator that restores hidden saved
 definitions. This deliberately declines the entire proof rather than claiming to
@@ -285,11 +292,11 @@ per-file identity gate. Custom environments bypass default-only live overlay lan
 Callers outside the index pipeline must use the extractor's dependency-aware
 `extraction_identity_for_path`, rather than the free grammar/rules helper.
 
-Twelve recovery tests on Windows/Linux cover spans and arguments, wrong arity,
+Fourteen recovery tests on Windows/Linux cover spans and arguments, wrong arity,
 genuine syntax errors, parser/thread reuse, nested/panic restoration, header edits,
 opaque effects and identical owned/streamed/scan-handoff products. Twenty-one
 evidence tests pass on Windows and twenty-two on Linux, including directory
-redirects and the Unix file-symlink case. Four index regressions check external
+redirects and the Unix file-symlink case. Five index regressions check external
 header edit/removal, local shadow creation/removal, warm product replay, hinted
 live builds, opaque effects, directory redirects and scratch/incremental generation
 equality in bucketed and flat formats. Three configured CLI/MCP tests pass on both

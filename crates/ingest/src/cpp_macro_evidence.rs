@@ -44,6 +44,9 @@ pub struct Evidence {
   pub dependencies: Vec<Dependency>,
   /// Ordered search roots; changes in search order must also invalidate evidence.
   pub include_roots: Vec<PathBuf>,
+  /// All observed define names, including possible branches and empty replacements.
+  /// Expanding these tokens is outside this proof's scope, even after undef.
+  pub macro_names: BTreeSet<String>,
 }
 
 impl Evidence {
@@ -52,7 +55,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v7\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v8\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -68,6 +71,13 @@ impl Evidence {
       hash.update(&dependency.digest.unwrap_or_default().to_le_bytes());
     }
     hash.digest()
+  }
+
+  /// Arguments containing another observed macro are not proven expressions.
+  /// Preserve literal/comment contents; inspect phase-two continuation joining.
+  pub(crate) fn contains_expanding_tokens(&self, source: &str) -> bool {
+    let (tokens, _) = effect_tokens(source);
+    tokens.iter().any(|token| self.macro_names.contains(token))
   }
 
   pub fn at(&self, name: &str, offset: usize) -> Option<&StatementMacro> {
@@ -86,6 +96,7 @@ struct Audit {
   definitely_once: BTreeSet<PathBuf>,
   possibly_once: BTreeSet<PathBuf>,
   effect_definitions: BTreeMap<String, BTreeSet<String>>,
+  macro_names: BTreeSet<String>,
   pasted_names: BTreeSet<String>,
   ordinary_names: BTreeSet<String>,
   pragma_operator: bool,
@@ -113,6 +124,7 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
         digest: None,
       }],
       include_roots: include_roots.iter().map(|p| lexical_absolute(p)).collect(),
+      macro_names: BTreeSet::new(),
     };
   }
   let mut audit = Audit {
@@ -122,6 +134,7 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
     definitely_once: BTreeSet::new(),
     possibly_once: BTreeSet::new(),
     effect_definitions: BTreeMap::new(),
+    macro_names: BTreeSet::new(),
     pasted_names: BTreeSet::new(),
     ordinary_names: BTreeSet::new(),
     pragma_operator: false,
@@ -135,9 +148,19 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
   audit.visit(&path, source, &mut environment, Some(&mut bindings), true);
   if audit.has_opaque_effects() {
     bindings.clear();
+  } else {
+    // A complete unexpanded statement is not proof of its expanded shape when
+    // its replacement refers to another macro (including keyword-like names).
+    bindings.retain(|binding| {
+      audit
+        .effect_definitions
+        .get(&binding.definition.name)
+        .is_none_or(|tokens| tokens.is_disjoint(&audit.macro_names))
+    });
   }
   Evidence {
     include_roots: audit.include_roots,
+    macro_names: audit.macro_names,
     bindings: bindings
       .into_iter()
       .filter(|b| !b.active.is_empty())
@@ -242,6 +265,7 @@ impl Audit {
         let Some(name) = node.field("name") else {
           continue;
         };
+        self.macro_names.insert(name.text().into_owned());
         let values: Vec<_> = node
           .children()
           .filter(|n| n.kind().as_ref() == "preproc_arg")
@@ -265,16 +289,32 @@ impl Audit {
           .extend(references);
       }
     }
-    for node in root.dfs() {
-      if node.kind().ends_with("identifier")
-        && !protected
-          .iter()
-          .any(|range| range.contains(&node.range().start))
-      {
-        let name = node.text().into_owned();
-        self.pragma_operator |= name == "_Pragma" || name == "__pragma";
-        self.ordinary_names.insert(name);
-      }
+    protected.extend(
+      root
+        .dfs()
+        .filter(|node| {
+          matches!(
+            node.kind().as_ref(),
+            "comment" | "string_literal" | "raw_string_literal" | "char_literal"
+          )
+        })
+        .map(|node| node.range()),
+    );
+    let mut ordinary = identifier_tokens(source, &protected);
+    ordinary.extend(
+      root
+        .dfs()
+        .filter(|node| {
+          node.kind().ends_with("identifier")
+            && !protected
+              .iter()
+              .any(|range| range.contains(&node.range().start))
+        })
+        .map(|node| node.text().into_owned()),
+    );
+    for name in ordinary {
+      self.pragma_operator |= name == "_Pragma" || name == "__pragma";
+      self.ordinary_names.insert(name);
     }
   }
 
@@ -626,13 +666,10 @@ fn complete_statement(replacement: &str) -> bool {
 // Parse an opaque replacement only to identify possible effects, never to expand
 // or alter the original source. Literal/comment contents are not identifiers.
 fn effect_tokens(replacement: &str) -> (BTreeSet<String>, bool) {
+  let joined = replacement.replace("\\\r\n", "").replace("\\\n", "");
+  let replacement = joined.as_str();
   let parsed = SupportLang::Cpp.grep(replacement);
   let root = parsed.root();
-  let names = root
-    .dfs()
-    .filter(|n| n.kind().ends_with("identifier"))
-    .map(|n| n.text().into_owned())
-    .collect();
   let protected: Vec<_> = root
     .dfs()
     .filter(|n| {
@@ -643,6 +680,13 @@ fn effect_tokens(replacement: &str) -> (BTreeSet<String>, bool) {
     })
     .map(|n| n.range())
     .collect();
+  let mut names = identifier_tokens(replacement, &protected);
+  names.extend(
+    root
+      .dfs()
+      .filter(|node| node.kind().ends_with("identifier"))
+      .map(|node| node.text().into_owned()),
+  );
   let pasted = replacement
     .as_bytes()
     .windows(2)
@@ -652,6 +696,33 @@ fn effect_tokens(replacement: &str) -> (BTreeSet<String>, bool) {
         && !protected.iter().any(|range| range.contains(&offset))
     });
   (names, pasted)
+}
+
+// Preprocessor names include keywords: #define if(x) ... is legal. AST
+// identifier kinds alone miss them. Literal/comment ranges stay protected; this
+// scan only supplies conservative token sets, never replacement source/spans.
+fn identifier_tokens(source: &str, protected: &[Range<usize>]) -> BTreeSet<String> {
+  let mut names = BTreeSet::new();
+  let bytes = source.as_bytes();
+  let mut offset = 0;
+  while offset < bytes.len() {
+    if let Some(range) = protected.iter().find(|range| range.contains(&offset)) {
+      offset = range.end;
+      continue;
+    }
+    if bytes[offset].is_ascii_alphabetic() || bytes[offset] == b'_' {
+      let start = offset;
+      offset += 1;
+      while offset < bytes.len() && (bytes[offset].is_ascii_alphanumeric() || bytes[offset] == b'_')
+      {
+        offset += 1;
+      }
+      names.insert(source[start..offset].to_owned());
+    } else {
+      offset += 1;
+    }
+  }
+  names
 }
 
 // These conditions contain no expanding operands. Inspect all branches; never

@@ -81,6 +81,9 @@ fn parse_without_context(
       if bytes.get(next) == Some(&b'(') {
         let proven = evidence.at(name, start).and_then(|definition| {
           let end = argument_end(source, next, &protected)?;
+          if evidence.contains_expanding_tokens(&source[next..end]) {
+            return None;
+          }
           let count = validated_arity(&source[next..end])?;
           (definition.parameters == count).then_some(count)
         });
