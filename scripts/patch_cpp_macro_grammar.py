@@ -514,6 +514,37 @@ rules['macro_statement'] = {'type': 'PREC_RIGHT', 'value': 1, 'content': seq(
     optional({'type': 'STRING', 'value': ';'}))}
 if symbol('macro_statement') not in rules['statement']['members']:
     rules['statement']['members'].append(symbol('macro_statement'))
+# The audited native cpuid helper uses a brace-delimited MSVC assembly block.
+# Admit its mov/cpuid instruction forms explicitly, not an opaque body token.
+# Operands and commas cannot cross lines: otherwise an incomplete mov could
+# silently absorb the following instruction as its missing operand.
+rules['_ms_asm_newline'] = {'type': 'TOKEN', 'content': {'type': 'PREC', 'value': 1,
+    'content': {'type': 'PATTERN', 'value': r'\r?\n'}}}
+rules['_ms_asm_space'] = {'type': 'IMMEDIATE_TOKEN',
+    'content': {'type': 'PATTERN', 'value': r'[ \t]+'}}
+rules['_ms_asm_identifier'] = {'type': 'ALIAS', 'named': True, 'value': 'identifier',
+    'content': {'type': 'IMMEDIATE_TOKEN',
+                'content': {'type': 'PATTERN', 'value': '[A-Za-z_][A-Za-z_0-9]*'}}}
+asm_number = {'type': 'ALIAS', 'named': True, 'value': 'number_literal',
+    'content': {'type': 'IMMEDIATE_TOKEN',
+                'content': {'type': 'PATTERN', 'value': '[0-9]+'}}}
+rules['_ms_asm_operand'] = choice(symbol('_ms_asm_identifier'), asm_number)
+rules['ms_asm_instruction'] = choice(seq(
+    {'type': 'FIELD', 'name': 'opcode', 'content': {'type': 'STRING', 'value': 'mov'}},
+    symbol('_ms_asm_space'),
+    {'type': 'FIELD', 'name': 'destination', 'content': symbol('_ms_asm_identifier')},
+    optional(symbol('_ms_asm_space')),
+    {'type': 'IMMEDIATE_TOKEN', 'content': {'type': 'STRING', 'value': ','}},
+    optional(symbol('_ms_asm_space')),
+    {'type': 'FIELD', 'name': 'source', 'content': symbol('_ms_asm_operand')}),
+    {'type': 'FIELD', 'name': 'opcode', 'content': {'type': 'STRING', 'value': 'cpuid'}})
+rules['ms_asm_statement'] = seq({'type': 'STRING', 'value': '__asm'},
+    {'type': 'STRING', 'value': '{'},
+    repeat(choice(symbol('_ms_asm_newline'),
+                  seq(symbol('ms_asm_instruction'), symbol('_ms_asm_newline')))),
+    optional(symbol('ms_asm_instruction')), {'type': 'STRING', 'value': '}'})
+if symbol('ms_asm_statement') not in rules['statement']['members']:
+    rules['statement']['members'].append(symbol('ms_asm_statement'))
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
 scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())

@@ -76,10 +76,11 @@
       "Proof-backed invocation spacing accepts original block/line comments and all six C++ ASCII whitespace characters; scanner/audit rules match, splice/trigraph comments are declined, recovered product identity v2 invalidates older proofs. scripts/cpp_statement_macro_scanner.c.",
       "Scoped static/extern declarations retain complete guarded storage modifiers and preprocessor conditions",
       "Abstract member-data pointers only in explicit type_descriptor contexts with named scopes, existing declarator aliases and unchanged global abstract-pointer rules. scripts/patch_cpp_macro_grammar.py, ABI 14.",
-      "Complete unevaluated decltype operands admit comma_expression only inside decltype; preserve original spans, existing runtime-call exclusion and general expression rules. scripts/patch_cpp_macro_grammar.py, ABI 14."
+      "Complete unevaluated decltype operands admit comma_expression only inside decltype; preserve original spans, existing runtime-call exclusion and general expression rules. scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Explicit MSVC brace-delimited mov/cpuid instructions with named destinations, decimal/identifier sources and line-bound operands; preserve original opcode/operand spans and genuine missing operands. scripts/patch_cpp_macro_grammar.py, ABI 14."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:fa563630ec431630",
+    "source_digest": "xxh3:87c076df278f1fde",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

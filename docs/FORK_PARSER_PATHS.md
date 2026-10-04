@@ -548,3 +548,20 @@ graph. Quiet queries hash the observed inputs but do not reparse unchanged
 files. Explicit external-index servers without a source watcher retain their
 manual rebuild semantics. Recovery remains opt-in; the installed .2 tunnel
 and its external index are unchanged.
+
+The native x86 cpuid helper can retain its explicit brace-delimited MSVC mov
+and cpuid instructions. This is a narrow instruction grammar, not an opaque
+assembly-body token: named destinations, decimal/identifier sources, opcode
+and operand spans are preserved. Immediate operand/comma tokens and horizontal
+spacing prevent a missing operand from absorbing the following instruction.
+Other assembly forms remain unsupported. The ms_asm_statement and
+ms_asm_instruction kinds and their fields are synchronized in the C++ schema.
+
+LF/CRLF tests retain ordinary same-named calls and following functions, reject
+cross-line/missing operands and genuine missing semicolons. Native MSVC x86
+accepts the positive fixture and rejects the missing-operand negative fixture.
+All 30 Windows/Linux parser regressions, unchanged 179-test corpus,
+proof/recovery, configured/running MCP, replay in both layouts, member/resolver,
+Clippy, provenance and schema checks pass. The native 900-path audit changes
+only stb_image.h: 30 to 27 ERROR/MISSING nodes and 35 to 7 bytes, retaining all
+326 items. Totals are 24 C++ paths, 1789 nodes and 137549 affected bytes.

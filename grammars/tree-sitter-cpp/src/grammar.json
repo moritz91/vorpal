@@ -6533,6 +6533,10 @@
         {
           "type": "SYMBOL",
           "name": "macro_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "ms_asm_statement"
         }
       ]
     },
@@ -19880,6 +19884,188 @@
           }
         ]
       }
+    },
+    "_ms_asm_newline": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PREC",
+        "value": 1,
+        "content": {
+          "type": "PATTERN",
+          "value": "\\r?\\n"
+        }
+      }
+    },
+    "_ms_asm_space": {
+      "type": "IMMEDIATE_TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "[ \\t]+"
+      }
+    },
+    "_ms_asm_identifier": {
+      "type": "ALIAS",
+      "named": true,
+      "value": "identifier",
+      "content": {
+        "type": "IMMEDIATE_TOKEN",
+        "content": {
+          "type": "PATTERN",
+          "value": "[A-Za-z_][A-Za-z_0-9]*"
+        }
+      }
+    },
+    "_ms_asm_operand": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "_ms_asm_identifier"
+        },
+        {
+          "type": "ALIAS",
+          "named": true,
+          "value": "number_literal",
+          "content": {
+            "type": "IMMEDIATE_TOKEN",
+            "content": {
+              "type": "PATTERN",
+              "value": "[0-9]+"
+            }
+          }
+        }
+      ]
+    },
+    "ms_asm_instruction": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "opcode",
+              "content": {
+                "type": "STRING",
+                "value": "mov"
+              }
+            },
+            {
+              "type": "SYMBOL",
+              "name": "_ms_asm_space"
+            },
+            {
+              "type": "FIELD",
+              "name": "destination",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_ms_asm_identifier"
+              }
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "_ms_asm_space"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "IMMEDIATE_TOKEN",
+              "content": {
+                "type": "STRING",
+                "value": ","
+              }
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "_ms_asm_space"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "FIELD",
+              "name": "source",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_ms_asm_operand"
+              }
+            }
+          ]
+        },
+        {
+          "type": "FIELD",
+          "name": "opcode",
+          "content": {
+            "type": "STRING",
+            "value": "cpuid"
+          }
+        }
+      ]
+    },
+    "ms_asm_statement": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "__asm"
+        },
+        {
+          "type": "STRING",
+          "value": "{"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "_ms_asm_newline"
+              },
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "ms_asm_instruction"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "_ms_asm_newline"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "ms_asm_instruction"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "}"
+        }
+      ]
     }
   },
   "extras": [

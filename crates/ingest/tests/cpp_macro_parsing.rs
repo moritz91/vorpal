@@ -936,3 +936,58 @@ void runtime() { left(); right(); }
     assert!(SgLang::from_path("decltype.cc").unwrap().grep(bad).root().has_error(), "{bad}");
   }
 }
+
+#[test]
+fn cpp_native_cpuid_assembly_keeps_operand_lines_and_ordinary_call_spans() {
+  let lf = r#"
+void observe();
+void mov();
+void cpuid();
+int query() {
+  int res;
+  __asm {
+    mov eax,1
+    cpuid
+    mov res,edx
+  }
+  observe();
+  return res;
+}
+void ordinary() { mov(); cpuid(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["query", "ordinary"] {
+      assert!(product.items.iter().any(|item| item.entry.name == name));
+    }
+    for name in ["observe", "mov", "cpuid"] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), 1, "{name}: {calls:?}");
+      assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], format!("{name}()"));
+    }
+    let parsed = SgLang::from_path("assembly.cc").unwrap().grep(&source);
+    let block = parsed.root().dfs().find(|n| n.kind() == "ms_asm_statement").unwrap();
+    assert_eq!(&source[block.range()], block.text());
+    let instructions: Vec<_> = block.children().filter(|n| n.kind() == "ms_asm_instruction").collect();
+    assert_eq!(instructions.len(), 3);
+    assert_eq!(instructions[0].field("destination").unwrap().text(), "eax");
+    assert_eq!(instructions[0].field("source").unwrap().text(), "1");
+    assert_eq!(instructions[1].field("opcode").unwrap().text(), "cpuid");
+    assert_eq!(instructions[2].field("destination").unwrap().text(), "res");
+    assert_eq!(instructions[2].field("source").unwrap().text(), "edx");
+    for instruction in instructions { assert_eq!(&source[instruction.range()], instruction.text()); }
+  }
+  for bad in [
+    "void f() { __asm { mov eax,\n cpuid\n } }",
+    "void f() { __asm { mov\n eax,1\n } }",
+    "void f() { __asm { mov eax\n ,1\n } }",
+    "void f() { __asm { mov eax,1 cpuid } }",
+    "void f() { __asm { cpuid() } }",
+    "void f() { __asm { mov 1,2\n } }",
+    "__asm { cpuid }",
+    "void f() { __asm { cpuid\n } observe() }",
+    "void f() { __asm { mov eax,1\n }",
+  ] {
+    assert!(SgLang::from_path("assembly.cc").unwrap().grep(bad).root().has_error(), "{bad}");
+  }
+}
