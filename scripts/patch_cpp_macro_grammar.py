@@ -364,6 +364,60 @@ for conflict in [
 ]:
     if conflict not in grammar['conflicts']:
         grammar['conflicts'].append(conflict)
+# A later array-reference parameter can otherwise be swallowed as an annotation
+# after an earlier pointer parameter. Require the explicit named array reference
+# in this parallel path; unrestricted plain function paths alter Catch2 recovery.
+rules['_required_array_reference'] = seq(
+    choice({'type': 'STRING', 'value': '&'}, {'type': 'STRING', 'value': '&&'}),
+    symbol('identifier'))
+rules['_required_parenthesized_array_reference'] = seq(
+    {'type': 'STRING', 'value': '('},
+    alias_rule('_required_array_reference', 'reference_declarator'),
+    {'type': 'STRING', 'value': ')'})
+reference_array = json.loads(json.dumps(rules['array_declarator']))
+reference_array['content']['members'][0]['content'] = alias_rule(
+    '_required_parenthesized_array_reference', 'parenthesized_declarator')
+rules['_required_reference_array'] = reference_array
+rules['_required_array_parameter'] = seq(symbol('_declaration_specifiers'),
+    {'type': 'FIELD', 'name': 'declarator', 'content': alias_rule(
+        '_required_reference_array', 'array_declarator')},
+    repeat(symbol('attribute_specifier')))
+plain_parameter = rules['_instantiation_parameter_list']['members'][1]['members'][0]['members'][0]
+non_ellipsis_parameter = choice(*[member for member in plain_parameter['members']
+    if member != {'type': 'STRING', 'value': '...'}])
+comma = {'type': 'STRING', 'value': ','}
+rules['_required_array_parameter_list'] = seq(
+    {'type': 'STRING', 'value': '('}, repeat(seq(non_ellipsis_parameter, comma)),
+    alias_rule('_required_array_parameter', 'parameter_declaration'),
+    repeat(seq(comma, non_ellipsis_parameter)),
+    optional(seq(comma, {'type': 'STRING', 'value': '...'})),
+    {'type': 'STRING', 'value': ')'})
+array_function = json.loads(json.dumps(plain_pointer_function))
+array_function['content']['members'][1]['members'][0]['content'] = alias_rule(
+    '_required_array_parameter_list', 'parameter_list')
+rules['_required_array_function'] = array_function
+array_function_alias = alias_rule('_required_array_function', 'function_declarator')
+def array_function_context(node):
+    if isinstance(node, list):
+        for value in node: array_function_context(value)
+    elif isinstance(node, dict):
+        if node.get('type') == 'FIELD' and node.get('name') == 'declarator':
+            if node['content'] == symbol('_declarator'):
+                node['content'] = choice(symbol('_declarator'), array_function_alias)
+            elif node['content'].get('type') == 'CHOICE':
+                if array_function_alias not in node['content']['members']:
+                    node['content']['members'].append(array_function_alias)
+        else:
+            for value in node.values(): array_function_context(value)
+array_function_context(rules['function_definition'])
+array_function_context(rules['declaration'])
+for conflict in [
+    ['_declarator', 'sdk_call_modifier', '_required_array_function'],
+    ['_declarator', '_required_array_function'],
+    ['_declarator', '_required_array_reference'],
+]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
 # C-compatible SDK headers guard linkage braces independently of their contents.
 # Require complete guarded opening/closing groups, including nested guards.
 rules['conditional_linkage_open'] = seq(choice(*headers), choice(

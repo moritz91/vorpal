@@ -708,3 +708,42 @@ void following() {
     assert!(SgLang::from_path("pointer.cc").unwrap().grep(bad).root().has_error(), "{bad}");
   }
 }
+
+#[test]
+fn cpp_typed_function_contexts_keep_array_references_after_pointer_parameters() {
+  let lf = r#"
+using Handle = unsigned long long;
+void observe();
+void gather(void* device, Handle (&cascades)[4]) {
+  for (Handle& handle : cascades) handle = 0;
+  observe();
+}
+void ordinary(void* device, Handle (&cascades)[4]);
+void variadic(Handle (&values)[4], ...);
+void following() {
+  Handle cascades[4]{};
+  gather(nullptr, cascades);
+  int value(1);
+}
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["gather", "following"] {
+      assert!(product.items.iter().any(|item| item.entry.name == name), "missing {name}");
+    }
+    for (name, spelling) in [("observe", "observe()"), ("gather", "gather(nullptr, cascades)")] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), 1, "{name}");
+      assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], spelling);
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && ["Handle", "cascades", "value", "ordinary"].contains(&r.name.as_str())));
+    let parsed = SgLang::from_path("array.cc").unwrap().grep(&source);
+    assert_eq!(parsed.root().dfs().filter(|n| n.kind() == "array_declarator" && n.text() == "(&cascades)[4]").count(), 2);
+    assert!(parsed.root().dfs().any(|n| n.kind() == "function_declarator" && n.text().starts_with("ordinary(")));
+    assert!(parsed.root().dfs().any(|n| n.kind() == "function_declarator" && n.text().starts_with("variadic(")));
+    assert!(parsed.root().dfs().any(|n| n.kind() == "init_declarator" && n.text() == "value(1)"));
+  }
+  for bad in ["void broken(void* device, Handle (&cascades)[);", "void broken() { gather(nullptr, cascades) }", "void broken(..., Handle (&cascades)[4]);"] {
+    assert!(SgLang::from_path("array.cc").unwrap().grep(bad).root().has_error(), "{bad}");
+  }
+}

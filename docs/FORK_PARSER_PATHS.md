@@ -429,3 +429,20 @@ entries. Across the same 900 C++ paths, no other error/byte/item counts change:
 MCP, replay in both layouts, resolver/member-call tests, MSVC, Clippy, schema and
 native provenance validate this extension. Actual Hades ASSERT recovery remains
 unproven; the production MCP installation is unchanged.
+
+The typed function declaration/definition alternative additionally requires a
+named parenthesized array-reference parameter. This explicit context avoids an
+unrestricted plain-function trial that enlarged Catch2 error spans. Ellipsis is
+allowed only at the end of this alternative; MSVC rejects the negative fixture
+with ellipsis before the array parameter. General declarator/expression rules
+stay unchanged. On the same 900 C++ paths, layered_media.cc becomes parse-clean
+and regains its missing function entry; other error/byte/item counts are unchanged.
+25 paths retain 1801 ERROR/MISSING nodes and 137675 affected bytes. The unchanged
+corpus, 24 Windows/Linux parser regressions, proof/recovery, replay, configured
+MCP, member calls, resolver evaluations, schema, provenance and Clippy verify the
+path. Broader trials remain withheld.
+
+A completed external whole-index verification at 8c11c24 reports 29 of 1735 paths
+with 1878 ERROR/MISSING nodes and 138026 affected bytes through normal MCP health.
+That test index does not replace the installed .2 generation, and the metric must
+not be compared directly with historical ERROR-only health coverage.
