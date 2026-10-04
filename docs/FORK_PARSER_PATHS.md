@@ -406,3 +406,12 @@ proof/replay/configured-MCP checks and native provenance validate the extension.
 The broader read-only audit checks all 900 C++ paths from the source manifest:
 27 retain syntax errors, and no previously clean C++ path gains errors.
 This per-parser audit is not a newly installed MCP index or a macro-recovery claim.
+
+PowerShell command parameter names now admit digits after their initial name
+character, retaining full spans for `-Sha256` and `-Port18765`. Leading numeric
+arguments such as `-256` and decrement expressions keep their existing parsing.
+All 35 PowerShell paths in the read-only source manifest are now parse-clean,
+including the six missing-only paths exposed by generation 23 telemetry. Native
+PowerShell parsing, six Windows/Linux extraction regressions, the unchanged
+139-test corpus, Clippy and native provenance validate this narrow lexical fix.
+There are no new visible kinds; the installed MCP release remains unchanged.

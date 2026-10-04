@@ -210,3 +210,47 @@ fn numeric_multipliers_preserve_literal_spans_and_following_functions() {
     assert!(language.grep(invalid).root().has_error(), "{invalid}");
   }
 }
+
+#[test]
+fn parameter_names_with_digits_keep_full_spans_and_numeric_arguments() {
+  let lf = "Invoke-Tool -Sha256 $hash -Port18765:42 -Name2 value | Out-Null\n$number = -256\nInvoke-Tool -256\n--$counter\nfunction Following { Write-Output 'done' }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let parsed = SgLang::from_path("parameters.ps1").unwrap().grep(&source);
+    assert!(!parsed.root().has_error(), "{source}");
+    let parameters: Vec<_> = parsed
+      .root()
+      .dfs()
+      .filter(|n| n.kind() == "command_parameter")
+      .map(|n| n.text().to_string())
+      .collect();
+    for name in ["-Sha256", "-Port18765", "-Name2"] {
+      assert!(parameters.iter().any(|n| n == name), "{parameters:?}");
+    }
+    assert!(
+      !parameters
+        .iter()
+        .any(|n| n.contains("256") && n != "-Sha256")
+    );
+    for node in parsed
+      .root()
+      .dfs()
+      .filter(|n| n.kind() == "command_parameter")
+    {
+      assert_eq!(&source[node.range()], node.text());
+    }
+    let product = OutlineExtractor::new()
+      .unwrap()
+      .extract_product("parameters.ps1", &source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    assert!(product.items.iter().any(|i| i.entry.name == "Following"));
+  }
+  let bad = "Invoke-Tool -Sha256 (1 + )\n";
+  assert!(
+    SgLang::from_path("parameters.ps1")
+      .unwrap()
+      .grep(bad)
+      .root()
+      .has_error()
+  );
+}

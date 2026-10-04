@@ -25,6 +25,15 @@ source = source.replace(
 )
 json_path = root / 'src/grammar.json'
 grammar = json.loads(json_path.read_text(encoding='utf-8'))
+# Cmdlet parameter names admit digits after the initial name character.
+# Keep leading-digit arguments numeric rather than reclassifying -256 as a name.
+parameter = grammar['rules']['command_parameter']['content']['members'][0]
+old_parameter = r'-+[a-zA-Z_?\-`]+'
+new_parameter = r'-+[a-zA-Z_?\-`][a-zA-Z0-9_?\-`]*'
+if parameter['value'] == old_parameter:
+    parameter['value'] = new_parameter
+source = source.replace(old_parameter, new_parameter)
+
 separator = {'type': 'SYMBOL', 'name': '_native_argument_separator'}
 if separator not in grammar['externals']:
     grammar['externals'].append(separator)
