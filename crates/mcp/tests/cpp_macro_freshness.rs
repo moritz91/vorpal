@@ -100,6 +100,13 @@ fn external_header_freshness(watch_rebuild: bool) {
   assert!(health(&mut server, 17).contains("carry ERROR/MISSING nodes"));
   fs::write(&header, format!("{valid}{declarations}")).unwrap();
   assert!(health(&mut server, 18).contains("parse health: clean"));
+  let literal_pragmas = "#pragma pack(push, 1)\n#pragma warning(push, 1)\n#pragma warning(disable: 4100 4996)\n#pragma warning(pop)\n#pragma pack(pop)\n";
+  fs::write(&header, format!("{literal_pragmas}{valid}{declarations}")).unwrap();
+  assert!(health(&mut server, 19).contains("parse health: clean"));
+  fs::write(&header, format!("{}{valid}{declarations}", literal_pragmas.replace("warning(push, 1)", "warning(push, LEVEL)"))).unwrap();
+  assert!(health(&mut server, 20).contains("carry ERROR/MISSING nodes"));
+  fs::write(&header, format!("{literal_pragmas}{valid}{declarations}")).unwrap();
+  assert!(health(&mut server, 21).contains("parse health: clean"));
   // Quiet queries retain the served generation rather than rebuilding forever.
   assert!(health(&mut server, 7).contains("parse health: clean"));
   drop(server);

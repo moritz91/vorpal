@@ -3,6 +3,52 @@ use std::path::Path;
 use vorpal_ingest::cpp_macro_recovery::audit_recovery;
 
 #[test]
+fn literal_diagnostic_pragmas_preserve_macro_arguments_and_following_functions() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  let lf = "#pragma pack(push, 1)\n#pragma warning(push, 1)\n#pragma warning(disable: 4100 4996)\n#define CHECK(x) { sink(x); }\nvoid run() { CHECK(value()) }\n#pragma warning(pop)\n#pragma pack(pop)\nvoid following() { after(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("pragmas.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.macro_spans.len(), 1);
+    assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+    assert!(report.functions.iter().any(|name| name == "following"));
+    for name in ["value", "after"] {
+      let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+    assert!(
+      !report
+        .calls
+        .iter()
+        .any(|(n, _)| matches!(n.as_str(), "CHECK" | "pack" | "warning"))
+    );
+    let product = extractor.extract_product("pragmas.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("pragmas.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    assert!(
+      OutlineExtractor::new()
+        .unwrap()
+        .extract_product("pragmas.cc", &source)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    let unsafe_source = source.replace("warning(push, 1)", "warning(push, LEVEL)");
+    assert!(audit_recovery(Path::new("pragmas.cc"), &unsafe_source, &[]).has_error);
+  }
+}
+
+#[test]
 fn sdk_declaration_errors_do_not_mask_intact_include_metadata_or_header_errors() {
   use std::fs;
   use vorpal_core::Language;

@@ -2,6 +2,76 @@ use std::path::Path;
 use vorpal_ingest::cpp_macro_evidence::{audit, audit_with_roots};
 
 #[test]
+fn literal_pack_and_warning_pragmas_require_unexpanded_tokens() {
+  let positives = [
+    "pack()",
+    "pack(push)",
+    "pack(pop)",
+    "pack(8)",
+    "pack(push, 16)",
+    "warning(push)",
+    "warning(pop)",
+    "warning(push, 0)",
+    "warning(disable: 4100 4996)",
+    "pack ( push , 1 )",
+  ];
+  for argument in positives {
+    for guard in [false, true] {
+      let pragma = format!("#pragma {argument}\n");
+      let pragma = if guard {
+        format!("#ifdef PLATFORM\n{pragma}#endif\n")
+      } else {
+        pragma
+      };
+      let lf =
+        format!("#define CHECK(x) {{ sink(x); }}\n{pragma}void run() {{ CHECK(value()) }}\n");
+      for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+        assert!(
+          audit(Path::new("pragmas.cc"), &source)
+            .at("CHECK", source.rfind("CHECK(value())").unwrap())
+            .is_some(),
+          "{source}"
+        );
+      }
+    }
+  }
+  for argument in [
+    "pack(push, named)",
+    "pack(pop, label)",
+    "pack(push, 3)",
+    "warning(push, LEVEL)",
+    "warning(disable: WARNINGS)",
+    "warning(disable: 4100, 4996)",
+    "warning(push, 5)",
+    "warning(push) trailing",
+    "war ning(push)",
+    "warning(disable: 4 100)",
+    "warning(disable: 4100) __pragma(pop_macro(\"CHECK\"))",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ sink(x); }}\n#pragma {argument}\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    assert!(
+      audit(Path::new("pragmas.cc"), &source)
+        .at("CHECK", source.rfind("CHECK(value())").unwrap())
+        .is_none(),
+      "{source}"
+    );
+  }
+  for keyword in ["pack", "push", "pop", "warning", "disable"] {
+    let source = format!(
+      "#define {keyword} HIDDEN\n#define CHECK(x) {{ sink(x); }}\n#pragma pack(push, 1)\n#pragma pack(pop)\n#pragma warning(disable: 4100)\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    assert!(
+      audit(Path::new("pragmas.cc"), &source)
+        .at("CHECK", source.rfind("CHECK(value())").unwrap())
+        .is_none(),
+      "{keyword}"
+    );
+  }
+}
+
+#[test]
 fn complete_directive_metadata_survives_unexpanded_guarded_declarations() {
   let declaration = "#define SDK_BEGIN namespace sdk {\n#define SDK_END }\n#if defined(ENABLE)\nSDK_BEGIN\nextern const int variable;\nSDK_END\n#endif\n";
   let lf =
@@ -42,7 +112,10 @@ fn complete_directive_metadata_survives_unexpanded_guarded_declarations() {
       "SDK_END\n#endif",
       "#define CHECK(x) { other(x); }\nSDK_END\n#endif",
     ),
-    declaration.replace("SDK_END\n#endif", "#pragma warning(push)\nSDK_END\n#endif"),
+    declaration.replace(
+      "SDK_END\n#endif",
+      "#pragma warning(push, LEVEL)\nSDK_END\n#endif",
+    ),
     declaration.replace("SDK_END\n#endif", "#undef CHECK\nSDK_END\n#endif"),
     declaration.replace(
       "SDK_END\n#endif",
@@ -778,7 +851,7 @@ fn literal_macro_stack_pragmas_only_invalidate_the_named_binding() {
     "pop_macro(\"CHECK\")",
     "pop_macro(NAME)",
     "pop_macro(\"\\u0043HECK\")",
-    "warning(push)",
+    "warning(push, LEVEL)",
   ] {
     let source = format!(
       "#define CHECK(x) {{ use(x); }}\n#pragma {argument}\nvoid run() {{ CHECK(value()) }}\n"

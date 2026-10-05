@@ -98,7 +98,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v13\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v14\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -333,6 +333,16 @@ fn intact_metadata_groups<D: vorpal_core::Doc>(
   source: &str,
   root: &vorpal_core::Node<'_, D>,
 ) -> BTreeSet<usize> {
+  // visit() can admit only direct children of this root. Nested groups are
+  // already covered by the enclosing group's complete directive proof.
+  let candidates: BTreeSet<_> = root
+    .children()
+    .filter(|n| n.has_error() && matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef"))
+    .map(|n| n.range().start)
+    .collect();
+  if candidates.is_empty() {
+    return BTreeSet::new();
+  }
   let Ok(groups) = crate::cpp_directive_audit::audit_groups(source) else {
     return BTreeSet::new();
   };
@@ -342,8 +352,9 @@ fn intact_metadata_groups<D: vorpal_core::Doc>(
   let actual = metadata_signatures(root);
   groups
     .into_iter()
+    .filter(|group| candidates.contains(&group.span.start))
     .filter_map(|group| {
-      let original = root.dfs().find(|n| {
+      let original = root.children().find(|n| {
         n.range().start == group.span.start
           && matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef")
       })?;
@@ -420,6 +431,68 @@ fn intact_metadata_groups<D: vorpal_core::Doc>(
 }
 
 impl Audit {
+  // These literal MSVC/Clang forms affect packing/diagnostics, not macro state.
+  // No named alignment, warning-list alias, label, operator or token expansion
+  // is admitted; even keyword-like observed macro definitions decline proof.
+  fn inert_literal_pragma(&self, argument: &str) -> bool {
+    if argument.len() > 512 {
+      return false;
+    }
+    let bytes = argument.as_bytes();
+    let mut offset = 0;
+    let mut tokens = Vec::new();
+    while offset < bytes.len() {
+      if bytes[offset].is_ascii_whitespace() {
+        offset += 1;
+        continue;
+      }
+      let start = offset;
+      if bytes[offset].is_ascii_alphabetic() || bytes[offset] == b'_' {
+        offset += 1;
+        while offset < bytes.len()
+          && (bytes[offset].is_ascii_alphanumeric() || bytes[offset] == b'_')
+        {
+          offset += 1;
+        }
+        if self.macro_names.contains(&argument[start..offset]) {
+          return false;
+        }
+      } else if bytes[offset].is_ascii_digit() {
+        offset += 1;
+        while offset < bytes.len() && bytes[offset].is_ascii_digit() {
+          offset += 1;
+        }
+      } else if b"(),:".contains(&bytes[offset]) {
+        offset += 1;
+      } else {
+        return false;
+      }
+      tokens.push(&argument[start..offset]);
+      if tokens.len() > 32 {
+        return false;
+      }
+    }
+    let alignment = |n: &str| matches!(n, "1" | "2" | "4" | "8" | "16");
+    match tokens.as_slice() {
+      ["pack", "(", ")"]
+      | ["pack", "(", "push" | "pop", ")"]
+      | ["warning", "(", "push" | "pop", ")"] => true,
+      ["pack", "(", n, ")"] | ["pack", "(", "push", ",", n, ")"] => alignment(n),
+      ["warning", "(", "push", ",", level, ")"] => {
+        matches!(*level, "0" | "1" | "2" | "3" | "4")
+      }
+      ["warning", "(", "disable", ":", ids @ .., ")"] => {
+        !ids.is_empty()
+          && ids.iter().all(|id| {
+            id.len() == 4
+              && matches!(id.as_bytes()[0], b'4' | b'5')
+              && id.bytes().all(|b| b.is_ascii_digit())
+          })
+      }
+      _ => false,
+    }
+  }
+
   // Every opaque boundary must clear current bindings and prevent later local
   // definitions from restarting proof. Keep those effects inseparable, including
   // uncertain directives inside otherwise nonexpanding conditional groups.
@@ -667,9 +740,12 @@ impl Audit {
     self.stack.push(path.to_path_buf());
     let parsed = SupportLang::Cpp.grep(source);
     let root = parsed.root();
-    let intact_groups = if root
-      .dfs()
-      .any(|n| n.has_error() && matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef"))
+    // An opaque boundary is irreversible for this audit. Metadata proof cannot
+    // revive bindings after it, so do not reprove SDK groups on that dead path.
+    let intact_groups = if !self.opaque_environment
+      && root.children().any(|n| {
+        n.has_error() && matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef")
+      })
     {
       intact_metadata_groups(source, &root)
     } else {
@@ -759,6 +835,11 @@ impl Audit {
               self.possibly_once.insert(path.to_path_buf());
             }
           } else if directive == "#pragma"
+            && !node.has_error()
+            && self.inert_literal_pragma(&argument)
+          {
+            // The admitted literal forms cannot define, undef or restore macros.
+          } else if directive == "#pragma"
             && let Some(target) = literal_macro_stack_target(&argument)
           {
             // A literal stack operation can only change this macro name. Do
@@ -816,6 +897,9 @@ impl Audit {
                     let argument = argument.text();
                     if argument.trim() == "once" {
                       self.possibly_once.insert(path.to_path_buf());
+                    } else if self.inert_literal_pragma(&argument) {
+                      // Every possible branch may change diagnostics/packing,
+                      // but these literal forms leave the macro state intact.
                     } else if let Some(target) = literal_macro_stack_target(&argument) {
                       environment.remove(target);
                       self.stack_targets.insert(target.to_owned());

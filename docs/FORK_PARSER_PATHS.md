@@ -727,11 +727,11 @@ lambda bodies remain valid. Unknown surrounding macro tokens decline this
 diagnostic. Other scanner-proven complete statements cannot manufacture an
 enclosing function, so multiple invalid uses are checked independently. The
 same original-span diagnoses reach watched MCP with background rebuilds on/off.
-Product identity v12 invalidates old false-clean telemetry, invented macro
+Product identity v13 invalidates old false-clean telemetry, invented macro
 callee rows and v8 false diagnostics for valid enclosing macro expansions;
 migration includes v7/v8/v9/v10, with both false errors and false-clean old products.
-All 28 recovery, 32 parser, 26 Windows/27 Linux
-evidence, eleven replay, three watched MCP and four configured CLI tests pass on
+All 29 recovery, 32 parser, 27 Windows/28 Linux
+evidence, twelve replay, three watched MCP and four configured CLI tests pass on
 both platforms (Linux replay also flat). Native MSVC/Clang reject the return-slot
 fixture and accept the statement/undef/ordinary-call positive control. Header-only
 changes revalidate these diagnostics in live MCP; strict health policies retain
@@ -766,3 +766,23 @@ defined/undefined variants of the guarded SDK declaration fixture. The actual
 Hades test still has zero bindings and 43 consulted include candidates with all
 available Windows SDK roots. This metadata proof does not admit its expanding
 conditions or opaque SDK effects.
+
+Literal MSVC/Clang pack and warning controls can preserve macro evidence:
+pack reset/push/pop and literal alignments 1/2/4/8/16; warning push/pop,
+literal levels 0..4 and bounded literal 4xxx/5xxx disable lists. Named labels,
+alignment/list aliases, operators, token fragments, extra syntax and observed
+keyword-like macro definitions decline this proof. Other pragmas retain their
+existing conservative boundaries, including target-specific macro-stack effects.
+Native MSVC/Clang validate the complete literal fixture; LF/CRLF regression
+controls keep macro argument/following-function spans and omit pragma/macro
+runtime callees. Evidence v14/product v13 invalidate prior conservative pragma
+products. Frozen v12 migration and external-header alias edits pass in packed/
+flat replay and normal watched MCP with background rebuilding on/off.
+Metadata proofs now inspect only erroneous groups that visit() can actually
+admit at the root; nested metadata is checked within that group's proof. An
+irreversible opaque environment cannot revive bindings, so it does not repeat
+that proof in subsequent SDK headers. Ordinary parsing and header/source
+diagnostics remain intact. The checked native Hades audit retains the same 43
+include observations and no actual ASSERT binding across this restriction.
+The exact 99c197c candidate verifies 1744 paths and reports 26 damaged files /
+152576 bytes through normal MCP, with full green CI. It is not installed.

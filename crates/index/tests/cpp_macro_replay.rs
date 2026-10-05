@@ -655,3 +655,38 @@ fn intact_guard_metadata_migrates_and_header_effects_invalidate_replay() {
   }
   let scratch = root.join("scratch"); build(&scratch); assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
 }
+
+#[test]
+fn literal_pragma_policy_migrates_and_alias_edits_revalidate_products() {
+  use vorpal_ingest::{Manifest, cache_file_name, save_product};
+  let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let root = physical_temp_dir().join(format!("vorpal-literal-pragmas-{}-{nonce}", std::process::id()));
+  let src = root.join("src"); let sdk = root.join("sdk"); let out = root.join("index");
+  fs::create_dir_all(&src).unwrap(); fs::create_dir(&sdk).unwrap(); fs::create_dir_all(out.join("products")).unwrap();
+  let source = "#include <proof.h>\nvoid run() { CHECK(value()) }\n";
+  fs::write(src.join("run.cc"), source).unwrap();
+  let header = sdk.join("proof.h");
+  let safe = "#pragma pack(push, 1)\n#pragma warning(push, 1)\n#pragma warning(disable: 4100 4996)\n#define CHECK(x) { sink(x); }\n#pragma warning(pop)\n#pragma pack(pop)\n";
+  fs::write(&header, safe).unwrap();
+  let env = ExtractionEnv { cpp_macro_include_roots: Some(vec![sdk]), ..Default::default() };
+  let extractor = env.extractor().unwrap();
+  let manifest = Manifest::scan(&src, |_| true).unwrap(); let stat = &manifest.entries()[0];
+  let mut legacy = extractor.extract_product(&stat.path, source).unwrap(); assert_eq!(legacy.error_nodes, 0);
+  let base = vorpal_ingest::extraction_identity_for_path(&stat.path, extractor.rules_digest()).unwrap();
+  let evidence = vorpal_ingest::cpp_macro_evidence::audit_with_roots(Path::new(&stat.path), source, env.cpp_macro_include_roots.as_ref().unwrap());
+  let mut dependency = xxhash_rust::xxh3::Xxh3::new(); dependency.update(b"vorpal-cpp-macro-evidence-v13\0");
+  dependency.update(&(evidence.include_roots.len() as u64).to_le_bytes());
+  for path in &evidence.include_roots { let bytes = path.as_os_str().as_encoded_bytes(); dependency.update(&(bytes.len() as u64).to_le_bytes()); dependency.update(bytes); }
+  dependency.update(&(evidence.dependencies.len() as u64).to_le_bytes());
+  for item in &evidence.dependencies { let bytes = item.path.as_os_str().as_encoded_bytes(); dependency.update(&(bytes.len() as u64).to_le_bytes()); dependency.update(bytes); dependency.update(&[u8::from(item.digest.is_some())]); dependency.update(&item.digest.unwrap_or_default().to_le_bytes()); }
+  let mut hash = xxhash_rust::xxh3::Xxh3::new(); hash.update(b"vorpal-cpp-macro-product-v12\0"); hash.update(&base.to_le_bytes()); hash.update(&dependency.digest().to_le_bytes());
+  legacy.grammar_digest = hash.digest(); legacy.source_mtime_ns = stat.mtime_ns; legacy.source_size = stat.size; legacy.source_xxh3 = xxhash_rust::xxh3::xxh3_64(source.as_bytes()); legacy.error_nodes = 1; legacy.error_bytes = 0;
+  save_product(&out.join("products").join(cache_file_name(&stat.path)), &legacy).unwrap();
+  let build = |out: &Path| build_index_env(&src, out, CacheMode::default(), ParseHealthPolicy::default(), &env).unwrap();
+  let migrated = build(&out); assert_eq!(migrated.indexed, 1); assert_eq!(migrated.error_nodes, 0); assert_eq!(build(&out).indexed, 0);
+  for unsafe_header in [safe.replace("warning(push, 1)", "warning(push, LEVEL)"), format!("#define push RESTORE\n{safe}")] {
+    fs::write(&header, unsafe_header).unwrap(); let changed = build(&out); assert_eq!(changed.indexed, 1); assert!(changed.error_nodes > 0); assert!(!changed.reused && !changed.graph_reused);
+    fs::write(&header, safe).unwrap(); let restored = build(&out); assert_eq!(restored.indexed, 1); assert_eq!(restored.error_nodes, 0);
+  }
+  let scratch = root.join("scratch"); build(&scratch); assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
+}
