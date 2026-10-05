@@ -588,6 +588,72 @@ conflict = ['field_expression', 'template_method']
 if conflict not in grammar['conflicts']:
     grammar['conflicts'].append(conflict)
 
+
+# Objective-C++ message syntax is local to the positive arm of an explicit
+# #ifdef __OBJC__ group. Ordinary C++ expression rules and the external scanner
+# are unchanged; the else/elif arms outside an enclosing ObjC scope stay C++.
+def objc_copy(node, replacements):
+    if isinstance(node, list):
+        return [objc_copy(value, replacements) for value in node]
+    if isinstance(node, dict):
+        if node.get('type') == 'SYMBOL' and node.get('name') in replacements:
+            return json.loads(json.dumps(replacements[node['name']]))
+        return {key: objc_copy(value, replacements) for key, value in node.items()}
+    return node
+
+def objc_field(name, content): return {'type': 'FIELD', 'name': name, 'content': content}
+def objc_string(value): return {'type': 'STRING', 'value': value}
+objc_guard = alias_rule('_explicit_objc_guard', 'preproc_ifdef')
+# On a second run do not copy our global entry point back into local bodies.
+objc_base_items = json.loads(json.dumps(rules['_block_item']))
+objc_base_items['members'] = [member for member in objc_base_items['members'] if member != objc_guard]
+objc_expression = symbol('objc_message_expression')
+rules['objc_message_expression'] = seq(objc_string('['),
+    objc_field('receiver', choice(symbol('expression'), objc_expression)),
+    choice(objc_field('selector', symbol('identifier')),
+        {'type': 'REPEAT1', 'content': seq(objc_field('selector', symbol('identifier')),
+            objc_string(':'), objc_field('argument', choice(symbol('expression'), objc_expression)))}),
+    objc_string(']'))
+for name in ['expression_statement', 'return_statement', 'condition_clause']:
+    rules['_objc_' + name] = objc_copy(rules[name], {
+        'expression': choice(symbol('expression'), objc_expression)})
+rules['_objc_if_statement'] = objc_copy(rules['if_statement'], {
+    'condition_clause': alias_rule('_objc_condition_clause', 'condition_clause'),
+    'statement': symbol('_objc_statement'), 'else_clause': alias_rule('_objc_else_clause', 'else_clause')})
+rules['_objc_else_clause'] = objc_copy(rules['else_clause'], {'statement': symbol('_objc_statement')})
+rules['_objc_compound_statement'] = objc_copy(rules['compound_statement'], {'_block_item': symbol('_objc_body_item')})
+rules['_objc_non_case_statement'] = objc_copy(rules['_non_case_statement'], {
+    name: alias_rule('_objc_' + name, name) for name in
+    ['if_statement', 'compound_statement', 'return_statement', 'expression_statement']})
+rules['_objc_statement'] = objc_copy(rules['statement'], {'_non_case_statement': symbol('_objc_non_case_statement')})
+rules['_objc_body_item'] = objc_copy(objc_base_items, {'statement': symbol('_objc_statement')})
+rules['_objc_function_definition'] = objc_copy(rules['function_definition'], {
+    'compound_statement': alias_rule('_objc_compound_statement', 'compound_statement')})
+objc_preproc = {name: alias_rule('_objc_' + name, name) for name in
+    ['preproc_if', 'preproc_ifdef', 'preproc_else', 'preproc_elif', 'preproc_elifdef']}
+for name in objc_preproc:
+    rules['_objc_' + name] = objc_copy(rules[name], {'_block_item': symbol('_objc_block_item'), **objc_preproc})
+rules['_objc_block_item'] = objc_copy(objc_base_items, {
+    'function_definition': alias_rule('_objc_function_definition', 'function_definition'),
+    'statement': symbol('_objc_statement'), **objc_preproc})
+objc_ifdef = rules['preproc_ifdef']['content']['members']
+rules['_explicit_objc_guard'] = seq(
+    json.loads(json.dumps(objc_ifdef[0]['members'][0])),
+    objc_field('name', {'type': 'ALIAS', 'content': objc_string('__OBJC__'), 'named': True, 'value': 'identifier'}),
+    objc_string(chr(10)), repeat(symbol('_objc_block_item')),
+    objc_field('alternative', choice(symbol('preproc_else'), symbol('preproc_elif'), symbol('preproc_elifdef'), {'type': 'BLANK'})),
+    json.loads(json.dumps(objc_ifdef[-1])))
+for name in ['_top_level_item', '_block_item']:
+    if objc_guard not in rules[name]['members']:
+        rules[name]['members'].append(objc_guard)
+for conflict in [['_objc_non_case_statement', '_objc_block_item'],
+                 ['_objc_non_case_statement', '_objc_body_item'],
+                 ['expression_statement', '_objc_expression_statement'],
+                 ['condition_clause', '_objc_condition_clause'],
+                 ['_objc_block_item', 'preproc_split_if_open']]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
 scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())

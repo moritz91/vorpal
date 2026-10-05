@@ -116,6 +116,19 @@ fn external_header_freshness(watch_rebuild: bool) {
   assert!(health(&mut server, 24).contains("carry ERROR/MISSING nodes"));
   fs::write(&header, format!("{valid}{literal_conditions}")).unwrap();
   assert!(health(&mut server, 25).contains("parse health: clean"));
+  let objc_guard = "#ifdef __OBJC__
+void run(Probe* object) { [object release]; }
+#endif
+void following() { target(); }
+void target() {}
+";
+  fs::write(src.join("calls.cc"), objc_guard).unwrap();
+  assert!(health(&mut server, 26).contains("parse health: clean"));
+  fs::write(src.join("calls.cc"), objc_guard.replace("__OBJC__", "PLATFORM")).unwrap();
+  assert!(health(&mut server, 27).contains("carry ERROR/MISSING nodes"));
+  fs::write(src.join("calls.cc"), objc_guard).unwrap();
+  assert!(health(&mut server, 28).contains("parse health: clean"));
+
   // Quiet queries retain the served generation rather than rebuilding forever.
   assert!(health(&mut server, 7).contains("parse health: clean"));
   drop(server);

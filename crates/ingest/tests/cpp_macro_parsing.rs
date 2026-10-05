@@ -1110,3 +1110,72 @@ void following() { missing(); }
     }
   }
 }
+
+#[test]
+fn cpp_explicit_objc_guards_preserve_message_arguments_and_cpp_boundaries() {
+  let lf = r#"// UTF-8: ü
+#ifdef __OBJC__
+inline void dispose(Probe* object) { [object release]; }
+#if defined(ARC)
+inline id optional(Probe* object, void* sel) {
+  if ([object respondsToSelector: sel]) return [object performSelector: sel];
+  return nil;
+}
+#else
+inline id forward(Probe* object) {
+  return [provider() relay: value() to: [object performSelector: selector()]];
+}
+#endif
+#else
+void fallback() { ordinary(); }
+#endif
+void following() { after(); }
+int __OBJC__();
+void word() { __OBJC__(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["dispose", "optional", "forward", "fallback", "following", "word"] {
+      assert!(product.items.iter().any(|item| item.entry.name == name), "{name}");
+    }
+    for name in ["provider", "value", "selector", "ordinary", "after", "__OBJC__"] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), 1, "{name}: {calls:?}");
+      assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], format!("{name}()"));
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && matches!(r.name.as_str(), "release" | "respondsToSelector" | "performSelector" | "relay" | "to")));
+    let raw = SgLang::from_path("guarded.cc").unwrap().grep(&source);
+    let messages: Vec<_> = raw.root().dfs().filter(|n| n.kind() == "objc_message_expression").collect();
+    assert_eq!(messages.len(), 5);
+    for message in messages {
+      assert_eq!(&source[message.range()], message.text());
+      assert!(message.field("receiver").is_some());
+      assert!(message.field("selector").is_some());
+    }
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new();
+    vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor.extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let scan = extractor.extract_product_from_root("macros.cc", &raw).unwrap();
+    let mut handed = Vec::new();
+    vorpal_ingest::encode_product_into(&scan, &mut handed);
+    assert_eq!(owned, handed);
+  }
+  for bad in [
+    "void run(Probe* o) { [o release]; }",
+    "#ifdef PLATFORM\nvoid run(Probe* o) { [o release]; }\n#endif\n",
+    "#ifndef __OBJC__\nvoid run(Probe* o) { [o release]; }\n#endif\n",
+    "#ifdef __OBJC__\nvoid ordinary() {}\n#else\nvoid run(Probe* o) { [o release]; }\n#endif\n",
+    "#ifdef __OBJC__ extra\nvoid run(Probe* o) { [o release]; }\n#endif\n",
+    "#ifdef __OBJC__\nvoid run(Probe* o) { [o release] }\n#endif\n",
+    "#ifdef __OBJC__\nvoid run(Probe* o) { [o]; }\n#endif\n",
+    "#ifdef __OBJC__\nvoid run(Probe* o) { [o release]; }\n",
+    "#ifdef __OBJC__\nvoid run(Probe* o) { [o release]; }\n#endif\nvoid outside(Probe* o) { [o release]; }",
+  ] {
+    for source in [bad.to_owned(), bad.replace('\n', "\r\n")] {
+      assert!(SgLang::from_path("guarded.cc").unwrap().grep(&source).root().has_error(), "{source}");
+    }
+  }
+}

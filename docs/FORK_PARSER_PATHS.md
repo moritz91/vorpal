@@ -801,4 +801,35 @@ products; external header condition/effect changes invalidate packed/flat replay
 and watched MCP with background rebuilds enabled/disabled.
 The exact 5a7abf3 candidate verifies 1744 paths and reports 26 damaged files /
 152576 bytes through normal MCP; its full CI is green. It is not installed.
-Objective-C++ and C++/CLI guarded syntax remains a separate parser boundary.
+The exact ab62947 candidate likewise verifies 1744 paths with 26 damaged files /
+152576 bytes through normal MCP; its full CI is green after a runner-shutdown
+retry. The unchanged local Linux workspace suite also passes. Neither candidate
+is installed.
+
+Bare Objective-C++ message expressions now have structural, local grammar rules
+only in the positive arm of an exact #ifdef __OBJC__ group. The directive head
+must end at its newline; outside this context its else/elif alternatives remain
+ordinary C++. No condition is evaluated and no mutable scanner mode is added.
+The visible objc_message_expression retains receiver, selector and argument
+fields and original spans. Existing function/statement/preprocessor kinds use
+aliases. C++ calls within receivers/arguments retain their graph edges, while
+Objective-C selectors do not become C++ runtime callees. This is bounded support
+for free-function bodies and directly supported statements, not a complete
+Objective-C++ dialect: class/template methods, message combinations within
+ordinary expressions, Objective-C strings and @try/@catch remain unsupported.
+C++/CLI remains a separate parser boundary.
+
+The unchanged 179-test corpus and 33 Windows/Linux parser regressions pass.
+LF/CRLF positives and malformed/outside/else/negative-guard controls retain
+owned/streaming/scan parity. Same-length guard edits and restoration pass default
+C++ tree/product cache tests in bucketed/flat layouts; stored health remains
+damaged on whole-tree reuse (its report counts only newly processed parses).
+Normal watched MCP tests cover both rebuild modes. Native Clang Objective-C++
+accepts the positive fixture and rejects a missing semicolon; MSVC rejects the
+same message syntax in ordinary C++. Native provenance, schema and Clippy pass;
+only C++ provenance changes, with ABI 14 and the ASCII lexer fast path retained.
+The patch script remains idempotent. In a read-only source/AST-hash audit of 902
+tracked C++ paths, only Catch2 changes: 135 -> 124 ERROR/MISSING nodes and
+30195 -> 30007 affected bytes, all 2317 extracted entries retained. The other
+901 source/AST hashes are identical; stb_image.h retains 27 errors / 7 affected
+bytes and all 326 entries. The installed release/tunnel are untouched.

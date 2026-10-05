@@ -1840,6 +1840,10 @@
           {
             "type": "expression",
             "named": true
+          },
+          {
+            "type": "objc_message_expression",
+            "named": true
           }
         ]
       }
@@ -3104,6 +3108,10 @@
         },
         {
           "type": "expression",
+          "named": true
+        },
+        {
+          "type": "objc_message_expression",
           "named": true
         }
       ]
@@ -4961,6 +4969,50 @@
     "type": "null",
     "named": true,
     "fields": {}
+  },
+  {
+    "type": "objc_message_expression",
+    "named": true,
+    "fields": {
+      "argument": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          },
+          {
+            "type": "objc_message_expression",
+            "named": true
+          }
+        ]
+      },
+      "receiver": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          },
+          {
+            "type": "objc_message_expression",
+            "named": true
+          }
+        ]
+      },
+      "selector": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
   },
   {
     "type": "offsetof_expression",
@@ -6865,6 +6917,10 @@
         },
         {
           "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "objc_message_expression",
           "named": true
         }
       ]

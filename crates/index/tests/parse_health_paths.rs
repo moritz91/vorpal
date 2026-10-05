@@ -106,3 +106,40 @@ fn missing_only_health_survives_replay_and_strict_policies() {
   build_index_full(&src, &out, CacheMode::Verified, lenient, None).unwrap();
   fs::remove_dir_all(root).unwrap();
 }
+
+
+#[test]
+fn objc_guard_edits_revalidate_default_cpp_trees_and_products() {
+  let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let root = std::env::temp_dir().join(format!("vorpal-objc-guard-health-{}-{nonce}", std::process::id()));
+  let src = root.join("src"); let out = root.join("index");
+  fs::create_dir_all(&src).unwrap();
+  let file = src.join("guarded.cc");
+  let positive = "#ifdef __OBJC__
+void run(Probe* object) { [object release]; }
+#endif
+void following() { after(); }
+";
+  let negative = positive.replace("__OBJC__", "PLATFORM");
+  fs::write(&file, positive).unwrap();
+  // No macro opt-in: exercise the default C++ incremental tree/walk lanes.
+  let clean = vorpal_index::build_index(&src, &out).unwrap();
+  assert_eq!(clean.error_nodes, 0);
+  assert_eq!(vorpal_index::build_index(&src, &out).unwrap().indexed, 0);
+  for _ in 0..2 {
+    fs::write(&file, &negative).unwrap();
+    let changed = vorpal_index::build_index(&src, &out).unwrap();
+    assert_eq!(changed.indexed, 1); assert!(changed.error_nodes > 0);
+    let warm = vorpal_index::build_index(&src, &out).unwrap();
+    assert_eq!(warm.indexed, 0);
+    // Whole-tree reuse reports no newly processed parse counters; verify stored telemetry.
+    let health = vorpal_index::parse_health_report(&out).unwrap();
+    assert!(health.contains("1 of 1 files carry ERROR/MISSING nodes"), "{health}");
+    fs::write(&file, positive).unwrap();
+    let restored = vorpal_index::build_index(&src, &out).unwrap();
+    assert_eq!(restored.indexed, 1); assert_eq!(restored.error_nodes, 0);
+    let scratch = root.join("scratch"); vorpal_index::build_index(&src, &scratch).unwrap();
+    assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
+  }
+  fs::remove_dir_all(root).unwrap();
+}
