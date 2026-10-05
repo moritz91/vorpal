@@ -94,13 +94,14 @@ pub struct FileProduct {
   /// extraction rules invalidates exactly its stale products. (Field name is historical — it
   /// began as grammar-only in v8.)
   pub grammar_digest: u64,
-  /// How many tree-sitter ERROR or MISSING nodes the parse produced: `0` = clean;
+  /// Syntax diagnostic count: tree-sitter ERROR/MISSING nodes plus opted-in
+  /// proven statement-macro context failures. `0` = clean;
   /// higher = worse (a rough
   /// "how bad" signal, not just "did it fail"). Some definitions in this file may be missing from
   /// the graph. Language-agnostic graceful-degradation telemetry — surfaced in
-  /// `IndexReport::{error_files, error_nodes}`, never acted on (parsing is tree-sitter's job).
+  /// `IndexReport::{error_files, error_nodes}` and parse-health policies.
   pub error_nodes: u32,
-  /// Total bytes covered by ERROR/MISSING nodes; MISSING insertion spans have length zero.
+  /// Total bytes covered by syntax diagnostics (ERROR/MISSING or opted-in macro-context errors); MISSING insertion spans have length zero.
   /// After merging nested/overlapping error ranges —
   /// with `source_size`, the covered-byte ratio a health policy thresholds on.
   pub error_bytes: u64,

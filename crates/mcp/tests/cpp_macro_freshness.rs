@@ -81,6 +81,14 @@ fn external_header_freshness(watch_rebuild: bool) {
   assert!(health(&mut server, 4).contains("carry ERROR/MISSING nodes"));
   fs::write(&header, valid).unwrap();
   assert!(health(&mut server, 5).contains("parse health: clean"));
+  fs::write(src.join("calls.cc"), "#include \"proof.h\"\nint run() { return CHECK(target()); }\nvoid target() {}\n").unwrap();
+  assert!(health(&mut server, 10).contains("macro-context diagnostics"));
+  fs::write(&header, "#undef CHECK\n").unwrap();
+  assert!(health(&mut server, 11).contains("parse health: clean"));
+  fs::write(&header, valid).unwrap();
+  assert!(health(&mut server, 12).contains("carry ERROR/MISSING nodes"));
+  fs::write(src.join("calls.cc"), "#include \"proof.h\"\nvoid run() { CHECK(target()) }\nvoid target() {}\n").unwrap();
+  assert!(health(&mut server, 13).contains("parse health: clean"));
   // Quiet queries retain the served generation rather than rebuilding forever.
   assert!(health(&mut server, 7).contains("parse health: clean"));
   drop(server);

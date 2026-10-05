@@ -24,6 +24,13 @@ use crate::pipeline::FileExtractor;
 use crate::product::{self, FileProduct, ProductRef};
 use crate::references::{extract_references_with_facts, ref_spec, resolved_ref_spec};
 
+#[derive(Clone, Copy)]
+struct MacroProofContext<'a> {
+  dependency: u64,
+  errors: &'a [std::ops::Range<usize>],
+  calls: &'a [std::ops::Range<usize>],
+}
+
 type LangExtractors = HashMap<SgLang, CombinedExtractors<SgLang>>;
 
 /// The rule set behind an extractor.
@@ -464,7 +471,7 @@ fn macro_product_identity(base: u64, dependency: u64) -> u64 {
   let mut hash = xxhash_rust::xxh3::Xxh3::new();
   // Scanner-only changes do not alter the grammar's structural fingerprint.
   // v6 tracks literal macro-stack targets and rejects malformed undef names.
-  hash.update(b"vorpal-cpp-macro-product-v7\0");
+  hash.update(b"vorpal-cpp-macro-product-v8\0");
   hash.update(&base.to_le_bytes());
   hash.update(&dependency.to_le_bytes());
   hash.digest()
@@ -614,12 +621,12 @@ impl OutlineExtractor {
     if self.cpp_macro_recovery_enabled() && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
       // Recovery always reparses: cached trees/walk snapshots have no proof identity.
       let _ = crate::tree_cache::take_reuse(path);
-      let (grep, evidence) = crate::cpp_macro_recovery::parse_recovery(
+      let (grep, evidence, diagnostics) = crate::cpp_macro_recovery::parse_recovery(
         std::path::Path::new(path), source, self.cpp_macro_roots.as_deref().unwrap());
       if observe_freshness && let Some(freshness) = &self.cpp_macro_freshness {
         freshness.observe(std::path::Path::new(path), source, &evidence);
       }
-      return self.extract_from_grep(lang, path, source, &grep, Some(evidence.dependency_identity()), finish);
+      return self.extract_from_grep(lang, path, source, &grep, Some(MacroProofContext { dependency: evidence.dependency_identity(), errors: &diagnostics.errors, calls: &diagnostics.macro_calls }), finish);
     }
     #[cfg(feature = "builtin-parser")]
     let grep = if lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
@@ -667,7 +674,7 @@ impl OutlineExtractor {
     path: &str,
     source: &str,
     grep: &ParsedRoot,
-    dependency: Option<u64>,
+    proof: Option<MacroProofContext<'_>>,
     finish: impl FnOnce(product::ExtractedParts<'_>) -> R,
   ) -> Option<R> {
     let combined = self.by_lang.get(lang);
@@ -691,7 +698,8 @@ impl OutlineExtractor {
     };
     let root = grep.root();
     // Graceful-degradation telemetry (all languages): count tree-sitter syntax-error nodes this
-    // parse produced, including MISSING nodes (0 = clean), and measure the damage.
+    // parse produced, including MISSING nodes, plus proven macro-context failures
+    // in an opted-in C++ parse (0 = clean), and measure the damage.
     // Merged error ranges give an honest
     // affected-byte count (nested ERRORs never double-count) plus up to eight representative
     // spans, so health policies can threshold on a ratio and humans can look at the wreckage
@@ -702,6 +710,7 @@ impl OutlineExtractor {
     // Missing tokens retain zero-length insertion spans and contribute no affected bytes.
     let (error_nodes, error_bytes, error_spans) = if root.has_error()
       || injected.iter().any(|sub| sub.root().has_error())
+      || proof.is_some_and(|p| !p.errors.is_empty())
     {
       let mut error_ranges: Vec<(u32, u32)> = root
         .dfs()
@@ -717,6 +726,9 @@ impl OutlineExtractor {
           let range = node.range();
           (range.start as u32, range.end as u32)
         }));
+      }
+      if let Some(proof) = proof {
+        error_ranges.extend(proof.errors.iter().map(|range| (range.start as u32, range.end as u32)));
       }
       let error_nodes = error_ranges.len() as u32;
       error_ranges.sort_unstable();
@@ -738,7 +750,7 @@ impl OutlineExtractor {
     // stale snapshot never leaks to a later file on this worker thread.
     let reuse = crate::tree_cache::take_reuse(path);
     let base_identity = crate::extraction_identity(grammar_generation, self.rules_digest);
-    let identity = dependency.map_or(base_identity, |dep| macro_product_identity(base_identity, dep));
+    let identity = proof.map_or(base_identity, |p| macro_product_identity(base_identity, p.dependency));
     static WALK_REUSE: OnceLock<bool> = OnceLock::new();
     let reuse_enabled = *WALK_REUSE
       .get_or_init(|| !std::env::var_os("VORPAL_WALK_REUSE").is_some_and(|v| v == "0"));
@@ -1287,6 +1299,11 @@ impl OutlineExtractor {
 
     // References stay borrowed; receiver typing is resolved HERE, once, so the owning and
     // encoding finishes see identical evidence.
+    if let Some(proof) = proof {
+      // The callee token is a proven macro, even when it was not recovered as a
+      // statement. Retain the original argument calls; invent no macro call edge.
+      raw.retain(|r| r.kind != vorpal_resolve::RefKind::Call || !proof.calls.iter().any(|span| span.start == r.start as usize && span.end == r.end as usize));
+    }
     let refs: Vec<product::RefParts<'_>> = raw
       .into_iter()
       .map(|r| {

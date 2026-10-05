@@ -407,6 +407,7 @@ fn legacy_invocation_proofs_cannot_replay_a_false_clean_product() {
     (3, "#define DECLARE(\\u03B1) { int α; }\nvoid run() { DECLARE(1 + 2) }\n"),
     (4, "#define NESTED(x) { void local() { sink(x); } }\nvoid run() { NESTED(1) }\n"),
     (5, "#define CHECK(x) { sink(x); }\n#undef 123invalid\nvoid run() { CHECK(value()) }\n"),
+    (7, "#define CHECK(x) { sink(x); }\nint run() { return CHECK(value()); }\n"),
   ] {
     let nonce = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
@@ -437,6 +438,15 @@ fn legacy_invocation_proofs_cannot_replay_a_false_clean_product() {
     legacy.error_nodes = 0;
     legacy.error_bytes = 0;
     legacy.error_spans.clear();
+    if version == 7 {
+      // The old expression slot also invented a runtime callee for the macro.
+      let mut fake = legacy.refs.iter().find(|r| r.name == "value").unwrap().clone();
+      fake.name = "CHECK".to_owned();
+      fake.start = source.rfind("CHECK(").unwrap() as u32;
+      fake.end = fake.start + "CHECK(value())".len() as u32;
+      fake.call_shape = 5; // one argument, plain callee, no tree error
+      legacy.refs.push(fake);
+    }
     save_product(&out.join("products").join(cache_file_name(&stat.path)), &legacy).unwrap();
     let build = |out: &Path| build_index_env(&src, out, CacheMode::default(), ParseHealthPolicy::default(), &env).unwrap();
     let migrated = build(&out);
@@ -538,4 +548,29 @@ fn unused_pragma_header_proofs_migrate_and_invocations_invalidate_replay() {
   let scratch = root.join("scratch");
   build(&scratch);
   assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
+}
+
+
+#[test]
+fn proof_context_errors_survive_replay_and_strict_health_policies() {
+  use vorpal_index::ParseHealthMode;
+  let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let root = physical_temp_dir().join(format!("vorpal-context-policy-{}-{nonce}", std::process::id()));
+  let src = root.join("src");
+  fs::create_dir_all(&src).unwrap();
+  fs::write(src.join("run.cc"), "#define CHECK(x) { sink(x); }\nint run() { return CHECK(value()); }\n").unwrap();
+  let env = ExtractionEnv { cpp_macro_include_roots: Some(vec![]), ..Default::default() };
+  let out = root.join("index");
+  let build = |policy| build_index_env(&src, &out, CacheMode::Verified, policy, &env);
+  let first = build(ParseHealthPolicy::default()).unwrap();
+  assert_eq!(first.error_nodes, 1, "one original-span context diagnostic, despite a clean unexpanded tree");
+  assert_eq!(first.error_files, 1);
+  let warm = build(ParseHealthPolicy::default()).unwrap();
+  assert_eq!(warm.indexed, 0);
+  assert_eq!(warm.error_nodes, 1);
+  assert!(vorpal_index::parse_health_report(&out).unwrap().contains("macro-context diagnostics"));
+  let strict = ParseHealthPolicy { mode: ParseHealthMode::Fail, max_error_ratio: 0.0 };
+  assert!(build(strict).unwrap_err().to_string().contains("run.cc"));
+  let exclude = ParseHealthPolicy { mode: ParseHealthMode::Exclude, max_error_ratio: 0.0 };
+  assert_eq!(build(exclude).unwrap().excluded_files, 1);
 }

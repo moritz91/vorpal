@@ -14,6 +14,8 @@ pub struct RecoveryAudit {
   pub calls: Vec<(String, Range<usize>)>,
   pub functions: Vec<String>,
   pub dependency_identity: u64,
+  /// Proven statement replacements used where C++ requires an expression.
+  pub context_errors: Vec<Range<usize>>,
 }
 
 /// Prove every invocation of a name before giving it to the offset-free scanner.
@@ -21,6 +23,47 @@ pub struct RecoveryAudit {
 /// This report does not write products or activate recovery in default extraction.
 pub fn audit_recovery(path: &Path, source: &str, roots: &[PathBuf]) -> RecoveryAudit {
   vorpal_language::with_cpp_statement_macros(&[], || audit_without_context(path, source, roots))
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ContextDiagnostics {
+  pub errors: Vec<Range<usize>>,
+  pub macro_calls: Vec<Range<usize>>,
+}
+
+// A proven if/try/compound replacement cannot occupy an expression. Keep this
+// check separate from the unexpanded tree: no source or tree is rewritten.
+fn macro_calls(
+  parsed: &crate::ParsedRoot,
+  evidence: &crate::cpp_macro_evidence::Evidence,
+) -> Vec<(String, Range<usize>, bool)> {
+  parsed
+    .root()
+    .dfs()
+    .filter_map(|call| {
+      if call.kind().as_ref() != "call_expression" {
+        return None;
+      }
+      let function = call.field("function")?;
+      let plain = function.kind().as_ref() == "identifier";
+      let mut name = function;
+      loop {
+        name = match name.kind().as_ref() {
+          "field_expression" => name.field("field")?,
+          "qualified_identifier" => name.field("name")?,
+          "identifier" | "field_identifier" => break,
+          _ => return None,
+        };
+      }
+      let text = name.text();
+      evidence.at(&text, name.range().start)?;
+      let expression = !plain
+        || call
+          .parent()
+          .is_none_or(|p| p.kind().as_ref() != "expression_statement");
+      Some((text.into_owned(), call.range(), expression))
+    })
+    .collect()
 }
 
 fn parse_without_context(
@@ -31,6 +74,7 @@ fn parse_without_context(
   crate::ParsedRoot,
   Vec<String>,
   crate::cpp_macro_evidence::Evidence,
+  ContextDiagnostics,
 ) {
   let lang = SgLang::Builtin(SupportLang::Cpp);
   let raw = lang.grep(source);
@@ -116,12 +160,40 @@ fn parse_without_context(
       i += 1;
     }
   }
-  let eligible_names: Vec<_> = candidates
+  let mut eligible_names: Vec<_> = candidates
     .into_keys()
     .filter(|name| name.len() <= 128 && name.is_ascii() && !rejected.contains(name))
     .collect();
-  let parsed = vorpal_language::with_cpp_statement_macros(&eligible_names, || lang.grep(source));
-  (parsed, eligible_names, evidence)
+  let mut parsed =
+    vorpal_language::with_cpp_statement_macros(&eligible_names, || lang.grep(source));
+  let uses = macro_calls(&parsed, &evidence);
+  let invalid: BTreeSet<_> = uses
+    .iter()
+    .filter(|(_, _, expression)| *expression)
+    .map(|(name, _, _)| name.clone())
+    .collect();
+  let errors = uses
+    .into_iter()
+    .filter(|(_, _, expression)| *expression)
+    .map(|(_, span, _)| span)
+    .collect();
+  if eligible_names.iter().any(|name| invalid.contains(name)) {
+    eligible_names.retain(|name| !invalid.contains(name));
+    parsed = vorpal_language::with_cpp_statement_macros(&eligible_names, || lang.grep(source));
+  }
+  let macro_calls = macro_calls(&parsed, &evidence)
+    .into_iter()
+    .map(|(_, span, _)| span)
+    .collect();
+  (
+    parsed,
+    eligible_names,
+    evidence,
+    ContextDiagnostics {
+      errors,
+      macro_calls,
+    },
+  )
 }
 
 fn statement_space(byte: &u8) -> bool {
@@ -171,15 +243,19 @@ pub(crate) fn parse_recovery(
   path: &Path,
   source: &str,
   roots: &[PathBuf],
-) -> (crate::ParsedRoot, crate::cpp_macro_evidence::Evidence) {
+) -> (
+  crate::ParsedRoot,
+  crate::cpp_macro_evidence::Evidence,
+  ContextDiagnostics,
+) {
   vorpal_language::with_cpp_statement_macros(&[], || {
-    let (parsed, _, evidence) = parse_without_context(path, source, roots);
-    (parsed, evidence)
+    let (parsed, _, evidence, diagnostics) = parse_without_context(path, source, roots);
+    (parsed, evidence, diagnostics)
   })
 }
 
 fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> RecoveryAudit {
-  let (parsed, eligible_names, evidence) = parse_without_context(path, source, roots);
+  let (parsed, eligible_names, evidence, diagnostics) = parse_without_context(path, source, roots);
   let dependency_identity = evidence.dependency_identity();
   let root = parsed.root();
   let macro_spans = root
@@ -189,7 +265,9 @@ fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> Recove
     .collect();
   let calls = root
     .dfs()
-    .filter(|n| n.kind().as_ref() == "call_expression")
+    .filter(|n| {
+      n.kind().as_ref() == "call_expression" && !diagnostics.macro_calls.contains(&n.range())
+    })
     .filter_map(|n| {
       let name = n.field("function")?;
       (name.kind().as_ref() == "identifier").then(|| (name.text().into_owned(), n.range()))
@@ -204,12 +282,13 @@ fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> Recove
     })
     .collect();
   RecoveryAudit {
-    has_error: root.has_error(),
+    has_error: root.has_error() || !diagnostics.errors.is_empty(),
     eligible_names,
     macro_spans,
     calls,
     functions,
     dependency_identity,
+    context_errors: diagnostics.errors,
   }
 }
 

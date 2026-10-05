@@ -696,3 +696,26 @@ The exact 0615194 candidate separately verifies 1744 paths and reports 26 damage
 files / 152576 bytes through normal MCP. Its source checkout differs from the
 earlier 1735-path candidate, so these byte counts are not a parser-regression
 comparison. Its full CI is green; no candidate is installed in the live tunnel.
+
+Proven statement macros retained as call_expression nodes now receive original-
+span diagnostics when the call occupies an expression or a qualified/member
+callee slot. A compound/if/try replacement cannot fill those C++ slots. One such
+use disables that scanner name for the whole translation unit. The tree and
+source remain unchanged; ephemeral context diagnostics are counted alongside
+ERROR/MISSING nodes in production health/Fail/Exclude policies. Audit reports
+expose context_errors explicitly. Proven macro callees create no runtime refs,
+including unrecovered ordinary call nodes; real argument calls retain spans.
+Ordinary same-named calls after undef remain calls. This is a bounded call-
+expression check, not general preprocessing or declaration-macro validation.
+Product identity v8 invalidates old false-clean telemetry and invented macro
+callee rows; migration includes v7. All 23 recovery, 32 parser, 25 Windows/26 Linux
+evidence, nine replay, three watched MCP and four configured CLI tests pass on
+both platforms (Linux replay also flat). Native MSVC/Clang reject the return-slot
+fixture and accept the statement/undef/ordinary-call positive control. Header-only
+changes revalidate these diagnostics in live MCP; strict health policies retain
+them through packed replay. Changed-target Clippy passes; optional index backends
+and unrelated Windows-only all-test warnings are outside the native check scope.
+The exact 40dd0d6 candidate verifies 1744 paths and reports 26 damaged files /
+152576 bytes, identical to the preceding 0615194 candidate on this source state.
+Its full CI is green. No candidate is installed; SDK include proof still remains
+conservative, with zero actual Hades ASSERT bindings in the audited test source.

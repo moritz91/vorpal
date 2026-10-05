@@ -646,3 +646,73 @@ fn unused_pragma_definitions_preserve_production_spans_without_executing_wrapper
     }
   }
 }
+
+#[test]
+fn statement_macro_expression_uses_are_diagnosed_without_inventing_macro_calls() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for expression in [
+    "return CHECK(value());",
+    "int x = CHECK(value());",
+    "use(CHECK(value()));",
+    "sizeof(CHECK(value()));",
+    "(CHECK(value()));",
+    "object.CHECK(value());",
+    "::CHECK(value());",
+    "if (CHECK(value())) after();",
+    "for (; CHECK(value());) after();",
+    "int array[CHECK(value())];",
+    "throw CHECK(value());",
+  ] {
+    let lf = format!("#define CHECK(x) {{ sink(x); }}\nint run() {{ {expression} after(); }}\n");
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("context.cc"), &source, &[]);
+      assert!(report.has_error, "{expression}: {report:?}");
+      assert!(report.eligible_names.is_empty());
+      assert_eq!(report.context_errors.len(), 1, "{expression}: {report:?}");
+      assert!(source[report.context_errors[0].clone()].contains("CHECK(value())"));
+      assert!(!report.calls.iter().any(|(name, _)| name == "CHECK"));
+      for name in ["value", "after"] {
+        let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+        assert_eq!(&source[span.clone()], format!("{name}()"));
+      }
+      let product = extractor.extract_product("context.cc", &source).unwrap();
+      assert!(product.error_nodes > 0);
+      assert!(!product.refs.iter().any(|r| r.name == "CHECK"));
+      assert!(product.refs.iter().any(|r| r.name == "value"));
+      let mut owned = Vec::new();
+      encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("context.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let raw = SgLang::from_path("context.cc").unwrap().grep(&source);
+      let handoff = extractor
+        .extract_product_from_root("context.cc", &raw)
+        .unwrap();
+      let mut bank = Vec::new();
+      encode_product_into(&handoff, &mut bank);
+      assert_eq!(owned, bank);
+    }
+  }
+  let source = "#define CHECK(x) { sink(x); }\nvoid first() { CHECK(value()); }\n#undef CHECK\nint CHECK(int); int second() { return CHECK(value()); }\n";
+  let report = audit_recovery(Path::new("interval.cc"), source, &[]);
+  assert!(report.context_errors.is_empty(), "{report:?}");
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(
+    report
+      .calls
+      .iter()
+      .filter(|(name, _)| name == "CHECK")
+      .count(),
+    1,
+    "the ordinary call after undef retains its span"
+  );
+}

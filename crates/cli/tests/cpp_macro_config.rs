@@ -125,6 +125,12 @@ fn configured_roots_and_external_header_edits_reach_cli_and_mcp() {
   assert!(health(mcp_rebuild(&src, &out, &config)).contains("carry ERROR/MISSING nodes"));
   fs::write(&header, "#define CHECK(x) { effect(x); }\n").unwrap();
   assert!(health(mcp_rebuild(&src, &out, &config)).contains("parse health: clean"));
+  // A statement replacement is not valid in a return-expression slot, even
+  // though the unexpanded C++ call tree has no ERROR or MISSING nodes.
+  fs::write(src.join("run.cc"), "#include <proof.h>\nint run() { return CHECK(value()); }\n").unwrap();
+  assert!(health(mcp_rebuild(&src, &out, &config)).contains("carry ERROR/MISSING nodes"));
+  index(&src, &out, &config);
+  assert!(vorpal_index::parse_health_report(&out).unwrap().contains("macro-context diagnostics"));
 }
 
 #[test]

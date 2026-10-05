@@ -73,11 +73,11 @@ pub struct IndexReport {
   pub indexed: u64,
   /// Files whose cached extraction product was replayed without a parse.
   pub skipped: u64,
-  /// Files whose tree-sitter parse produced ERROR/MISSING nodes — some of their definitions may be
+  /// Files with ERROR/MISSING nodes or proven macro-context diagnostics — some definitions may be
   /// missing from the graph. A language-agnostic parse-health signal (graceful degradation
   /// made visible), 0 when every file parsed cleanly.
   pub error_files: u64,
-  /// Total tree-sitter ERROR/MISSING nodes across all files — the magnitude behind `error_files`, so a
+  /// Total syntax diagnostics (ERROR/MISSING or proven macro-context failures) behind `error_files`: a
   /// corpus with one badly-broken file reads differently from one with many lightly-broken files.
   pub error_nodes: u64,
   /// Total bytes covered by (merged) ERROR ranges across all files — with per-file sizes, the
@@ -7336,7 +7336,7 @@ pub fn parse_health_report(index_dir: &Path) -> Result<String, Box<dyn Error>> {
     let language = vorpal_ingest::language_name_of(path).unwrap_or_else(|| "?".to_string());
     let _ = writeln!(
       out,
-      "{path} [{language}; extraction-id {:016x}]: {} ERROR/MISSING nodes, {} of {} bytes ({ratio:.1}%)",
+      "{path} [{language}; extraction-id {:016x}]: {} ERROR/MISSING nodes or macro-context diagnostics, {} of {} bytes ({ratio:.1}%)",
       product.grammar_digest, product.error_nodes, product.error_bytes, product.source_size
     );
     for &(start, end) in &product.error_spans {
@@ -7384,7 +7384,7 @@ pub fn parse_health_report(index_dir: &Path) -> Result<String, Box<dyn Error>> {
     }
   }
   if unhealthy == 0 {
-    return Ok("parse health: clean — every indexed file parsed without ERROR/MISSING nodes\n".into());
+    return Ok("parse health: clean — every indexed file parsed without ERROR/MISSING nodes or macro-context diagnostics\n".into());
   }
   let recovered = if recovered_files > 0 {
     format!(
@@ -7394,7 +7394,7 @@ pub fn parse_health_report(index_dir: &Path) -> Result<String, Box<dyn Error>> {
     String::new()
   };
   Ok(format!(
-    "parse health: {unhealthy} of {} files carry ERROR/MISSING nodes ({total_error_bytes} damaged bytes total{recovered})\n{out}",
+    "parse health: {unhealthy} of {} files carry ERROR/MISSING nodes or macro-context diagnostics ({total_error_bytes} damaged bytes total{recovered})\n{out}",
     files.len()
   ))
 }
