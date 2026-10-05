@@ -42,6 +42,51 @@ fn macro_calls(
     .root()
     .dfs()
     .filter_map(|call| {
+      if call.kind().as_ref() == "macro_statement" {
+        let name = call.field("name")?;
+        let text = name.text();
+        evidence.at(&text, name.range().start)?;
+        let mut parent = call.parent();
+        while let Some(context) = parent {
+          match context.kind().as_ref() {
+            "function_definition" | "lambda_expression" => return None,
+            "namespace_definition"
+            | "linkage_specification"
+            | "class_specifier"
+            | "struct_specifier"
+            | "union_specifier" => {
+              let source = parsed.root().text();
+              let range = context.range();
+              let span = call.range();
+              // A surrounding macro can manufacture a function or change the
+              // declaration context. Such forms remain outside this proof.
+              // Other scanner-proven complete statements cannot open an
+              // enclosing function or alter the surrounding declaration scope.
+              // Inspect original segments between them; no input is rewritten.
+              let mut statements: Vec<_> = context
+                .dfs()
+                .filter(|n| n.kind().as_ref() == "macro_statement")
+                .map(|n| n.range())
+                .collect();
+              statements.sort_by_key(|s| s.start);
+              let mut cursor = range.start;
+              let mut expanding = false;
+              for statement in statements {
+                if statement.start < cursor {
+                  continue;
+                }
+                expanding |= evidence.contains_expanding_tokens(&source[cursor..statement.start]);
+                cursor = statement.end;
+              }
+              expanding |= evidence.contains_expanding_tokens(&source[cursor..range.end]);
+              let incompatible = !expanding;
+              return Some((text.into_owned(), span, incompatible));
+            }
+            _ => parent = context.parent(),
+          }
+        }
+        return None;
+      }
       if call.kind().as_ref() != "call_expression" {
         return None;
       }

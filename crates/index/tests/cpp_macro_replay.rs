@@ -409,6 +409,7 @@ fn legacy_invocation_proofs_cannot_replay_a_false_clean_product() {
     (5, "#define CHECK(x) { sink(x); }\n#undef 123invalid\nvoid run() { CHECK(value()) }\n"),
     (7, "#define CHECK(x) { sink(x); }\nint run() { return CHECK(value()); }\n"),
     (9, "#define DECLARE(x) { int x; }\nvoid run() { DECLARE(1 + 2); }\n"),
+    (10, "#define CHECK(x) { sink(x); }\nnamespace scope { CHECK(value()) }\n"),
   ] {
     let nonce = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();

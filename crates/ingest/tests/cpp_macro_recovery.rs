@@ -3,6 +3,61 @@ use std::path::Path;
 use vorpal_ingest::cpp_macro_recovery::audit_recovery;
 
 #[test]
+fn statement_recovery_cannot_admit_namespace_or_linkage_compounds() {
+  use vorpal_ingest::OutlineExtractor;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for enclosing in ["namespace scope", "extern \"C\""] {
+    let lf = format!(
+      "#define CHECK(x) {{ sink(x); }}\n{enclosing} {{ CHECK(value()) }}\nvoid after() {{ real(); }}\n"
+    );
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("scope.cc"), &source, &[]);
+      assert!(report.has_error, "{report:?}");
+      assert!(report.eligible_names.is_empty(), "{report:?}");
+      assert_eq!(report.context_errors.len(), 1, "{report:?}");
+      assert_eq!(&source[report.context_errors[0].clone()], "CHECK(value())");
+      assert!(report.functions.iter().any(|name| name == "after"));
+      assert!(
+        extractor
+          .extract_product("scope.cc", &source)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+    let source = format!(
+      "#define CHECK(x) {{ sink(x); }}\n{enclosing} {{ void run() {{ CHECK(value()) }} }}\n"
+    );
+    let report = audit_recovery(Path::new("scope.cc"), &source, &[]);
+    assert!(
+      !report.has_error,
+      "a function body admits the statement: {report:?}"
+    );
+    assert_eq!(report.macro_spans.len(), 1);
+    for delimiter in ["", ";"] {
+      let source = format!(
+        "#define CHECK(x) {{ sink(x); }}\n{enclosing} {{ CHECK(first()){delimiter} CHECK(second()){delimiter} }}\n"
+      );
+      let report = audit_recovery(Path::new("multiple-scopes.cc"), &source, &[]);
+      assert!(report.has_error, "{report:?}");
+      assert_eq!(report.context_errors.len(), 2, "{report:?}");
+      assert!(report.eligible_names.is_empty());
+    }
+  }
+  let source =
+    "#define CHECK(x) { sink(x); }\nnamespace scope { auto run = []() { CHECK(value()) }; }\n";
+  let report = audit_recovery(Path::new("lambda.cc"), source, &[]);
+  assert!(
+    !report.has_error,
+    "lambda bodies admit statements: {report:?}"
+  );
+  assert_eq!(report.macro_spans.len(), 1);
+}
+
+#[test]
 fn empty_preprocessing_arguments_are_proved_in_the_replacement() {
   use vorpal_core::Language;
   use vorpal_core::tree_sitter::LanguageExt;

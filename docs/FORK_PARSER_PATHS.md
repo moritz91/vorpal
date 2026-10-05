@@ -721,10 +721,16 @@ preprocessing argument in F() is distinguished from the zero arguments of a
 zero-parameter macro. Whitespace/comment-only arguments keep original spans and
 are accepted only when their instantiated replacement is a complete statement.
 Multiple or mixed empty comma-separated arguments remain conservatively unsupported.
-Product identity v10 invalidates old false-clean telemetry, invented macro
+Scanner-proven statements are also checked against declaration scope. Direct
+namespace/linkage compound replacements are incompatible; nested function and
+lambda bodies remain valid. Unknown surrounding macro tokens decline this
+diagnostic. Other scanner-proven complete statements cannot manufacture an
+enclosing function, so multiple invalid uses are checked independently. The
+same original-span diagnoses reach watched MCP with background rebuilds on/off.
+Product identity v11 invalidates old false-clean telemetry, invented macro
 callee rows and v8 false diagnostics for valid enclosing macro expansions;
-migration includes v7/v8/v9, with both false errors and false-clean old products.
-All 26 recovery, 32 parser, 25 Windows/26 Linux
+migration includes v7/v8/v9/v10, with both false errors and false-clean old products.
+All 27 recovery, 32 parser, 25 Windows/26 Linux
 evidence, ten replay, three watched MCP and four configured CLI tests pass on
 both platforms (Linux replay also flat). Native MSVC/Clang reject the return-slot
 fixture and accept the statement/undef/ordinary-call positive control. Header-only
@@ -735,3 +741,7 @@ The exact 40dd0d6 candidate verifies 1744 paths and reports 26 damaged files /
 152576 bytes, identical to the preceding 0615194 candidate on this source state.
 Its full CI is green. No candidate is installed; SDK include proof still remains
 conservative, with zero actual Hades ASSERT bindings in the audited test source.
+The exact 83be959 candidate separately verifies 1744 paths and reports 26 damaged
+files / 152576 bytes through normal MCP; its full CI is green. MSVC/Clang accept
+the empty-argument and nested function/lambda controls and reject the direct
+namespace statement fixture. No candidate has been installed in the live tunnel.

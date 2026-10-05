@@ -89,6 +89,10 @@ fn external_header_freshness(watch_rebuild: bool) {
   assert!(health(&mut server, 12).contains("carry ERROR/MISSING nodes"));
   fs::write(src.join("calls.cc"), "#include \"proof.h\"\nvoid run() { CHECK(target()) }\nvoid target() {}\n").unwrap();
   assert!(health(&mut server, 13).contains("parse health: clean"));
+  fs::write(src.join("calls.cc"), "#include \"proof.h\"\nnamespace scope { CHECK(target()); }\nvoid target() {}\n").unwrap();
+  assert!(health(&mut server, 14).contains("carry ERROR/MISSING nodes"));
+  fs::write(src.join("calls.cc"), "#include \"proof.h\"\nnamespace scope { void run() { CHECK(target()) } }\nvoid target() {}\n").unwrap();
+  assert!(health(&mut server, 15).contains("parse health: clean"));
   // Quiet queries retain the served generation rather than rebuilding forever.
   assert!(health(&mut server, 7).contains("parse health: clean"));
   drop(server);
