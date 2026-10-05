@@ -3,6 +3,81 @@ use std::path::Path;
 use vorpal_ingest::cpp_macro_recovery::audit_recovery;
 
 #[test]
+fn macro_arguments_must_fit_their_actual_replacement_context() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for (definition, invocation) in [
+    ("#define DECLARE(name) { int name; }", "DECLARE(1 + 2)"),
+    ("#define JUMP(label) { goto label; }", "JUMP(target())"),
+    (
+      "#define COPY(value) { __asm { mov eax,value } }",
+      "COPY(target())",
+    ),
+    (
+      "#define TEXT(value) { use(\"prefix\" value); }",
+      "TEXT(unexpanded)",
+    ),
+  ] {
+    let source = format!("{definition}\nvoid run() {{ {invocation} }}\n");
+    for source in [source.clone(), source.replace('\n', "\r\n")] {
+      let audit = audit_recovery(Path::new("roles.cc"), &source, &[]);
+      assert!(
+        audit.has_error,
+        "replacement-context syntax must not become false-clean: {source}: {audit:?}"
+      );
+      assert!(audit.eligible_names.is_empty());
+      let product = extractor.extract_product("roles.cc", &source).unwrap();
+      assert!(product.error_nodes > 0);
+      let mut owned = Vec::new();
+      encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("roles.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let raw = SgLang::from_path("roles.cc").unwrap().grep(&source);
+      let handoff = extractor
+        .extract_product_from_root("roles.cc", &raw)
+        .unwrap();
+      let mut bank = Vec::new();
+      encode_product_into(&handoff, &mut bank);
+      assert_eq!(owned, bank);
+    }
+  }
+}
+
+#[test]
+fn replacement_proofs_preserve_tokens_literals_and_original_call_spans() {
+  let lf = "#define DECLARE(name) { int name; }\n#define JUMP(label) { goto label; }\n#define COPY(value) { __asm { mov eax,value } }\n#define CHECK(value) { use(value, \"value\", R\"(value)\", 'v'); /* value */ }\nvoid run() { DECLARE(local) JUMP(done) COPY(12) CHECK(real()) after(); done: ; }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let audit = audit_recovery(Path::new("roles.cc"), &source, &[]);
+    assert!(!audit.has_error, "{audit:?}");
+    assert_eq!(audit.eligible_names, ["CHECK", "COPY", "DECLARE", "JUMP"]);
+    for name in ["real", "after"] {
+      let (_, span) = audit.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+  }
+  // Legacy MSVC coalesces adjacent operators; decline an ambiguous boundary.
+  let source = "#define ADD(value) { use(1+value); }\nvoid run() { ADD(+real()) }";
+  assert!(audit_recovery(Path::new("tokens.cc"), source, &[]).has_error);
+  let source = "#define ADD(value) { use(1+ value); }\nvoid run() { ADD(+real()) }";
+  assert!(!audit_recovery(Path::new("tokens.cc"), source, &[]).has_error);
+  let source = "#define DECLARE(name) { int name; }\nvoid run() { DECLARE(valid) DECLARE(1+2) }";
+  assert!(
+    audit_recovery(Path::new("blocked.cc"), source, &[])
+      .eligible_names
+      .is_empty()
+  );
+}
+
+#[test]
 fn proven_statements_keep_argument_calls_and_following_function_spans() {
   let lf = "#define CHECK(x) if (!(x)) { throw 0; }\nvoid run() { CHECK(value()) after(); }\nvoid following() { next(); }\n";
   for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
@@ -358,30 +433,53 @@ fn invocation_comments_keep_original_spans_and_match_production_paths() {
     let recovered = vorpal_language::with_cpp_statement_macros(&audit.eligible_names, || {
       SgLang::from_path("comments.cc").unwrap().grep(&source)
     });
-    assert_eq!(recovered.root().dfs().filter(|n| n.kind() == "comment").count(), 3);
-    for node in recovered.root().dfs().filter(|n| n.kind() == "macro_statement") {
+    assert_eq!(
+      recovered
+        .root()
+        .dfs()
+        .filter(|n| n.kind() == "comment")
+        .count(),
+      3
+    );
+    for node in recovered
+      .root()
+      .dfs()
+      .filter(|n| n.kind() == "macro_statement")
+    {
       let name = node.field("name").unwrap();
       assert_eq!(&source[name.range()], "CHECK");
       assert!(node.text().starts_with("CHECK "));
     }
-    assert!(!audit.calls.iter().any(|(name, _)| ["CHECK", "other"].contains(&name.as_str())));
+    assert!(
+      !audit
+        .calls
+        .iter()
+        .any(|(name, _)| ["CHECK", "other"].contains(&name.as_str()))
+    );
     for name in ["value", "after", "next"] {
       for (_, span) in audit.calls.iter().filter(|(n, _)| n == name) {
         assert_eq!(&source[span.clone()], format!("{name}()"));
       }
     }
     assert_eq!(audit.calls.iter().filter(|(n, _)| n == "value").count(), 2);
-    let extractor = OutlineExtractor::new().unwrap().with_cpp_macro_recovery(&[]).unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_recovery(&[])
+      .unwrap();
     let product = extractor.extract_product("comments.cc", &source).unwrap();
     assert_eq!(product.error_nodes, 0);
     let mut owned = Vec::new();
     encode_product_into(&product, &mut owned);
     let mut streamed = Vec::new();
-    extractor.extract_product_encoded("comments.cc", &source, 0, 0, &mut streamed).unwrap();
+    extractor
+      .extract_product_encoded("comments.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
     assert_eq!(owned, streamed);
     let raw = SgLang::from_path("comments.cc").unwrap().grep(&source);
     assert!(raw.root().has_error());
-    let handoff = extractor.extract_product_from_root("comments.cc", &raw).unwrap();
+    let handoff = extractor
+      .extract_product_from_root("comments.cc", &raw)
+      .unwrap();
     let mut encoded = Vec::new();
     encode_product_into(&handoff, &mut encoded);
     assert_eq!(owned, encoded);
@@ -391,7 +489,9 @@ fn invocation_comments_keep_original_spans_and_match_production_paths() {
 #[test]
 fn comment_and_control_whitespace_invocations_cannot_escape_proof_intervals() {
   for spacing in ["\x0b", " /* note */ ", " // note\n "] {
-    let source = format!("void before() {{ CHECK{spacing}(value()) }}\n#define CHECK(x) {{ effect(x); }}\nvoid run() {{ CHECK(value()) }}\n");
+    let source = format!(
+      "void before() {{ CHECK{spacing}(value()) }}\n#define CHECK(x) {{ effect(x); }}\nvoid run() {{ CHECK(value()) }}\n"
+    );
     let audit = audit_recovery(Path::new("comments.cc"), &source, &[]);
     assert!(audit.has_error, "{spacing:?}: {audit:?}");
     assert!(audit.eligible_names.is_empty(), "{spacing:?}: {audit:?}");
@@ -412,5 +512,12 @@ fn comment_and_control_whitespace_invocations_cannot_escape_proof_intervals() {
     let audit = audit_recovery(Path::new("comments.cc"), &source, &[]);
     assert!(audit.has_error, "{invocation:?}: {audit:?}");
   }
-  assert!(audit_recovery(Path::new("ordinary.cc"), "void run() { CHECK /* note */ (value()) }", &[]).has_error);
+  assert!(
+    audit_recovery(
+      Path::new("ordinary.cc"),
+      "void run() { CHECK /* note */ (value()) }",
+      &[]
+    )
+    .has_error
+  );
 }

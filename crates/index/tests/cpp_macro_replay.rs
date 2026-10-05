@@ -401,45 +401,49 @@ fn argument_macro_header_edits_invalidate_recovered_products() {
 #[test]
 fn legacy_invocation_proofs_cannot_replay_a_false_clean_product() {
   use vorpal_ingest::{Manifest, cache_file_name, save_product};
-  let nonce = std::time::SystemTime::now()
-    .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-  let root = physical_temp_dir().join(format!("vorpal-proof-migration-{}-{nonce}", std::process::id()));
-  let src = root.join("src");
-  let out = root.join("index");
-  fs::create_dir_all(&src).unwrap();
-  fs::create_dir_all(out.join("products")).unwrap();
-  let source = "void before() { CHECK\x0b(value()) }\n#define CHECK(x) { effect(x); }\nvoid run() { CHECK(value()) }\n";
-  fs::write(src.join("run.cc"), source).unwrap();
-  let env = ExtractionEnv { cpp_macro_include_roots: Some(vec![]), ..Default::default() };
-  let extractor = env.extractor().unwrap();
-  let manifest = Manifest::scan(&src, |_| true).unwrap();
-  let stat = &manifest.entries()[0];
-  let mut legacy = extractor.extract_product(&stat.path, source).unwrap();
-  assert!(legacy.error_nodes > 0, "the earlier invocation has no macro definition");
-  // Frozen v1 identity and false-clean telemetry model the old scanner/audit
-  // whitespace mismatch. Source, config and dependencies are unchanged.
-  let base = vorpal_ingest::extraction_identity_for_path(&stat.path, extractor.rules_digest()).unwrap();
-  let evidence = vorpal_ingest::cpp_macro_evidence::audit_with_roots(Path::new(&stat.path), source, &[]);
-  let mut hash = xxhash_rust::xxh3::Xxh3::new();
-  hash.update(b"vorpal-cpp-macro-product-v1\0");
-  hash.update(&base.to_le_bytes());
-  hash.update(&evidence.dependency_identity().to_le_bytes());
-  legacy.grammar_digest = hash.digest();
-  legacy.source_mtime_ns = stat.mtime_ns;
-  legacy.source_size = stat.size;
-  legacy.source_xxh3 = xxhash_rust::xxh3::xxh3_64(source.as_bytes());
-  legacy.error_nodes = 0;
-  legacy.error_bytes = 0;
-  legacy.error_spans.clear();
-  save_product(&out.join("products").join(cache_file_name(&stat.path)), &legacy).unwrap();
-  let build = |out: &Path| build_index_env(&src, out, CacheMode::default(), ParseHealthPolicy::default(), &env).unwrap();
-  let migrated = build(&out);
-  assert_eq!(migrated.indexed, 1, "old invocation proof must be reparsed");
-  assert!(migrated.error_nodes > 0, "old telemetry must not conceal the missing semicolon");
-  let warm = build(&out);
-  assert_eq!(warm.indexed, 0, "new packed products replay normally");
-  assert_eq!(warm.error_nodes, migrated.error_nodes);
-  let scratch = root.join("scratch");
-  build(&scratch);
-  assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
+  for (version, source) in [
+    (1, "void before() { CHECK\x0b(value()) }\n#define CHECK(x) { effect(x); }\nvoid run() { CHECK(value()) }\n"),
+    (2, "#define DECLARE(name) { int name; }\nvoid run() { DECLARE(1 + 2) }\n"),
+  ] {
+    let nonce = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let root = physical_temp_dir().join(format!("vorpal-proof-migration-v{version}-{}-{nonce}", std::process::id()));
+    let src = root.join("src");
+    let out = root.join("index");
+    fs::create_dir_all(&src).unwrap();
+    fs::create_dir_all(out.join("products")).unwrap();
+    fs::write(src.join("run.cc"), source).unwrap();
+    let env = ExtractionEnv { cpp_macro_include_roots: Some(vec![]), ..Default::default() };
+    let extractor = env.extractor().unwrap();
+    let manifest = Manifest::scan(&src, |_| true).unwrap();
+    let stat = &manifest.entries()[0];
+    let mut legacy = extractor.extract_product(&stat.path, source).unwrap();
+    assert!(legacy.error_nodes > 0, "the invocation lacks a valid replacement proof");
+    // Frozen old identities model whitespace and replacement-context proof bugs.
+    // Source, config and dependencies are unchanged.
+    let base = vorpal_ingest::extraction_identity_for_path(&stat.path, extractor.rules_digest()).unwrap();
+    let evidence = vorpal_ingest::cpp_macro_evidence::audit_with_roots(Path::new(&stat.path), source, &[]);
+    let mut hash = xxhash_rust::xxh3::Xxh3::new();
+    hash.update(format!("vorpal-cpp-macro-product-v{version}\0").as_bytes());
+    hash.update(&base.to_le_bytes());
+    hash.update(&evidence.dependency_identity().to_le_bytes());
+    legacy.grammar_digest = hash.digest();
+    legacy.source_mtime_ns = stat.mtime_ns;
+    legacy.source_size = stat.size;
+    legacy.source_xxh3 = xxhash_rust::xxh3::xxh3_64(source.as_bytes());
+    legacy.error_nodes = 0;
+    legacy.error_bytes = 0;
+    legacy.error_spans.clear();
+    save_product(&out.join("products").join(cache_file_name(&stat.path)), &legacy).unwrap();
+    let build = |out: &Path| build_index_env(&src, out, CacheMode::default(), ParseHealthPolicy::default(), &env).unwrap();
+    let migrated = build(&out);
+    assert_eq!(migrated.indexed, 1, "old invocation proof must be reparsed");
+    assert!(migrated.error_nodes > 0, "old telemetry must not conceal the missing semicolon");
+    let warm = build(&out);
+    assert_eq!(warm.indexed, 0, "new packed products replay normally");
+    assert_eq!(warm.error_nodes, migrated.error_nodes);
+    let scratch = root.join("scratch");
+    build(&scratch);
+    assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
+  }
 }

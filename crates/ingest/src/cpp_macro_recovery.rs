@@ -27,7 +27,11 @@ fn parse_without_context(
   path: &Path,
   source: &str,
   roots: &[PathBuf],
-) -> (crate::ParsedRoot, Vec<String>, crate::cpp_macro_evidence::Evidence) {
+) -> (
+  crate::ParsedRoot,
+  Vec<String>,
+  crate::cpp_macro_evidence::Evidence,
+) {
   let lang = SgLang::Builtin(SupportLang::Cpp);
   let raw = lang.grep(source);
   let evidence = crate::cpp_macro_evidence::audit_with_roots(path, source, roots);
@@ -84,8 +88,20 @@ fn parse_without_context(
           if evidence.contains_expanding_tokens(&source[next..end]) {
             return None;
           }
-          let count = validated_arity(&source[next..end])?;
-          (definition.parameters == count).then_some(count)
+          let arguments = validated_arguments(&source[next..end])?;
+          let count = arguments.len();
+          if definition.parameters != count {
+            return None;
+          }
+          let replacement = definition
+            .replacement
+            .instantiate(&arguments.iter().map(String::as_str).collect::<Vec<_>>())?;
+          if evidence.contains_expanding_tokens(&replacement)
+            || !crate::cpp_macro_evidence::complete_statement(&replacement)
+          {
+            return None;
+          }
+          Some(count)
         });
         if let Some(count) = proven {
           candidates
@@ -253,7 +269,7 @@ fn argument_end(source: &str, start: usize, protected: &[(Range<usize>, bool)]) 
   None
 }
 
-fn validated_arity(arguments: &str) -> Option<usize> {
+fn validated_arguments(arguments: &str) -> Option<Vec<String>> {
   let source = format!("void proof() {{ probe{arguments}; }}");
   let parsed = SupportLang::Cpp.grep(&source);
   let root = parsed.root();
@@ -276,5 +292,33 @@ fn validated_arity(arguments: &str) -> Option<usize> {
       .then(|| (n.range(), kind.as_ref() != "comment"))
     })
     .collect();
-  Some(arity(&source, arguments.range(), &protected))
+  let range = arguments.range();
+  let count = arity(&source, range.clone(), &protected);
+  if count == 0 {
+    return Some(Vec::new());
+  }
+  // Preprocessing commas are protected by parentheses only, not C++ templates,
+  // initializer braces or subscripts. Literal/comment commas remain protected.
+  let mut result = Vec::new();
+  let mut start = range.start + 1;
+  let mut i = start;
+  let mut nesting = 0;
+  while i + 1 < range.end {
+    if let Some((span, _)) = protected.iter().find(|(span, _)| span.contains(&i)) {
+      i = span.end;
+      continue;
+    }
+    match source.as_bytes()[i] {
+      b'(' => nesting += 1,
+      b')' => nesting -= 1,
+      b',' if nesting == 0 => {
+        result.push(source[start..i].to_owned());
+        start = i + 1;
+      }
+      _ => {}
+    }
+    i += 1;
+  }
+  result.push(source[start..range.end - 1].to_owned());
+  (result.len() == count).then_some(result)
 }

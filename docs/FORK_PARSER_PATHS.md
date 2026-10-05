@@ -565,3 +565,25 @@ proof/recovery, configured/running MCP, replay in both layouts, member/resolver,
 Clippy, provenance and schema checks pass. The native 900-path audit changes
 only stb_image.h: 30 to 27 ERROR/MISSING nodes and 35 to 7 bytes, retaining all
 326 items. Totals are 24 C++ paths, 1789 nodes and 137549 affected bytes.
+
+Recovery also proves actual arguments in their replacement context, not just
+their standalone argument-list syntax and preprocessing arity. An ephemeral
+shared template substitutes parameter leaf tokens only in a separate proof
+fixture; source bytes, extracted trees and their spans are never rewritten.
+Literal/comment/number tokens are protected. Nested parentheses, rather than
+template/bracket/brace nesting, determine preprocessing argument commas.
+The instantiated replacement must remain exactly one complete statement;
+unproven macro-specific grammar extensions do not establish native syntax.
+Observed further expansions, ambiguous legacy-MSVC token boundaries and
+replacement amplification above 4 MiB decline recovery. One bad invocation
+still disables the entire macro name. These are syntax proofs, not C++ type
+or control-flow checks.
+
+Product identity v3 invalidates older arity-only false-clean products. LF/CRLF
+negative controls cover declaration, goto, assembly and string contexts through
+owned, streaming and scan-root extraction. Valid contexts preserve argument-call
+spans. Loose-to-packed replay migrations cover both v1 and v2 products; native
+MSVC x86 accepts the positive fixture and rejects malformed declaration syntax.
+The isolated ac59c50 candidate index verified 1735 files; normal MCP health
+reported 27 error-bearing files, 1865 ERROR/MISSING nodes and 137900 affected
+bytes. This predates the v3 proof change and is not a deployed generation.

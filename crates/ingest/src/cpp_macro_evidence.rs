@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use vorpal_core::tree_sitter::LanguageExt;
 use vorpal_language::SupportLang;
@@ -21,6 +22,48 @@ pub struct StatementMacro {
   pub parameters: usize,
   pub definition_path: PathBuf,
   pub definition_span: Range<usize>,
+  pub(crate) replacement: Arc<StatementReplacement>,
+}
+
+/// Ephemeral proof template, never a rewritten translation unit or cached tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StatementReplacement {
+  source: String,
+  substitutions: Vec<(Range<usize>, usize)>,
+}
+
+impl StatementReplacement {
+  #[cfg(feature = "builtin-parser")]
+  pub(crate) fn instantiate(&self, arguments: &[&str]) -> Option<String> {
+    // Bound repeated-parameter amplification independently of include limits.
+    let mut size = self.source.len();
+    for (_, parameter) in &self.substitutions {
+      size = size.checked_add(arguments[*parameter].len().checked_add(2)?)?;
+    }
+    if size > 4 * 1024 * 1024 {
+      return None;
+    }
+    let mut result = String::new();
+    let mut cursor = 0;
+    for (span, parameter) in &self.substitutions {
+      // Legacy MSVC can coalesce adjacent substituted operator tokens without
+      // ##. Admit only whitespace or unambiguous punctuation at the boundary.
+      let boundary = |byte: u8| byte.is_ascii_whitespace() || b"()[]{},;".contains(&byte);
+      if (span.start > 0 && !boundary(self.source.as_bytes()[span.start - 1]))
+        || (span.end < self.source.len() && !boundary(self.source.as_bytes()[span.end]))
+      {
+        return None;
+      }
+      result.push_str(&self.source[cursor..span.start]);
+      // Preserve preprocessing token separation within the proof fixture.
+      result.push(' ');
+      result.push_str(arguments[*parameter]);
+      result.push(' ');
+      cursor = span.end;
+    }
+    result.push_str(&self.source[cursor..]);
+    Some(result)
+  }
 }
 
 /// An interval in the original translation unit where a definition is evidenced.
@@ -470,7 +513,13 @@ impl Audit {
               if !self.opaque_environment
                 && simple_parameters
                 && unique.len() == parameters.len()
-                && complete_statement(&source[first.range().start..last.range().end])
+                && let Some(replacement) = statement_replacement(
+                  &source[first.range().start..last.range().end],
+                  &parameters
+                    .iter()
+                    .map(|n| n.text().into_owned())
+                    .collect::<Vec<_>>(),
+                )
               {
                 environment.insert(
                   name.clone(),
@@ -479,6 +528,7 @@ impl Audit {
                     parameters: parameters.len(),
                     definition_path: path.to_path_buf(),
                     definition_span: node.range(),
+                    replacement: Arc::new(replacement),
                   },
                 );
               }
@@ -636,12 +686,32 @@ impl Audit {
   }
 }
 
-fn complete_statement(replacement: &str) -> bool {
+pub(crate) fn complete_statement(replacement: &str) -> bool {
   // Only the proof fixture joins continuation lines; original input is never rewritten.
   let replacement = replacement.replace("\\\r\n", "").replace("\\\n", "");
   let parsed = SupportLang::Cpp.grep(format!("void proof() {{ {replacement}\n }}"));
   let root = parsed.root();
   if root.has_error() {
+    return false;
+  }
+  // Fork macro extensions are not evidence of a native replacement's syntax.
+  if root.dfs().any(|n| {
+    matches!(
+      n.kind().as_ref(),
+      "macro_type_argument" | "sdk_parameter_annotation" | "sdk_call_modifier" | "macro_statement"
+    ) || (n.kind().as_ref() == "concatenated_string"
+      && n
+        .children()
+        .any(|child| child.kind().as_ref() == "identifier"))
+  }) {
+    return false;
+  }
+  if root
+    .children()
+    .filter(|n| n.is_named() && n.kind().as_ref() != "comment")
+    .count()
+    != 1
+  {
     return false;
   }
   let Some(function) = root
@@ -662,6 +732,53 @@ fn complete_statement(replacement: &str) -> bool {
       statements[0].kind().as_ref(),
       "if_statement" | "try_statement" | "compound_statement"
     )
+}
+
+fn statement_replacement(replacement: &str, parameters: &[String]) -> Option<StatementReplacement> {
+  if !parameters.iter().all(|p| p.is_ascii()) || !complete_statement(replacement) {
+    return None;
+  }
+  let source = replacement.replace("\\\r\n", "").replace("\\\n", "");
+  let prefix = "void proof() { ";
+  let parsed = SupportLang::Cpp.grep(format!("{prefix}{source}\n }}"));
+  let root = parsed.root();
+  let protected: Vec<_> = root
+    .dfs()
+    .filter_map(|n| {
+      matches!(
+        n.kind().as_ref(),
+        "comment"
+          | "string_literal"
+          | "raw_string_literal"
+          | "char_literal"
+          | "number_literal"
+          | "user_defined_literal"
+      )
+      .then(|| n.range())
+    })
+    .collect();
+  let mut substitutions = Vec::new();
+  for node in root.dfs() {
+    let span = node.range();
+    if span.start < prefix.len()
+      || span.end > prefix.len() + source.len()
+      || node.children().next().is_some()
+      || protected.iter().any(|p| p.contains(&span.start))
+    {
+      continue;
+    }
+    if let Some(parameter) = parameters.iter().position(|p| p == node.text().as_ref()) {
+      substitutions.push((
+        span.start - prefix.len()..span.end - prefix.len(),
+        parameter,
+      ));
+    }
+  }
+  substitutions.sort_by_key(|(span, _)| span.start);
+  Some(StatementReplacement {
+    source,
+    substitutions,
+  })
 }
 
 // Parse an opaque replacement only to identify possible effects, never to expand
