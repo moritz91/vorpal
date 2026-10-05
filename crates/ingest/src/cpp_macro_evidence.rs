@@ -98,7 +98,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v12\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v13\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -259,6 +259,164 @@ fn canonical_or_absolute(path: &Path) -> PathBuf {
     .canonicalize()
     .or_else(|_| std::path::absolute(path))
     .unwrap_or_else(|_| path.to_path_buf())
+}
+
+#[derive(PartialEq, Eq)]
+struct DirectiveSignature {
+  kind: String,
+  fields: Vec<(String, Range<usize>, String)>,
+}
+
+fn metadata_signatures<D: vorpal_core::Doc>(
+  root: &vorpal_core::Node<'_, D>,
+) -> BTreeMap<usize, DirectiveSignature> {
+  let mut signatures = BTreeMap::new();
+  for node in root.dfs().filter(|node| {
+    matches!(
+      node.kind().as_ref(),
+      "preproc_def"
+        | "preproc_function_def"
+        | "preproc_include"
+        | "preproc_call"
+        | "preproc_if"
+        | "preproc_ifdef"
+        | "preproc_else"
+        | "preproc_elif"
+        | "preproc_elifdef"
+    ) || node.kind().starts_with('#')
+  }) {
+    let start = node.range().start;
+    let mut fields = Vec::new();
+    for field in [
+      "name",
+      "parameters",
+      "condition",
+      "path",
+      "directive",
+      "argument",
+    ] {
+      if let Some(value) = node.field(field) {
+        let range = value.range();
+        fields.push((
+          field.to_owned(),
+          range.start - start..range.end - start,
+          value.text().into_owned(),
+        ));
+      }
+    }
+    for (index, value) in node
+      .children()
+      .filter(|n| n.kind().as_ref() == "preproc_arg")
+      .enumerate()
+    {
+      let range = value.range();
+      fields.push((
+        format!("value{index}"),
+        range.start - start..range.end - start,
+        value.text().into_owned(),
+      ));
+    }
+    // Named directive/group nodes precede their anonymous keyword tokens.
+    signatures.entry(start).or_insert(DirectiveSignature {
+      kind: node.kind().into_owned(),
+      fields,
+    });
+  }
+  signatures
+}
+
+// A declaration macro can corrupt the C++ body without corrupting its enclosing
+// preprocessing metadata. Admit that group only if an independent original-span
+// inventory and isolated directive syntax proofs exactly match the original AST.
+// No body is masked, no condition is evaluated, and no proof tree is banked.
+fn intact_metadata_groups<D: vorpal_core::Doc>(
+  source: &str,
+  root: &vorpal_core::Node<'_, D>,
+) -> BTreeSet<usize> {
+  let Ok(groups) = crate::cpp_directive_audit::audit_groups(source) else {
+    return BTreeSet::new();
+  };
+  let Ok(directives) = crate::cpp_directive_audit::audit(source) else {
+    return BTreeSet::new();
+  };
+  let actual = metadata_signatures(root);
+  groups
+    .into_iter()
+    .filter_map(|group| {
+      let original = root.dfs().find(|n| {
+        n.range().start == group.span.start
+          && matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef")
+      })?;
+      if original.range().end < group.close.start || original.range().end > group.span.end {
+        return None;
+      }
+      for directive in directives
+        .iter()
+        .filter(|d| group.span.contains(&d.span.start))
+      {
+        let keyword = crate::cpp_directive_audit::keyword(source, &directive.span).ok()?;
+        let prefix = if matches!(
+          keyword.as_str(),
+          "else" | "elif" | "elifdef" | "elifndef" | "endif"
+        ) {
+          "#if 0\n"
+        } else {
+          ""
+        };
+        let suffix = if matches!(
+          keyword.as_str(),
+          "if" | "ifdef" | "ifndef" | "else" | "elif" | "elifdef" | "elifndef"
+        ) {
+          "#endif\n"
+        } else {
+          ""
+        };
+        let fixture = format!("{prefix}{}\n{suffix}", &source[directive.span.clone()]);
+        let parsed = SupportLang::Cpp.grep(&fixture);
+        let proof = parsed.root();
+        if proof.has_error() {
+          return None;
+        }
+        let mut fields = Vec::new();
+        for node in proof.dfs().filter(|n| n.kind().starts_with("preproc_")) {
+          if let Some(condition) = node.field("condition") {
+            if !nonexpanding_condition(&condition.text()) {
+              return None;
+            }
+          }
+          for field in [
+            "name",
+            "parameters",
+            "condition",
+            "path",
+            "directive",
+            "argument",
+          ] {
+            if let Some(value) = node.field(field) {
+              fields.push(value.range());
+            }
+          }
+        }
+        // Extra C++ on a directive line must not masquerade as a guard body.
+        if proof.dfs().filter(|n| n.is_named()).any(|n| {
+          !n.kind().starts_with("preproc_")
+            && !matches!(n.kind().as_ref(), "translation_unit" | "comment")
+            && !fields
+              .iter()
+              .any(|f| f.start <= n.range().start && n.range().end <= f.end)
+        }) {
+          return None;
+        }
+        let expected = metadata_signatures(&proof);
+        if expected.get(&prefix.len()) != actual.get(&directive.span.start)
+          || !expected.contains_key(&prefix.len())
+        {
+          return None;
+        }
+      }
+      Some(group.span.start)
+    })
+    .collect()
 }
 
 impl Audit {
@@ -509,6 +667,14 @@ impl Audit {
     self.stack.push(path.to_path_buf());
     let parsed = SupportLang::Cpp.grep(source);
     let root = parsed.root();
+    let intact_groups = if root
+      .dfs()
+      .any(|n| n.has_error() && matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef"))
+    {
+      intact_metadata_groups(source, &root)
+    } else {
+      BTreeSet::new()
+    };
     for node in root.children() {
       let previous = environment.clone();
       match node.kind().as_ref() {
@@ -605,7 +771,7 @@ impl Audit {
           }
         }
         "preproc_ifdef" | "preproc_if"
-          if !node.has_error()
+          if (!node.has_error() || intact_groups.contains(&node.range().start))
             && (node.kind().as_ref() == "preproc_ifdef"
               || node
                 .field("condition")

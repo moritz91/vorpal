@@ -2,6 +2,70 @@ use std::path::Path;
 use vorpal_ingest::cpp_macro_evidence::{audit, audit_with_roots};
 
 #[test]
+fn complete_directive_metadata_survives_unexpanded_guarded_declarations() {
+  let declaration = "#define SDK_BEGIN namespace sdk {\n#define SDK_END }\n#if defined(ENABLE)\nSDK_BEGIN\nextern const int variable;\nSDK_END\n#endif\n";
+  let lf =
+    format!("#define CHECK(x) {{ sink(x); }}\n{declaration}void run() {{ CHECK(value()) }}\n");
+  let nested = lf.replace(
+    "SDK_END\n#endif",
+    "#ifdef INNER\n#define UNRELATED 1 /* fragment */ + 2\n#else\n#define UNRELATED 3\n#endif\nSDK_END\n#endif",
+  );
+  for source in [
+    lf.clone(),
+    lf.replace('\n', "\r\n"),
+    nested.clone(),
+    nested.replace('\n', "\r\n"),
+  ] {
+    let evidence = audit(Path::new("metadata.cc"), &source);
+    let offset = source.rfind("CHECK(value())").unwrap();
+    let definition = evidence
+      .at("CHECK", offset)
+      .expect("intact metadata must preserve the entering definition");
+    assert_eq!(
+      source[definition.definition_span.clone()].trim_end(),
+      "#define CHECK(x) { sink(x); }"
+    );
+  }
+  for malformed in [
+    declaration.replace("defined(ENABLE)", "EXPANDING"),
+    declaration.replace("#endif", ""),
+    declaration.replace("#endif", "#else junk;\n#endif"),
+    declaration.replace("#endif", "#else\n#else\n#endif"),
+    declaration.replace("#endif", "#elif EXPANDING\n#endif"),
+    declaration.replace("#endif", "#endif\n#endif"),
+    declaration.replace(
+      "SDK_END\n#endif",
+      "#ifdef INNER\n#undef CHECK\n#endif\nSDK_END\n#endif",
+    ),
+    declaration.replace("SDK_END\n#endif", "#if EXPANDING\n#endif\nSDK_END\n#endif"),
+    declaration.replace(
+      "SDK_END\n#endif",
+      "#define CHECK(x) { other(x); }\nSDK_END\n#endif",
+    ),
+    declaration.replace("SDK_END\n#endif", "#pragma warning(push)\nSDK_END\n#endif"),
+    declaration.replace("SDK_END\n#endif", "#undef CHECK\nSDK_END\n#endif"),
+    declaration.replace(
+      "SDK_END\n#endif",
+      "#pragma pop_macro(\"CHECK\")\nSDK_END\n#endif",
+    ),
+    declaration.replace(
+      "SDK_END\n#endif",
+      "#include <missing-proof.h>\nSDK_END\n#endif",
+    ),
+  ] {
+    let source =
+      format!("#define CHECK(x) {{ sink(x); }}\n{malformed}void run() {{ CHECK(value()) }}\n");
+    let evidence = audit(Path::new("metadata.cc"), &source);
+    assert!(
+      evidence
+        .at("CHECK", source.rfind("CHECK(value())").unwrap())
+        .is_none(),
+      "{malformed}"
+    );
+  }
+}
+
+#[test]
 fn uncanonicalized_macro_names_cannot_claim_effect_free_intervals() {
   for name in ["α", "\\u03B1", "$restore"] {
     let source = format!(

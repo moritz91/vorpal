@@ -727,11 +727,11 @@ lambda bodies remain valid. Unknown surrounding macro tokens decline this
 diagnostic. Other scanner-proven complete statements cannot manufacture an
 enclosing function, so multiple invalid uses are checked independently. The
 same original-span diagnoses reach watched MCP with background rebuilds on/off.
-Product identity v11 invalidates old false-clean telemetry, invented macro
+Product identity v12 invalidates old false-clean telemetry, invented macro
 callee rows and v8 false diagnostics for valid enclosing macro expansions;
 migration includes v7/v8/v9/v10, with both false errors and false-clean old products.
-All 27 recovery, 32 parser, 25 Windows/26 Linux
-evidence, ten replay, three watched MCP and four configured CLI tests pass on
+All 28 recovery, 32 parser, 26 Windows/27 Linux
+evidence, eleven replay, three watched MCP and four configured CLI tests pass on
 both platforms (Linux replay also flat). Native MSVC/Clang reject the return-slot
 fixture and accept the statement/undef/ordinary-call positive control. Header-only
 changes revalidate these diagnostics in live MCP; strict health policies retain
@@ -745,3 +745,24 @@ The exact 83be959 candidate separately verifies 1744 paths and reports 26 damage
 files / 152576 bytes through normal MCP; its full CI is green. MSVC/Clang accept
 the empty-argument and nested function/lambda controls and reject the direct
 namespace statement fixture. No candidate has been installed in the live tunnel.
+
+Entering macro evidence can survive C++ errors caused by unexpanded SDK
+declaration macros inside an otherwise intact conditional group. The independent
+original-span directive/group inventory must be complete, and every directive's
+kind, metadata field text and relative ranges must exactly match an independently
+parsed directive-head fixture. Nested guards must have nonexpanding conditions;
+extra C++ on a directive line, missing/repeated delimiters and metadata errors
+decline proof. Every possible branch still contributes effects; no branch is
+selected and no new binding is established from a conditional definition.
+Unknown includes, undef/redefinition and opaque pragma effects retain their
+existing boundaries. Original header C++ errors remain visible in extraction;
+no body/source is masked and no temporary proof tree is banked.
+Evidence v13/product v12 invalidate old conservative products as well. A frozen
+v11 product migrates to the new proof, while external condition/effect edits
+force replay and watched-MCP revalidation with background rebuilding on/off.
+LF/CRLF metadata, nested-group and malformed-directive controls pass; owned,
+streaming and scan-root extraction agree. Native MSVC and Clang accept both
+defined/undefined variants of the guarded SDK declaration fixture. The actual
+Hades test still has zero bindings and 43 consulted include candidates with all
+available Windows SDK roots. This metadata proof does not admit its expanding
+conditions or opaque SDK effects.

@@ -3,6 +3,77 @@ use std::path::Path;
 use vorpal_ingest::cpp_macro_recovery::audit_recovery;
 
 #[test]
+fn sdk_declaration_errors_do_not_mask_intact_include_metadata_or_header_errors() {
+  use std::fs;
+  use vorpal_core::Language;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_language::LanguageExt;
+  let nonce = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_nanos();
+  let root = std::env::temp_dir().join(format!(
+    "vorpal-guarded-metadata-{}-{nonce}",
+    std::process::id()
+  ));
+  fs::create_dir_all(&root).unwrap();
+  let header = root.join("sdk.h");
+  let safe = "#define SDK_BEGIN namespace sdk {\n#define SDK_END }\n#if defined(ENABLE)\nSDK_BEGIN\nextern const int variable;\nSDK_END\n#endif\n";
+  let source =
+    "#define CHECK(x) { sink(x); }\n#include \"sdk.h\"\nvoid run() { CHECK(value()) after(); }\n";
+  let path = root.join("run.cc");
+  fs::write(&path, source).unwrap();
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for contents in [safe.to_owned(), safe.replace('\n', "\r\n")] {
+    fs::write(&header, &contents).unwrap();
+    let report = audit_recovery(&path, source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.macro_spans.len(), 1);
+    for name in ["value", "after"] {
+      let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(path.to_str().unwrap(), source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw = vorpal_lang_registry::SgLang::from_path(&path)
+      .unwrap()
+      .grep(source);
+    assert!(raw.root().has_error());
+    let handoff = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut scanned = Vec::new();
+    encode_product_into(&handoff, &mut scanned);
+    assert_eq!(owned, scanned);
+    // The original header's unsupported C++ namespace macros are still diagnosed.
+    assert!(
+      extractor
+        .extract_product(header.to_str().unwrap(), &contents)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+  }
+  fs::write(&header, safe.replace("defined(ENABLE)", "EXPANDING")).unwrap();
+  assert!(audit_recovery(&path, source, &[]).has_error);
+  fs::write(&header, safe).unwrap();
+  assert!(!audit_recovery(&path, source, &[]).has_error);
+  fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn statement_recovery_cannot_admit_namespace_or_linkage_compounds() {
   use vorpal_ingest::OutlineExtractor;
   let extractor = OutlineExtractor::new()

@@ -1,5 +1,6 @@
 //! Original-span directive inventory, independent of unexpanded C++ declarations.
-//! This is diagnostic only; it does not evaluate guards or enable recovery.
+//! The read-only inventory does not evaluate guards or supply recovered roots.
+//! Evidence may combine it with independent syntax proofs of intact metadata.
 use std::ops::Range;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,7 +33,7 @@ struct OpenGroup {
   has_else: bool,
 }
 
-fn keyword(source: &str, span: &Range<usize>) -> Result<String, UncertainLexing> {
+pub(crate) fn keyword(source: &str, span: &Range<usize>) -> Result<String, UncertainLexing> {
   let bytes = source.as_bytes();
   let mut offset = span.start + 1;
   loop {
