@@ -574,3 +574,43 @@ fn proof_context_errors_survive_replay_and_strict_health_policies() {
   let exclude = ParseHealthPolicy { mode: ParseHealthMode::Exclude, max_error_ratio: 0.0 };
   assert_eq!(build(exclude).unwrap().excluded_files, 1);
 }
+
+#[test]
+fn enclosing_macro_context_migrates_false_diagnostics_from_v8() {
+  use vorpal_ingest::{Manifest, cache_file_name, save_product};
+  let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let root = physical_temp_dir().join(format!("vorpal-context-v8-{}-{nonce}", std::process::id()));
+  let src = root.join("src");
+  let out = root.join("index");
+  fs::create_dir_all(&src).unwrap();
+  fs::create_dir_all(out.join("products")).unwrap();
+  let source = "#define CHECK(x) { sink(x); }\n#define IDENTITY(x) x\nvoid run() { IDENTITY(CHECK(value())); }\n";
+  fs::write(src.join("run.cc"), source).unwrap();
+  let env = ExtractionEnv { cpp_macro_include_roots: Some(vec![]), ..Default::default() };
+  let extractor = env.extractor().unwrap();
+  let manifest = Manifest::scan(&src, |_| true).unwrap();
+  let stat = &manifest.entries()[0];
+  let mut legacy = extractor.extract_product(&stat.path, source).unwrap();
+  assert_eq!(legacy.error_nodes, 0);
+  let base = vorpal_ingest::extraction_identity_for_path(&stat.path, extractor.rules_digest()).unwrap();
+  let evidence = vorpal_ingest::cpp_macro_evidence::audit_with_roots(Path::new(&stat.path), source, &[]);
+  let mut hash = xxhash_rust::xxh3::Xxh3::new();
+  hash.update(b"vorpal-cpp-macro-product-v8\0");
+  hash.update(&base.to_le_bytes());
+  hash.update(&evidence.dependency_identity().to_le_bytes());
+  legacy.grammar_digest = hash.digest();
+  legacy.source_mtime_ns = stat.mtime_ns;
+  legacy.source_size = stat.size;
+  legacy.source_xxh3 = xxhash_rust::xxh3::xxh3_64(source.as_bytes());
+  legacy.error_nodes = 1;
+  legacy.error_bytes = "CHECK(value())".len() as u64;
+  save_product(&out.join("products").join(cache_file_name(&stat.path)), &legacy).unwrap();
+  let build = |out: &Path| build_index_env(&src, out, CacheMode::default(), ParseHealthPolicy::default(), &env).unwrap();
+  let migrated = build(&out);
+  assert_eq!(migrated.indexed, 1);
+  assert_eq!(migrated.error_nodes, 0, "valid enclosing expansion must lose stale context errors");
+  assert_eq!(build(&out).indexed, 0);
+  let scratch = root.join("scratch");
+  build(&scratch);
+  assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
+}

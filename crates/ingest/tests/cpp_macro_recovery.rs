@@ -661,8 +661,6 @@ fn statement_macro_expression_uses_are_diagnosed_without_inventing_macro_calls()
     "return CHECK(value());",
     "int x = CHECK(value());",
     "use(CHECK(value()));",
-    "sizeof(CHECK(value()));",
-    "(CHECK(value()));",
     "object.CHECK(value());",
     "::CHECK(value());",
     "if (CHECK(value())) after();",
@@ -715,4 +713,38 @@ fn statement_macro_expression_uses_are_diagnosed_without_inventing_macro_calls()
     1,
     "the ordinary call after undef retains its span"
   );
+}
+
+#[test]
+fn surrounding_macro_expansions_and_gnu_statement_expressions_decline_context_errors() {
+  use vorpal_ingest::OutlineExtractor;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for (definitions, context) in [
+    ("#define IDENTITY(x) x\n", "IDENTITY(CHECK(value()));"),
+    ("#define return\n", "return CHECK(value());"),
+    ("", "(CHECK(value()));"),
+    ("", "sizeof(CHECK(value()));"),
+  ] {
+    let lf = format!(
+      "#define CHECK(x) {{ sink(x); x; }}\n{definitions}void run() {{ {context} after(); }}\n"
+    );
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let audit = audit_recovery(Path::new("valid-context.cc"), &source, &[]);
+      assert!(!audit.has_error, "{context}: {audit:?}");
+      assert!(audit.context_errors.is_empty(), "{context}: {audit:?}");
+      assert!(!audit.calls.iter().any(|(name, _)| name == "CHECK"));
+      for name in ["value", "after"] {
+        let (_, span) = audit.calls.iter().find(|(n, _)| n == name).unwrap();
+        assert_eq!(&source[span.clone()], format!("{name}()"));
+      }
+      let product = extractor
+        .extract_product("valid-context.cc", &source)
+        .unwrap();
+      assert_eq!(product.error_nodes, 0, "{context}");
+      assert!(!product.refs.iter().any(|r| r.name == "CHECK"));
+    }
+  }
 }
