@@ -6,9 +6,12 @@ fn main() {
   let mut roots = Vec::new();
   let mut paths = Vec::new();
   let mut recover = false;
+  let mut directives = false;
   while let Some(arg) = args.next() {
     if arg == "--recover" {
       recover = true;
+    } else if arg == "--directives" {
+      directives = true;
     } else if arg == "--include-root" {
       roots.push(PathBuf::from(
         args.next().expect("--include-root requires a path"),
@@ -17,8 +20,21 @@ fn main() {
       paths.push(arg);
     }
   }
+  assert!(!(recover && directives), "choose --recover or --directives");
   for path in paths {
     let source = std::fs::read_to_string(&path).unwrap();
+    if directives {
+      match vorpal_ingest::cpp_directive_audit::audit(&source) {
+        Ok(spans) => {
+          println!("{path}: {} directive spans", spans.len());
+          for directive in spans {
+            println!("  {:?}", directive.span);
+          }
+        }
+        Err(uncertain) => println!("{path}: uncertain lexical boundary at {}", uncertain.offset),
+      }
+      continue;
+    }
     if recover {
       let report =
         vorpal_ingest::cpp_macro_recovery::audit_recovery(Path::new(&path), &source, &roots);

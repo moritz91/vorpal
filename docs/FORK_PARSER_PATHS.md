@@ -640,3 +640,20 @@ The native 900-file extraction audit changes only interface.cc from one
 MISSING node to zero, retaining all 59 items. Totals: 23 damaged C++ files,
 1787 ERROR/MISSING nodes and 137538 affected bytes. Owned, streaming and
 scan-root handoff encode identically for the LF/CRLF guard fixture.
+
+The read-only `cpp_directive_audit::audit` and `macro_audit --directives` inventory
+logical-line directive spans independently of unexpanded C++ declarations.
+This inventory neither validates guard groups nor supplies production macro
+bindings. It preserves original UTF-8/BOM and LF/CRLF offsets, hides directives
+inside literals/comments, retains directive continuations and multiline block
+comments, and declines unmodeled token joins, digraphs/trigraphs and unterminated
+lexical constructs. Four Windows/Linux tests cover the boundaries; native MSVC
+validates the comment/literal fixtures (Clang also accepts the block-comment
+continuation). The SDK iostream inventory has 21 spans and test_defines.h six.
+The first actual proof boundary is still iostream; adding all available Windows
+SDK roots produces zero bindings and 43 consulted paths. No actual Hades ASSERT
+recovery is claimed. Independent guard/effect interpretation remains unfinished.
+
+The exact 5fc2df5 external candidate passes index verification and normal MCP
+health with 26 damaged files of 1735, 137889 affected bytes. Both its full CI and
+9cc14a0's full CI are green. The productive release/tunnel remain unchanged.
