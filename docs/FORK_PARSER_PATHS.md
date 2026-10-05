@@ -603,3 +603,15 @@ proof/recovery, replay, running/configured MCP, Clippy, provenance, reproduction
 and schema checks pass. The native 900-file audit changes only Catch2: 136 to
 135 ERROR/MISSING nodes and 30206 to 30195 bytes, retaining all 2317 items.
 Totals are 24 C++ paths, 1788 nodes and 137538 affected bytes.
+
+Macro proof identifiers are restricted to canonical ASCII names. Unicode/UCN
+or dollar macro names are opaque effect boundaries; noncanonical parameters
+and UCN identifier leaves do not enter replacement templates. This avoids
+byte-spelling assumptions across preprocessors: the UCN/UTF-8 parameter fixture
+is rejected after substitution by Clang but accepted differently by MSVC.
+Unicode literal/comment contents and ordinary Unicode argument calls retain
+their original spans. MSVC accepts that positive fixture and rejects an actual
+invalid expansion through a Unicode macro name. Evidence identity v9 and
+product identity v4 invalidate the prior proof policy. Migration tests cover
+v1/v2/v3 false-clean products. All 23 evidence and 19 recovery tests pass on
+Windows/Linux, with LF/CRLF production-path parity and warm replay checks.

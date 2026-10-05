@@ -15,6 +15,8 @@ fn macro_arguments_must_fit_their_actual_replacement_context() {
   for (definition, invocation) in [
     ("#define DECLARE(name) { int name; }", "DECLARE(1 + 2)"),
     ("#define JUMP(label) { goto label; }", "JUMP(target())"),
+    ("#define DECLARE(\\u03B1) { int α; }", "DECLARE(1 + 2)"),
+    ("#define DECLARE(x) { int \\u0078; }", "DECLARE(1 + 2)"),
     (
       "#define COPY(value) { __asm { mov eax,value } }",
       "COPY(target())",
@@ -75,6 +77,26 @@ fn replacement_proofs_preserve_tokens_literals_and_original_call_spans() {
       .eligible_names
       .is_empty()
   );
+}
+
+#[test]
+fn noncanonical_macro_effect_names_decline_proof_but_unicode_literals_do_not() {
+  for name in ["α", "\\u03B1", "$restore"] {
+    let source = format!(
+      "#define CHECK(x) {{ sink(x); }}\n#define {name} }}\nvoid run() {{ CHECK({name}) }}\n"
+    );
+    let report = audit_recovery(Path::new("unicode.cc"), &source, &[]);
+    assert!(report.has_error, "{source}: {report:?}");
+    assert!(report.eligible_names.is_empty());
+  }
+  let source = "#define CHECK(x) { sink(x, \"α\", R\"(\\u03B1)\"); /* α */ }\nint α();\nvoid run() { CHECK(α()) after(); }\n";
+  let report = audit_recovery(Path::new("unicode.cc"), source, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  for name in ["α", "after"] {
+    let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+    assert_eq!(&source[span.clone()], format!("{name}()"));
+  }
 }
 
 #[test]

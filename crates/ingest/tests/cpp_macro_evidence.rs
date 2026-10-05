@@ -2,6 +2,24 @@ use std::path::Path;
 use vorpal_ingest::cpp_macro_evidence::{audit, audit_with_roots};
 
 #[test]
+fn uncanonicalized_macro_names_cannot_claim_effect_free_intervals() {
+  for name in ["α", "\\u03B1", "$restore"] {
+    let source = format!(
+      "#define CHECK(x) {{ sink(x); }}\n#define {name} 0\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    let evidence = audit(Path::new("unicode.cc"), &source);
+    assert!(
+      evidence.bindings.is_empty(),
+      "{name}: {:?}",
+      evidence.bindings
+    );
+  }
+  let source =
+    "#define CHECK(x) { sink(x, \"α\", R\"(\\u03B1)\"); /* α */ }\nvoid run() { CHECK(value()) }\n";
+  assert_eq!(audit(Path::new("unicode.cc"), source).bindings.len(), 1);
+}
+
+#[test]
 fn statement_definitions_have_original_spans_and_ordered_lifetimes() {
   let source = "before();\n#define CHECK(x) if (!(x)) { throw failure(); }\nCHECK(argument())\n#undef CHECK\nCHECK(later())\n";
   let evidence = audit(Path::new("proof.cc"), source);

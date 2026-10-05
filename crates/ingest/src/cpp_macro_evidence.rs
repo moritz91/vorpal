@@ -98,7 +98,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v8\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v9\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -272,7 +272,14 @@ impl Audit {
   // interval. Opaque replacements can also manufacture it with token pasting.
   // Decline the translation unit rather than pretending to expand such macros.
   fn has_opaque_effects(&self) -> bool {
-    if self.pragma_operator {
+    // Effect-token tracking does not canonicalize Unicode/UCN or dollar names.
+    // Even an unused such definition could hide a later expanding wrapper.
+    if self.pragma_operator
+      || self
+        .macro_names
+        .iter()
+        .any(|name| !canonical_identifier(name))
+    {
       return true;
     }
     let mut dangerous = self.pasted_names.clone();
@@ -734,8 +741,16 @@ pub(crate) fn complete_statement(replacement: &str) -> bool {
     )
 }
 
+fn canonical_identifier(name: &str) -> bool {
+  let mut bytes = name.bytes();
+  bytes
+    .next()
+    .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+    && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
 fn statement_replacement(replacement: &str, parameters: &[String]) -> Option<StatementReplacement> {
-  if !parameters.iter().all(|p| p.is_ascii()) || !complete_statement(replacement) {
+  if !parameters.iter().all(|p| canonical_identifier(p)) || !complete_statement(replacement) {
     return None;
   }
   let source = replacement.replace("\\\r\n", "").replace("\\\n", "");
@@ -766,6 +781,11 @@ fn statement_replacement(replacement: &str, parameters: &[String]) -> Option<Sta
       || protected.iter().any(|p| p.contains(&span.start))
     {
       continue;
+    }
+    // UCN spellings can identify the same token with different source bytes.
+    // This template does not perform identifier canonicalization.
+    if node.text().as_bytes().contains(&b'\\') {
+      return None;
     }
     if let Some(parameter) = parameters.iter().position(|p| p == node.text().as_ref()) {
       substitutions.push((
