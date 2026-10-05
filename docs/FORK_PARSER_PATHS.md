@@ -727,11 +727,11 @@ lambda bodies remain valid. Unknown surrounding macro tokens decline this
 diagnostic. Other scanner-proven complete statements cannot manufacture an
 enclosing function, so multiple invalid uses are checked independently. The
 same original-span diagnoses reach watched MCP with background rebuilds on/off.
-Product identity v13 invalidates old false-clean telemetry, invented macro
+Product identity v14 invalidates old false-clean telemetry, invented macro
 callee rows and v8 false diagnostics for valid enclosing macro expansions;
 migration includes v7/v8/v9/v10, with both false errors and false-clean old products.
-All 29 recovery, 32 parser, 27 Windows/28 Linux
-evidence, twelve replay, three watched MCP and four configured CLI tests pass on
+All 29 recovery, 32 parser, 28 Windows/29 Linux
+evidence, thirteen replay, three watched MCP and four configured CLI tests pass on
 both platforms (Linux replay also flat). Native MSVC/Clang reject the return-slot
 fixture and accept the statement/undef/ordinary-call positive control. Header-only
 changes revalidate these diagnostics in live MCP; strict health policies retain
@@ -786,3 +786,19 @@ diagnostics remain intact. The checked native Hades audit retains the same 43
 include observations and no actual ASSERT binding across this restriction.
 The exact 99c197c candidate verifies 1744 paths and reports 26 damaged files /
 152576 bytes through normal MCP, with full green CI. It is not installed.
+
+Nonexpanding conditions also admit bounded decimal, hexadecimal, octal and
+binary integers up to 2147483647, comparisons and bitwise/logical operators.
+The audit checks syntax and operand kinds, without calculating a condition or
+selecting a branch. Suffixes, separators, floating/character literals, expanding
+operands, arithmetic, shifts and larger integers remain unsupported. Every
+possible branch still contributes undef/include effects and cannot introduce
+new statement bindings, even for a literal false guard. Independent directive
+metadata proofs use the same condition policy. LF/CRLF recovery preserves
+original arguments and following calls. MSVC/Clang accept the native fixture
+with defined/undefined A. Evidence v15/product v14 reparse conservative v13
+products; external header condition/effect changes invalidate packed/flat replay
+and watched MCP with background rebuilds enabled/disabled.
+The exact 5a7abf3 candidate verifies 1744 paths and reports 26 damaged files /
+152576 bytes through normal MCP; its full CI is green. It is not installed.
+Objective-C++ and C++/CLI guarded syntax remains a separate parser boundary.

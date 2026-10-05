@@ -107,6 +107,15 @@ fn external_header_freshness(watch_rebuild: bool) {
   assert!(health(&mut server, 20).contains("carry ERROR/MISSING nodes"));
   fs::write(&header, format!("{literal_pragmas}{valid}{declarations}")).unwrap();
   assert!(health(&mut server, 21).contains("parse health: clean"));
+  let literal_conditions = declarations.replace("defined(ENABLE)", "0x10 == 020");
+  fs::write(&header, format!("{valid}{literal_conditions}")).unwrap();
+  assert!(health(&mut server, 22).contains("parse health: clean"));
+  fs::write(&header, format!("{valid}{}", literal_conditions.replace("0x10 == 020", "UNKNOWN == 16"))).unwrap();
+  assert!(health(&mut server, 23).contains("carry ERROR/MISSING nodes"));
+  fs::write(&header, format!("{valid}{}", literal_conditions.replace("extern const int variable;", "#undef CHECK"))).unwrap();
+  assert!(health(&mut server, 24).contains("carry ERROR/MISSING nodes"));
+  fs::write(&header, format!("{valid}{literal_conditions}")).unwrap();
+  assert!(health(&mut server, 25).contains("parse health: clean"));
   // Quiet queries retain the served generation rather than rebuilding forever.
   assert!(health(&mut server, 7).contains("parse health: clean"));
   drop(server);

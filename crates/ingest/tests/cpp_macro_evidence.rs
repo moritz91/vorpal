@@ -668,7 +668,7 @@ fn nonexpanding_conditions_preserve_only_unchanged_entering_definitions() {
     "UNKNOWN()",
     "1 / 0",
     "defined(A) && UNKNOWN",
-    "2",
+    "2147483648",
   ] {
     let source = format!(
       "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#endif\nCHECK(value())\n"
@@ -684,7 +684,7 @@ fn nonexpanding_conditions_preserve_only_unchanged_entering_definitions() {
 
 #[test]
 fn literal_condition_branches_do_not_promote_new_definitions_or_skip_effects() {
-  for condition in ["0", "1", "defined(PLATFORM)"] {
+  for condition in ["0", "1", "defined(PLATFORM)", "0x10 != 020"] {
     let source =
       format!("#if {condition}\n#define NEW(x) {{ effect(x); }}\n#endif\nNEW(value())\n");
     assert!(audit(Path::new("proof.cc"), &source).bindings.is_empty());
@@ -895,6 +895,64 @@ fn unused_pragma_replacements_have_no_effect_but_invoked_wrappers_remain_opaque(
     assert!(
       audit(Path::new("invoked.cc"), &source).bindings.is_empty(),
       "{source}"
+    );
+  }
+}
+
+#[test]
+fn bounded_literal_conditions_preserve_all_branch_effects() {
+  let safe = [
+    "2",
+    "0x10 == 020",
+    "0b10 < 3",
+    "2147483647 >= 2",
+    "(~0 & 3) != 0",
+    "2 <= 3",
+    "defined(A) ^ defined(B)",
+  ];
+  for condition in safe {
+    for newline in ["\n", "\r\n"] {
+      let source = format!("#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#elif 0x10 <= 16\nstruct Second {{}};\n#endif\nvoid run() {{ CHECK(value()) }}\n").replace('\n', newline);
+      assert!(
+        audit(Path::new("literal.cc"), &source)
+          .at("CHECK", source.find("CHECK(value").unwrap())
+          .is_some(),
+        "{condition}"
+      );
+      let changed = source.replace("struct Second {};", "#undef CHECK");
+      assert!(
+        audit(Path::new("literal.cc"), &changed)
+          .at("CHECK", changed.find("CHECK(value").unwrap())
+          .is_none(),
+        "{condition}"
+      );
+    }
+  }
+  for condition in [
+    "UNKNOWN == 2",
+    "defined(A) && UNKNOWN",
+    "1 / 0",
+    "1 % 0",
+    "1 << 32",
+    "2147483647 + 1",
+    "2147483648",
+    "0x80000000",
+    "08",
+    "2U",
+    "1.0",
+    "1'000",
+    "'x'",
+    "F(2)",
+    "2 ? 1 : 0",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#endif\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    assert!(
+      audit(Path::new("literal.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none(),
+      "{condition}"
     );
   }
 }

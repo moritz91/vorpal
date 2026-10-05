@@ -98,7 +98,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v14\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v15\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -1184,11 +1184,37 @@ fn nonexpanding_condition(condition: &str) -> bool {
       "identifier" => defined
         .iter()
         .any(|range| range.contains(&node.range().start)),
-      "number_literal" => matches!(node.text().as_ref(), "0" | "1"),
-      "binary_expression" => node
+      "number_literal" => bounded_condition_integer(&node.text()),
+      "binary_expression" => node.field("operator").is_some_and(|op| {
+        matches!(
+          op.text().as_ref(),
+          "&&" | "||" | "&" | "|" | "^" | "==" | "!=" | "<" | "<=" | ">" | ">="
+        )
+      }),
+      "unary_expression" => node
         .field("operator")
-        .is_some_and(|op| matches!(op.text().as_ref(), "&&" | "||")),
-      "unary_expression" => node.field("operator").is_some_and(|op| op.text() == "!"),
+        .is_some_and(|op| matches!(op.text().as_ref(), "!" | "~")),
       _ => false,
     })
+}
+
+// A deliberately bounded integer subset shared by MSVC and Clang. Reject
+// suffixes, separators, floating/user-defined literals and oversized values.
+// Do not evaluate conditions: these operands/operators only establish that no
+// macro expansion or arithmetic fault can alter the entering environment.
+fn bounded_condition_integer(text: &str) -> bool {
+  let (digits, radix) =
+    if let Some(digits) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+      (digits, 16)
+    } else if let Some(digits) = text.strip_prefix("0b").or_else(|| text.strip_prefix("0B")) {
+      (digits, 2)
+    } else if text.len() > 1 && text.starts_with('0') {
+      (&text[1..], 8)
+    } else {
+      (text, 10)
+    };
+  !digits.is_empty()
+    && digits.len() <= 32
+    && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
+    && u32::from_str_radix(digits, radix).is_ok_and(|value| value <= i32::MAX as u32)
 }

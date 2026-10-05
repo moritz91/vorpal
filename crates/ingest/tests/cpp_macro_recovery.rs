@@ -619,7 +619,14 @@ void run() { const char* text = R"(__pragma ## _Pragma)"; CHECK(value()) }
 
 #[test]
 fn nonexpanding_conditions_keep_recovery_without_selecting_a_branch() {
-  for condition in ["0", "1", "defined(A) && !defined(B)"] {
+  for condition in [
+    "0",
+    "1",
+    "defined(A) && !defined(B)",
+    "0x10 == 020",
+    "(~0 & 3) != 0",
+    "2 <= 3",
+  ] {
     let source = format!(
       "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#else\nstruct Second {{}};\n#endif\nvoid run() {{ CHECK(value()) after(); }}\n"
     );
