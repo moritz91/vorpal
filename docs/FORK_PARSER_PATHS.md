@@ -657,3 +657,8 @@ recovery is claimed. Independent guard/effect interpretation remains unfinished.
 The exact 5fc2df5 external candidate passes index verification and normal MCP
 health with 26 damaged files of 1735, 137889 affected bytes. Both its full CI and
 9cc14a0's full CI are green. The productive release/tunnel remain unchanged.
+The independent directive inventory also matches complete nested textual guard
+groups with original header/body/close spans. Duplicate else, elif after else,
+unmatched branches and absent endif fail closed. This checks delimiter order,
+not condition syntax, macro effects or compiler configuration; it still supplies
+no production evidence. Five Windows/Linux tests cover the diagnostic API.

@@ -12,6 +12,116 @@ pub struct UncertainLexing {
   pub offset: usize,
 }
 
+/// One textual branch. Its expression is not evaluated or macro-expanded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Branch {
+  pub header: Range<usize>,
+  pub body: Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConditionalGroup {
+  pub span: Range<usize>,
+  pub branches: Vec<Branch>,
+  pub close: Range<usize>,
+}
+
+struct OpenGroup {
+  start: usize,
+  branches: Vec<Branch>,
+  has_else: bool,
+}
+
+fn keyword(source: &str, span: &Range<usize>) -> Result<String, UncertainLexing> {
+  let bytes = source.as_bytes();
+  let mut offset = span.start + 1;
+  loop {
+    if let Some(next) = splice(bytes, offset) {
+      offset = next;
+      continue;
+    }
+    if offset >= span.end {
+      return Ok(String::new());
+    }
+    if bytes[offset].is_ascii_whitespace() {
+      offset += 1;
+      continue;
+    }
+    if bytes.get(offset..offset + 2) == Some(b"/*") {
+      let Some(end) = bytes[offset + 2..span.end]
+        .windows(2)
+        .position(|p| p == b"*/")
+      else {
+        return Err(UncertainLexing { offset });
+      };
+      offset += end + 4;
+      continue;
+    }
+    let start = offset;
+    while offset < span.end && (bytes[offset].is_ascii_alphabetic() || bytes[offset] == b'_') {
+      offset += 1;
+    }
+    if offset == start {
+      return Err(UncertainLexing { offset });
+    }
+    return Ok(source[start..offset].to_owned());
+  }
+}
+
+/// Match complete textual guard groups. This checks delimiter order only, not
+/// expression legality, macro effects, includes or compiler configuration.
+pub fn audit_groups(source: &str) -> Result<Vec<ConditionalGroup>, UncertainLexing> {
+  let directives = audit(source)?;
+  let mut pending: Vec<OpenGroup> = Vec::new();
+  let mut groups = Vec::new();
+  for directive in directives {
+    let span = directive.span;
+    match keyword(source, &span)?.as_str() {
+      "if" | "ifdef" | "ifndef" => pending.push(OpenGroup {
+        start: span.start,
+        branches: vec![Branch {
+          header: span.clone(),
+          body: span.end..span.end,
+        }],
+        has_else: false,
+      }),
+      "else" | "elif" | "elifdef" | "elifndef" => {
+        let Some(group) = pending.last_mut() else {
+          return Err(UncertainLexing { offset: span.start });
+        };
+        if group.has_else {
+          return Err(UncertainLexing { offset: span.start });
+        }
+        group.has_else = keyword(source, &span)? == "else";
+        group.branches.last_mut().unwrap().body.end = span.start;
+        group.branches.push(Branch {
+          header: span.clone(),
+          body: span.end..span.end,
+        });
+      }
+      "endif" => {
+        let Some(mut group) = pending.pop() else {
+          return Err(UncertainLexing { offset: span.start });
+        };
+        group.branches.last_mut().unwrap().body.end = span.start;
+        groups.push(ConditionalGroup {
+          span: group.start..span.end,
+          branches: group.branches,
+          close: span,
+        });
+      }
+      _ => {}
+    }
+  }
+  if let Some(group) = pending.first() {
+    return Err(UncertainLexing {
+      offset: group.start,
+    });
+  }
+  groups.sort_by_key(|group| group.span.start);
+  Ok(groups)
+}
+
 fn splice(bytes: &[u8], offset: usize) -> Option<usize> {
   if bytes.get(offset) != Some(&b'\\') {
     return None;

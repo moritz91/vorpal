@@ -1,6 +1,34 @@
 use vorpal_ingest::cpp_directive_audit::audit;
 
 #[test]
+fn guard_groups_keep_nested_alternatives_without_selecting_a_branch() {
+  use vorpal_ingest::cpp_directive_audit::audit_groups;
+  let lf = "# /* directive */ if UNEXPANDED\nfirst;\n#ifdef INNER\ninner;\n#else\nother;\n#endif\n#elif OTHER\nsecond;\n#else\nlast;\n#endif\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let groups = audit_groups(&source).unwrap();
+    assert_eq!(groups.len(), 2);
+    assert_eq!(groups[0].span, 0..source.len());
+    assert_eq!(groups[0].branches.len(), 3);
+    assert_eq!(groups[1].branches.len(), 2);
+    assert!(source[groups[0].branches[0].body.clone()].contains("#ifdef INNER"));
+    assert_eq!(source[groups[0].branches[1].body.clone()].trim(), "second;");
+    assert_eq!(source[groups[0].branches[2].body.clone()].trim(), "last;");
+    for group in groups {
+      assert_eq!(source[group.close].trim(), "#endif");
+    }
+  }
+  for source in [
+    "#else\n",
+    "#endif\n",
+    "#if UNKNOWN\n",
+    "#ifdef X\n#else\n#else\n#endif\n",
+    "#if X\n#else\n#elif Y\n#endif\n",
+  ] {
+    assert!(audit_groups(source).is_err(), "{source}");
+  }
+}
+
+#[test]
 fn block_comment_newlines_do_not_end_or_start_a_directive() {
   let lf = "#define CHECK(x) /* comment\n*/ { sink(x); }\nvoid run() { CHECK(1) }\n";
   for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {

@@ -30,6 +30,10 @@ fn main() {
           for directive in spans {
             println!("  {:?}", directive.span);
           }
+          match vorpal_ingest::cpp_directive_audit::audit_groups(&source) {
+            Ok(groups) => println!("  {} complete textual guard groups", groups.len()),
+            Err(uncertain) => println!("  uncertain guard structure at {}", uncertain.offset),
+          }
         }
         Err(uncertain) => println!("{path}: uncertain lexical boundary at {}", uncertain.offset),
       }
