@@ -98,7 +98,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v9\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v10\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -699,6 +699,17 @@ pub(crate) fn complete_statement(replacement: &str) -> bool {
   let parsed = SupportLang::Cpp.grep(format!("void proof() {{ {replacement}\n }}"));
   let root = parsed.root();
   if root.has_error() {
+    return false;
+  }
+  // The permissive grammar also accepts nested function definitions. Only the
+  // synthetic outer function may occur in a statement proof; local class methods
+  // are conservatively unsupported as well. Lambdas have their own node kind.
+  if root
+    .dfs()
+    .filter(|n| n.kind().as_ref() == "function_definition")
+    .count()
+    != 1
+  {
     return false;
   }
   // Fork macro extensions are not evidence of a native replacement's syntax.

@@ -45,6 +45,8 @@ fn only_complete_statement_replacements_are_evidence() {
 #define EXPR(x) function(x)
 #define DEFINE(x) void function_##x()
 #define LOOP(x) do { function(x); } while (false)
+#define NESTED(x) { void local() { sink(x); } }
+#define METHOD(x) { struct Local { void local() { sink(x); } }; }
 #define BROKEN(x) if (x) { function(x)
 #define COMPLETE(x) if (x) { function(x); }
 #define SAFE(x) try { function(x); } catch (...) { failure(); }

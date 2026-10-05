@@ -405,6 +405,7 @@ fn legacy_invocation_proofs_cannot_replay_a_false_clean_product() {
     (1, "void before() { CHECK\x0b(value()) }\n#define CHECK(x) { effect(x); }\nvoid run() { CHECK(value()) }\n"),
     (2, "#define DECLARE(name) { int name; }\nvoid run() { DECLARE(1 + 2) }\n"),
     (3, "#define DECLARE(\\u03B1) { int α; }\nvoid run() { DECLARE(1 + 2) }\n"),
+    (4, "#define NESTED(x) { void local() { sink(x); } }\nvoid run() { NESTED(1) }\n"),
   ] {
     let nonce = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();

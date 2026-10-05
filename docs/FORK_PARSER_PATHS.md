@@ -615,3 +615,12 @@ invalid expansion through a Unicode macro name. Evidence identity v9 and
 product identity v4 invalidate the prior proof policy. Migration tests cover
 v1/v2/v3 false-clean products. All 23 evidence and 19 recovery tests pass on
 Windows/Linux, with LF/CRLF production-path parity and warm replay checks.
+
+Statement proofs admit only the synthetic outer function definition. Nested
+function definitions and local class methods in replacement bodies decline
+proof; the permissive C++ grammar alone cannot certify them as statements.
+Lambdas remain supported and argument calls keep their original spans. Native
+MSVC rejects the nested-function negative fixture with C2601 and accepts the
+lambda positive fixture. Evidence v10 and product v5 invalidate prior proofs;
+migration coverage includes v4 false-clean products. All 20 recovery tests
+retain LF/CRLF extraction-path parity.

@@ -15,6 +15,8 @@ fn macro_arguments_must_fit_their_actual_replacement_context() {
   for (definition, invocation) in [
     ("#define DECLARE(name) { int name; }", "DECLARE(1 + 2)"),
     ("#define JUMP(label) { goto label; }", "JUMP(target())"),
+    ("#define NESTED(x) { void local() { sink(x); } }", "NESTED(1)"),
+    ("#define METHOD(x) { struct Local { void local() { sink(x); } }; }", "METHOD(1)"),
     ("#define DECLARE(\\u03B1) { int α; }", "DECLARE(1 + 2)"),
     ("#define DECLARE(x) { int \\u0078; }", "DECLARE(1 + 2)"),
     (
@@ -77,6 +79,22 @@ fn replacement_proofs_preserve_tokens_literals_and_original_call_spans() {
       .eligible_names
       .is_empty()
   );
+}
+
+#[test]
+fn compound_lambda_replacements_keep_original_argument_spans() {
+  let lf = "#define ACTION(x) { auto action = [&] { sink(x); }; action(); }\nint value(); void sink(int);\nvoid run() { ACTION(value()) after(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("lambda.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.eligible_names, ["ACTION"]);
+    assert_eq!(&source[report.macro_spans[0].clone()], "ACTION(value())");
+    for name in ["value", "after"] {
+      let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+    assert!(!report.calls.iter().any(|(name, _)| name == "ACTION"));
+  }
 }
 
 #[test]
