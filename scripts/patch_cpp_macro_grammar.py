@@ -340,6 +340,33 @@ rules['conditional_if_statement'] = {'type': 'PREC_DYNAMIC', 'value': -1, 'conte
     {'type': 'FIELD', 'name': 'alternative', 'content': alias_rule('_conditional_else_clause', 'else_clause')})}
 if symbol('conditional_if_statement') not in rules['statement']['members']:
     rules['statement']['members'].append(symbol('conditional_if_statement'))
+# Two complete guarded groups can select alternative if-open and if-close
+# branches around a shared body. Every group must contain both alternatives;
+# each opener has its own runtime condition and each closer a complete else.
+# Keep guard nodes visibly preproc_* so macro evidence treats them conservatively.
+else_token = json.loads(json.dumps(rules['preproc_else']['content']['members'][0]))
+open_branch = seq(repeat(choice(symbol('declaration'), symbol('expression_statement'))),
+    *json.loads(json.dumps(rules['if_statement']['content']['members'][:3])),
+    {'type': 'STRING', 'value': '{'})
+close_branch = seq(repeat(symbol('expression_statement')),
+    {'type': 'STRING', 'value': '}'}, symbol('else_clause'))
+for name, branch in [('preproc_split_if_open', open_branch),
+                     ('preproc_split_if_close', close_branch)]:
+    rules[name] = seq(choice(*headers),
+        {'type': 'FIELD', 'name': 'first_branch', 'content': branch}, else_token,
+        {'type': 'FIELD', 'name': 'second_branch', 'content': branch}, endif)
+rules['conditional_split_if_statement'] = {'type': 'PREC_DYNAMIC', 'value': -1,
+    'content': seq(
+        {'type': 'FIELD', 'name': 'open', 'content': symbol('preproc_split_if_open')},
+        repeat(symbol('_block_item')),
+        {'type': 'FIELD', 'name': 'close', 'content': symbol('preproc_split_if_close')})}
+if symbol('conditional_split_if_statement') not in rules['statement']['members']:
+    rules['statement']['members'].append(symbol('conditional_split_if_statement'))
+for conflict in [['_block_item', 'preproc_split_if_open'],
+                 ['statement', 'preproc_split_if_open'],
+                 ['statement', 'preproc_split_if_open', 'preproc_split_if_close']]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
 # A convention after a pointer star must precede a directly named function.
 # Recursive declarators here wrongly reinterpret ordinary parameter parentheses.
 rules['_sdk_pointer_function'] = seq(

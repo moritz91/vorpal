@@ -624,3 +624,19 @@ MSVC rejects the nested-function negative fixture with C2601 and accepts the
 lambda positive fixture. Evidence v10 and product v5 invalidate prior proofs;
 migration coverage includes v4 false-clean products. All 20 recovery tests
 retain LF/CRLF extraction-path parity.
+
+Split conditional if scopes now require a complete opener guard with both
+branches ending in `if (condition) {`, a shared body, and a complete closer
+guard with both branches ending in `} else { ... }`. Only declarations and
+expression statements precede the opening if; only expression cleanup precedes
+the closing brace. Guard conditions, runtime conditions, branch statements and
+original spans remain visible. No branch condition is evaluated. The preproc_*
+guard kinds intentionally remain opaque to macro evidence. Both MSVC platform
+variants pass; missing semicolons/braces/else/endif stay errors. The unchanged
+179-test corpus passes, alongside 32 parser, 20 recovery and 23 Windows/24 Linux
+evidence tests, replay/member-call graph tests, normal configured MCP/CLI tests,
+Clippy, schema, provenance and idempotent reproduction.
+The native 900-file extraction audit changes only interface.cc from one
+MISSING node to zero, retaining all 59 items. Totals: 23 damaged C++ files,
+1787 ERROR/MISSING nodes and 137538 affected bytes. Owned, streaming and
+scan-root handoff encode identically for the LF/CRLF guard fixture.

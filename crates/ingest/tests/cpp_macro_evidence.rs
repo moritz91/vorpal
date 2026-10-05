@@ -688,3 +688,10 @@ fn physical_temp_dir() -> std::path::PathBuf {
     path
   }
 }
+
+#[test]
+fn split_runtime_guards_remain_opaque_macro_evidence_boundaries() {
+  let source = "#define CHECK(x) { sink(x); }\nvoid split() {\n#ifdef PLATFORM\nif (first()) {\n#else\nif (second()) {\n#endif\nshared();\n#ifdef PLATFORM\n} else { fallback(); }\n#else\n} else { fallback(); }\n#endif\n}\nvoid run() { CHECK(value()) }\n";
+  let evidence = audit(Path::new("guards.cc"), source);
+  assert!(evidence.at("CHECK", source.find("CHECK(value").unwrap()).is_none());
+}

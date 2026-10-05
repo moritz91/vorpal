@@ -1042,3 +1042,71 @@ void ordinary() { mov(); cpuid(); }
     assert!(SgLang::from_path("assembly.cc").unwrap().grep(bad).root().has_error(), "{bad}");
   }
 }
+
+#[test]
+fn cpp_split_conditional_if_preserves_guards_runtime_calls_and_errors() {
+  let lf = r#"int platform(); int alternate(); int test(); void consume(int); void cleanup(int); void missing();
+void run() {
+#if METADATA_ONLY(PLATFORM)
+  int value = platform();
+  if (test()) {
+#else
+  int value = alternate();
+  if (test()) {
+#endif
+    consume(value);
+#if METADATA_ONLY(PLATFORM)
+    cleanup(value);
+  } else { missing(); }
+#else
+  } else { missing(); }
+#endif
+}
+void following() { missing(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(product.items.iter().any(|item| item.entry.name == "following"));
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && r.name == "METADATA_ONLY"));
+    for (name, count) in [("platform", 1), ("alternate", 1), ("test", 2), ("consume", 1), ("cleanup", 1), ("missing", 3)] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), count, "{name}: {calls:?}");
+      for call in calls {
+        assert!(source[call.start as usize..call.end as usize].starts_with(&format!("{name}(")));
+      }
+    }
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new();
+    vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor.extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let raw = SgLang::from_path("macros.cc").unwrap().grep(&source);
+    let handed = extractor.extract_product_from_root("macros.cc", &raw).unwrap();
+    let mut scan = Vec::new();
+    vorpal_ingest::encode_product_into(&handed, &mut scan);
+    assert_eq!(owned, scan);
+    let parsed = SgLang::from_path("split.cc").unwrap().grep(&source);
+    let split = parsed.root().dfs().find(|n| n.kind() == "conditional_split_if_statement").unwrap();
+    for field in ["open", "close"] {
+      let guard = split.field(field).unwrap();
+      assert_eq!(guard.field("preproc_condition").unwrap().text(), "METADATA_ONLY(PLATFORM)");
+      assert!(guard.field("first_branch").is_some());
+      assert!(guard.field("second_branch").is_some());
+      assert_eq!(&source[guard.range()], guard.text());
+    }
+  }
+  for bad in [
+    lf.replacen("#else\n", "", 1),
+    lf.replacen("#endif\n", "", 1),
+    lf.replacen("#else\n  } else", "  } else", 1),
+    lf.replacen("consume(value);", "consume(value)", 1),
+    lf.replacen("if (test()) {", "if (test())", 1),
+    lf.replacen("} else { missing(); }", "else { missing(); }", 1),
+    lf.trim_end().trim_end_matches("void following() { missing(); }").replacen("#endif\n}", "}", 1),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      assert!(SgLang::from_path("split.cc").unwrap().grep(&source).root().has_error(), "{source}");
+    }
+  }
+}

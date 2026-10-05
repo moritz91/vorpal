@@ -2004,7 +2004,8 @@ pub(crate) fn walk_reference_tree<'t>(
             }
             let field = match kind.as_ref() {
               "conditional_storage_modifier" => return true,
-              "conditional_if_statement" | "conditional_linkage_open" | "conditional_linkage_close" => "preproc_condition",
+              "conditional_if_statement" | "conditional_linkage_open" | "conditional_linkage_close"
+              | "preproc_split_if_open" | "preproc_split_if_close" => "preproc_condition",
               "preproc_if" | "preproc_elif" => "condition",
               _ => return false,
             };
