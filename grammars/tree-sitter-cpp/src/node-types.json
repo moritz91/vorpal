@@ -788,6 +788,10 @@
           "named": true
         },
         {
+          "type": "objc_message_expression",
+          "named": true
+        },
+        {
           "type": "preproc_defined",
           "named": true
         },
@@ -8576,6 +8580,14 @@
   },
   {
     "type": "?",
+    "named": false
+  },
+  {
+    "type": "@catch",
+    "named": false
+  },
+  {
+    "type": "@try",
     "named": false
   },
   {

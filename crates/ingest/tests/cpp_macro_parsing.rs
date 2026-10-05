@@ -1179,3 +1179,58 @@ void word() { __OBJC__(); }
     }
   }
 }
+
+#[test]
+fn cpp_guarded_objc_exceptions_preserve_cpp_call_arguments() {
+  let lf = r#"#ifdef __OBJC__
+id run() {
+  @try { before(); }
+  @catch (Probe* exception) {
+    return finish(nested([receiver() relay: payload()]), [exception description]);
+  }
+}
+#endif
+void following() { after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["before", "finish", "nested", "receiver", "payload", "after"] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), 1, "{name}: {calls:?}");
+      let text = &source[calls[0].start as usize..calls[0].end as usize];
+      assert!(text.starts_with(&format!("{name}(")) && text.ends_with(')'), "{name}: {text}");
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && matches!(r.name.as_str(), "relay" | "description")));
+    for name in ["run", "following"] { assert!(product.items.iter().any(|i| i.entry.name == name)); }
+    let raw = SgLang::from_path("guarded.cc").unwrap().grep(&source);
+    for kind in ["try_statement", "catch_clause"] {
+      let nodes: Vec<_> = raw.root().dfs().filter(|n| n.kind() == kind).collect();
+      assert_eq!(nodes.len(), 1);
+      assert_eq!(&source[nodes[0].range()], nodes[0].text());
+      assert!(nodes[0].text().starts_with('@'));
+    }
+    assert_eq!(raw.root().dfs().filter(|n| n.kind() == "objc_message_expression").count(), 2);
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new(); vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor.extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let scan = extractor.extract_product_from_root("macros.cc", &raw).unwrap();
+    let mut handed = Vec::new(); vorpal_ingest::encode_product_into(&scan, &mut handed);
+    assert_eq!(owned, handed);
+  }
+  for bad in [
+    lf.replace("__OBJC__", "PLATFORM"),
+    lf.replace("#ifdef __OBJC__\n", "").replace("#endif\n", ""),
+    lf.replace("#ifdef __OBJC__", "#ifdef __OBJC__\nvoid ordinary() {}\n#else"),
+    lf.replace("@catch (Probe* exception)", ""),
+    lf.replace("@catch (Probe* exception) {", "@catch (Probe* exception)"),
+    lf.replace("payload()", "payload("),
+    lf.replace("description]);", "description])"),
+    lf.replace("#endif\n", ""),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      assert!(SgLang::from_path("guarded.cc").unwrap().grep(&source).root().has_error(), "{source}");
+    }
+  }
+}

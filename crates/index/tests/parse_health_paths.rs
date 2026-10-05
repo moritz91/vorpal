@@ -117,6 +117,7 @@ fn objc_guard_edits_revalidate_default_cpp_trees_and_products() {
   let file = src.join("guarded.cc");
   let positive = "#ifdef __OBJC__
 void run(Probe* object) { [object release]; }
+void guarded() { @try { before(); } @catch (Probe* error) { forward([error description]); } }
 #endif
 void following() { after(); }
 ";

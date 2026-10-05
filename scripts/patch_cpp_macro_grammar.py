@@ -654,6 +654,34 @@ for conflict in [['_objc_non_case_statement', '_objc_block_item'],
     if conflict not in grammar['conflicts']:
         grammar['conflicts'].append(conflict)
 
+# Objective-C exceptions and message-bearing C++ calls remain in that same
+# explicit scope. Reuse existing C++ call/argument/try/catch kinds through aliases.
+rules['_objc_argument_list'] = objc_copy(rules['argument_list'], {
+    'expression': choice(symbol('expression'), objc_expression, alias_rule('_objc_call_expression', 'call_expression'))})
+rules['_objc_call_expression'] = objc_copy(rules['call_expression'], {
+    'argument_list': alias_rule('_objc_argument_list', 'argument_list')})
+for name in ['expression_statement', 'return_statement', 'condition_clause']:
+    rules['_objc_' + name] = objc_copy(rules[name], {
+        'expression': choice(symbol('expression'), objc_expression, alias_rule('_objc_call_expression', 'call_expression'))})
+rules['_objc_exception_statement'] = objc_copy(rules['try_statement'], {
+    'compound_statement': alias_rule('_objc_compound_statement', 'compound_statement'),
+    'catch_clause': alias_rule('_objc_catch_clause', 'catch_clause')})
+rules['_objc_catch_clause'] = objc_copy(rules['catch_clause'], {
+    'compound_statement': alias_rule('_objc_compound_statement', 'compound_statement')})
+def objc_keyword(node, old, new):
+    if isinstance(node, list): return [objc_keyword(value, old, new) for value in node]
+    if isinstance(node, dict):
+        if node.get('type') == 'STRING' and node.get('value') == old: return objc_string(new)
+        return {key: objc_keyword(value, old, new) for key, value in node.items()}
+    return node
+rules['_objc_exception_statement'] = objc_keyword(rules['_objc_exception_statement'], 'try', '@try')
+rules['_objc_catch_clause'] = objc_keyword(rules['_objc_catch_clause'], 'catch', '@catch')
+rules['_objc_non_case_statement']['members'].append(alias_rule('_objc_exception_statement', 'try_statement'))
+for conflict in [['type_specifier', 'call_expression', '_objc_call_expression'],
+                 ['argument_list', '_objc_argument_list']]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
 scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())

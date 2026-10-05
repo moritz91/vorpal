@@ -118,6 +118,7 @@ fn external_header_freshness(watch_rebuild: bool) {
   assert!(health(&mut server, 25).contains("parse health: clean"));
   let objc_guard = "#ifdef __OBJC__
 void run(Probe* object) { [object release]; }
+void guarded() { @try { before(); } @catch (Probe* error) { forward([error description]); } }
 #endif
 void following() { target(); }
 void target() {}

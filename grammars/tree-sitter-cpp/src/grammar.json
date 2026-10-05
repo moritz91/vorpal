@@ -20606,6 +20606,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_message_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_call_expression"
+                      },
+                      "named": true,
+                      "value": "call_expression"
                     }
                   ]
                 },
@@ -20655,6 +20664,15 @@
                             {
                               "type": "SYMBOL",
                               "name": "objc_message_expression"
+                            },
+                            {
+                              "type": "ALIAS",
+                              "content": {
+                                "type": "SYMBOL",
+                                "name": "_objc_call_expression"
+                              },
+                              "named": true,
+                              "value": "call_expression"
                             }
                           ]
                         },
@@ -20735,6 +20753,15 @@
                   {
                     "type": "SYMBOL",
                     "name": "objc_message_expression"
+                  },
+                  {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_objc_call_expression"
+                    },
+                    "named": true,
+                    "value": "call_expression"
                   }
                 ]
               },
@@ -20971,6 +20998,15 @@
         {
           "type": "SYMBOL",
           "name": "throw_statement"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_objc_exception_statement"
+          },
+          "named": true,
+          "value": "try_statement"
         }
       ]
     },
@@ -21837,6 +21873,274 @@
           "value": "#endif"
         }
       ]
+    },
+    "_objc_argument_list": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "CHOICE",
+                      "members": [
+                        {
+                          "type": "SYMBOL",
+                          "name": "expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_message_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_call_expression"
+                          },
+                          "named": true,
+                          "value": "call_expression"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "initializer_list"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "compound_statement"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "macro_type_argument"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "type_qualifier"
+                      },
+                      "named": true,
+                      "value": "identifier"
+                    }
+                  ]
+                },
+                {
+                  "type": "REPEAT",
+                  "content": {
+                    "type": "SEQ",
+                    "members": [
+                      {
+                        "type": "STRING",
+                        "value": ","
+                      },
+                      {
+                        "type": "CHOICE",
+                        "members": [
+                          {
+                            "type": "CHOICE",
+                            "members": [
+                              {
+                                "type": "SYMBOL",
+                                "name": "expression"
+                              },
+                              {
+                                "type": "SYMBOL",
+                                "name": "objc_message_expression"
+                              },
+                              {
+                                "type": "ALIAS",
+                                "content": {
+                                  "type": "SYMBOL",
+                                  "name": "_objc_call_expression"
+                                },
+                                "named": true,
+                                "value": "call_expression"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "SYMBOL",
+                            "name": "initializer_list"
+                          },
+                          {
+                            "type": "SYMBOL",
+                            "name": "compound_statement"
+                          },
+                          {
+                            "type": "SYMBOL",
+                            "name": "macro_type_argument"
+                          },
+                          {
+                            "type": "ALIAS",
+                            "content": {
+                              "type": "SYMBOL",
+                              "name": "type_qualifier"
+                            },
+                            "named": true,
+                            "value": "identifier"
+                          },
+                          {
+                            "type": "ALIAS",
+                            "content": {
+                              "type": "SYMBOL",
+                              "name": "_primitive_macro_type_argument"
+                            },
+                            "named": true,
+                            "value": "macro_type_argument"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
+    "_objc_call_expression": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "PREC",
+          "value": 15,
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "FIELD",
+                "name": "function",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "expression"
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "arguments",
+                "content": {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_objc_argument_list"
+                  },
+                  "named": true,
+                  "value": "argument_list"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "function",
+              "content": {
+                "type": "SYMBOL",
+                "name": "primitive_type"
+              }
+            },
+            {
+              "type": "FIELD",
+              "name": "arguments",
+              "content": {
+                "type": "ALIAS",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "_objc_argument_list"
+                },
+                "named": true,
+                "value": "argument_list"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "_objc_exception_statement": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "@try"
+        },
+        {
+          "type": "FIELD",
+          "name": "body",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_objc_compound_statement"
+            },
+            "named": true,
+            "value": "compound_statement"
+          }
+        },
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_objc_catch_clause"
+            },
+            "named": true,
+            "value": "catch_clause"
+          }
+        }
+      ]
+    },
+    "_objc_catch_clause": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "@catch"
+        },
+        {
+          "type": "FIELD",
+          "name": "parameters",
+          "content": {
+            "type": "SYMBOL",
+            "name": "parameter_list"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "body",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_objc_compound_statement"
+            },
+            "named": true,
+            "value": "compound_statement"
+          }
+        }
+      ]
     }
   },
   "extras": [
@@ -22164,6 +22468,15 @@
     [
       "_objc_block_item",
       "preproc_split_if_open"
+    ],
+    [
+      "type_specifier",
+      "call_expression",
+      "_objc_call_expression"
+    ],
+    [
+      "argument_list",
+      "_objc_argument_list"
     ]
   ],
   "precedences": [

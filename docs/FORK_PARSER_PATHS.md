@@ -833,3 +833,28 @@ tracked C++ paths, only Catch2 changes: 135 -> 124 ERROR/MISSING nodes and
 30195 -> 30007 affected bytes, all 2317 extracted entries retained. The other
 901 source/AST hashes are identical; stb_image.h retains 27 errors / 7 affected
 bytes and all 326 entries. The installed release/tunnel are untouched.
+
+
+Scoped Objective-C exception statements and message arguments also retain the
+same explicit guard boundary. @try/@catch are structural copies of complete
+C++ try/catch rules, with existing try_statement/catch_clause aliases and bodies.
+Local C++ call/argument aliases permit message arguments and nested calls; no
+global expression rule or scanner state changes. Missing handlers, parentheses,
+semicolons, bodies or endif groups retain syntax errors, as do unguarded/else
+controls. Objective-C strings, @finally, class/template methods, and general
+message-containing binary expressions remain unsupported.
+All 34 Windows/Linux parser tests, proof/recovery, bucketed/flat default-cache
+and configured replay, and normal watched MCP tests pass. Receiver/argument
+calls retain exact source spans; selectors do not become C++ runtime callees.
+Owned, streaming and scan handoff agree. Native Clang Objective-C++ accepts the
+positive exception fixture and rejects its missing-semicolon control. The
+unchanged 179-test corpus, native C++ provenance, schema, Clippy and no-built-in
+ingest check pass; reproduction is idempotent. The C++ source digest is
+xxh3:cc2fcb11ad3b28da, ABI 14; other provenance entries and the ASCII fast path
+remain unchanged. A 902-path source/AST audit changes only Catch2 again:
+124 -> 118 ERROR/MISSING nodes and 30007 -> 29982 affected bytes, with unchanged
+3302 observed C++ calls and all 2317 extracted entries. The other 901 hashes
+are identical and stb_image.h retains all 326 entries.
+The exact 3f5649c external candidate verifies 1744 paths and its normal MCP
+health query reports 26 damaged files / 152388 bytes. Windows CI is green;
+Linux and encoder jobs are awaiting runners. This candidate is not installed.
