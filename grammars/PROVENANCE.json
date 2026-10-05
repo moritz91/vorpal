@@ -82,7 +82,7 @@
       "Split conditional if scopes require complete opening and closing guard groups with both branches, runtime conditions and complete else bodies; retain preprocessor/runtime spans and conservative macro-evidence boundaries. scripts/patch_cpp_macro_grammar.py, ABI 14."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:cc2fcb11ad3b28da",
+    "source_digest": "xxh3:238a5d68a564d489",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

@@ -858,3 +858,32 @@ are identical and stb_image.h retains all 326 entries.
 The exact 3f5649c external candidate verifies 1744 paths and its normal MCP
 health query reports 26 damaged files / 152388 bytes. Windows CI is green;
 Linux and encoder jobs are awaiting runners. This candidate is not installed.
+
+
+The local Objective-C catch parameter rule requires a nonempty declaration/list
+or ellipsis, retaining the existing parameter_list alias. Clang rejects an
+empty/comment-only catch, so those forms must not inherit ordinary C++'s empty
+parameter-list recovery as false-clean Objective-C syntax. LF/CRLF negatives,
+default tree/product health and normal watched MCP source edits cover this
+boundary. All 902 original source/AST hashes remain identical to bb44ecd.
+The bb44ecd external candidate verifies 1744 paths and normal MCP reports
+26 damaged files / 152363 bytes; Windows CI passes. Linux workspace Clippy and
+the complete local workspace test suite pass for that exact head. The hosted
+Linux test job later receives a runner shutdown/exit 143 after passing assertions,
+so its full CI is not green; this is an infrastructure interruption, not a
+reported assertion failure. No candidate
+is installed. The nonempty catch correction changes only C++ provenance to
+xxh3:238a5d68a564d489 (ABI 14), preserving the ASCII fast path.
+
+A bounded read-only native MSVC /E /d1PP experiment reports define/undef events,
+but omits push_macro/pop_macro operations and the restored macro definition.
+The observed expansion restores EPOCH=1 while the directive stream still last
+reported EPOCH=2. Such output cannot establish safe original-source intervals
+or supply production recovery bindings. /PD's final snapshot has the same
+fundamental timeline limitation. No compiler-dump backend is enabled. Existing
+Windows-fast/release compilation databases include the actual test translation
+unit's flags and search paths; native Windows libclang is unavailable in the
+checked tool locations. WSL libclang is not evidence of MSVC preprocessing.
+Actual Hades include proof remains conservative; compiler/source/header/config
+identity and original expansion locations would require an explicit, validated
+compiler-context design before that separate path could recover these macros.

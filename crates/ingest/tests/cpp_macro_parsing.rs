@@ -1224,6 +1224,8 @@ void following() { after(); }
     lf.replace("#ifdef __OBJC__\n", "").replace("#endif\n", ""),
     lf.replace("#ifdef __OBJC__", "#ifdef __OBJC__\nvoid ordinary() {}\n#else"),
     lf.replace("@catch (Probe* exception)", ""),
+    lf.replace("@catch (Probe* exception)", "@catch ()"),
+    lf.replace("@catch (Probe* exception)", "@catch (/* empty */)"),
     lf.replace("@catch (Probe* exception) {", "@catch (Probe* exception)"),
     lf.replace("payload()", "payload("),
     lf.replace("description]);", "description])"),

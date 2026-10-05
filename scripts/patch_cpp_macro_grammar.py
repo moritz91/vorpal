@@ -666,7 +666,14 @@ for name in ['expression_statement', 'return_statement', 'condition_clause']:
 rules['_objc_exception_statement'] = objc_copy(rules['try_statement'], {
     'compound_statement': alias_rule('_objc_compound_statement', 'compound_statement'),
     'catch_clause': alias_rule('_objc_catch_clause', 'catch_clause')})
+# Objective-C catch must contain a declaration or an ellipsis; an empty
+# ordinary C++ parameter list must not make @catch () appear clean.
+rules['_objc_catch_parameters'] = json.loads(json.dumps(rules['parameter_list']))
+catch_parameters = rules['_objc_catch_parameters']['members'][1]
+assert catch_parameters['type'] == 'CHOICE' and catch_parameters['members'][1]['type'] == 'BLANK'
+rules['_objc_catch_parameters']['members'][1] = catch_parameters['members'][0]
 rules['_objc_catch_clause'] = objc_copy(rules['catch_clause'], {
+    'parameter_list': alias_rule('_objc_catch_parameters', 'parameter_list'),
     'compound_statement': alias_rule('_objc_compound_statement', 'compound_statement')})
 def objc_keyword(node, old, new):
     if isinstance(node, list): return [objc_keyword(value, old, new) for value in node]

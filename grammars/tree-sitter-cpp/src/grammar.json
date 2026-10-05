@@ -22123,8 +22123,13 @@
           "type": "FIELD",
           "name": "parameters",
           "content": {
-            "type": "SYMBOL",
-            "name": "parameter_list"
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_objc_catch_parameters"
+            },
+            "named": true,
+            "value": "parameter_list"
           }
         },
         {
@@ -22139,6 +22144,78 @@
             "named": true,
             "value": "compound_statement"
           }
+        }
+      ]
+    },
+    "_objc_catch_parameters": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "parameter_declaration"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "optional_parameter_declaration"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "variadic_parameter_declaration"
+                },
+                {
+                  "type": "STRING",
+                  "value": "..."
+                }
+              ]
+            },
+            {
+              "type": "REPEAT",
+              "content": {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "STRING",
+                    "value": ","
+                  },
+                  {
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "SYMBOL",
+                        "name": "parameter_declaration"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "optional_parameter_declaration"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "variadic_parameter_declaration"
+                      },
+                      {
+                        "type": "STRING",
+                        "value": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": ")"
         }
       ]
     }

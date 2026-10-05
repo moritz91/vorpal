@@ -139,6 +139,11 @@ void following() { after(); }
     fs::write(&file, positive).unwrap();
     let restored = vorpal_index::build_index(&src, &out).unwrap();
     assert_eq!(restored.indexed, 1); assert_eq!(restored.error_nodes, 0);
+    fs::write(&file, positive.replace("(Probe* error)", "()")).unwrap();
+    assert!(vorpal_index::build_index(&src, &out).unwrap().error_nodes > 0);
+    assert!(vorpal_index::parse_health_report(&out).unwrap().contains("1 of 1 files carry ERROR/MISSING nodes"));
+    fs::write(&file, positive).unwrap();
+    assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);
     let scratch = root.join("scratch"); vorpal_index::build_index(&src, &scratch).unwrap();
     assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
   }
