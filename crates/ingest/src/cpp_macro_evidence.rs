@@ -98,7 +98,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v11\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v12\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -141,7 +141,7 @@ struct Audit {
   possibly_once: BTreeSet<PathBuf>,
   effect_definitions: BTreeMap<String, BTreeSet<String>>,
   macro_names: BTreeSet<String>,
-  pasted_names: BTreeSet<String>,
+  opaque_replacements: BTreeSet<String>,
   stack_targets: BTreeSet<String>,
   ordinary_names: BTreeSet<String>,
   pragma_operator: bool,
@@ -180,7 +180,7 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
     possibly_once: BTreeSet::new(),
     effect_definitions: BTreeMap::new(),
     macro_names: BTreeSet::new(),
-    pasted_names: BTreeSet::new(),
+    opaque_replacements: BTreeSet::new(),
     stack_targets: BTreeSet::new(),
     ordinary_names: BTreeSet::new(),
     pragma_operator: false,
@@ -270,9 +270,10 @@ impl Audit {
     environment.clear();
   }
 
-  // A pragma operator can restore definitions saved before this audit's active
-  // interval. Opaque replacements can also manufacture it with token pasting.
-  // Decline the translation unit rather than pretending to expand such macros.
+  // A directly observed pragma operator can restore hidden definitions. An
+  // invoked replacement can also manufacture it through transitive wrappers or
+  // token pasting. Unused replacement lists have no preprocessing effects; do
+  // not expand or execute them merely because their definitions were observed.
   fn has_opaque_effects(&self) -> bool {
     // Effect-token tracking does not canonicalize Unicode/UCN or dollar names.
     // Even an unused such definition could hide a later expanding wrapper.
@@ -284,7 +285,7 @@ impl Audit {
     {
       return true;
     }
-    let mut dangerous = self.pasted_names.clone();
+    let mut dangerous = self.opaque_replacements.clone();
     loop {
       let before = dangerous.len();
       for (name, references) in &self.effect_definitions {
@@ -341,10 +342,10 @@ impl Audit {
           .replace("\\\r\n", "")
           .replace("\\\n", "");
         let (references, pasted) = effect_tokens(&replacement);
-        self.pragma_operator |= references.contains("_Pragma") || references.contains("__pragma");
+        let pragma = references.contains("_Pragma") || references.contains("__pragma");
         let name = name.text().into_owned();
-        if pasted {
-          self.pasted_names.insert(name.clone());
+        if pasted || pragma {
+          self.opaque_replacements.insert(name.clone());
         }
         self
           .effect_definitions

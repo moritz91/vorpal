@@ -733,3 +733,31 @@ fn literal_macro_stack_pragmas_only_invalidate_the_named_binding() {
       .is_some()
   );
 }
+
+#[test]
+fn unused_pragma_replacements_have_no_effect_but_invoked_wrappers_remain_opaque() {
+  let definitions = "#define DIRECT() __pragma(pop_macro(\"CHECK\"))\n#define PORTABLE() _Pragma(\"pop_macro(\\\"CHECK\\\")\")\n#define ALIAS DIRECT\n#define WRAPPER() ALIAS()\n#define CHECK(x) { sink(x); }\n";
+  for use_site in ["", "// WRAPPER()\n", "const char* text = \"PORTABLE()\";\n"] {
+    let source = format!("{definitions}{use_site}void run() {{ CHECK(value()) }}\n");
+    assert!(
+      audit(Path::new("unused.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_some(),
+      "{source}"
+    );
+  }
+  for use_site in [
+    "DIRECT();",
+    "PORTABLE();",
+    "WRAPPER();",
+    "ALIAS();",
+    "#ifdef PLATFORM\nWRAPPER();\n#endif",
+    "#undef DIRECT\nDIRECT();",
+  ] {
+    let source = format!("{definitions}{use_site}\nvoid run() {{ CHECK(value()) }}\n");
+    assert!(
+      audit(Path::new("invoked.cc"), &source).bindings.is_empty(),
+      "{source}"
+    );
+  }
+}

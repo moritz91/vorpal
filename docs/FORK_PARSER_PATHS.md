@@ -678,3 +678,21 @@ edits reparse warm products, and restoration equals scratch in bucketed/flat
 layouts. All 32 parser, 21 recovery, 24 Windows/25 Linux evidence tests plus
 configured normal MCP/CLI tests pass. The diagnostic guard inventory now consumes
 complete directive identifiers and declines uncanonicalized keyword spellings.
+
+Unused pragma-operator replacement lists now have no immediate proof effect.
+Their names enter the opaque replacement set alongside token-pasting definitions;
+transitive object/function wrappers are closed over before checking ordinary
+source tokens in every observed branch/header. Direct operators and invoked
+wrappers still decline all recovery. Nothing expands or executes these operators.
+Product v7/evidence v12 invalidate the previous policy. Windows/Linux tests cover
+unused definitions, aliases, conditional invocations, use after undef, original
+argument spans and owned/streaming/scan parity. Warm replay migrates prior v6
+telemetry and invalidates external-header wrapper invocations; watched normal MCP
+and externally configured CLI tests exercise the same positive and negative cases.
+All 32 parser, 22 recovery, 25 Windows/26 Linux evidence and eight replay tests
+pass, as do the unchanged 179-test C++ corpus, Clippy and native MSVC/Clang positive
+fixture. The actual Hades proof still has zero bindings and 43 consulted paths.
+The exact 0615194 candidate separately verifies 1744 paths and reports 26 damaged
+files / 152576 bytes through normal MCP. Its source checkout differs from the
+earlier 1735-path candidate, so these byte counts are not a parser-regression
+comparison. Its full CI is green; no candidate is installed in the live tunnel.

@@ -184,7 +184,7 @@ fn header_pragma_operator_invalidates_recovered_products() {
   assert_eq!(build(&out).indexed, 0);
   fs::write(
     &header,
-    format!("{safe}#define RESTORE() __pragma(pop_macro(\"CHECK\"))\n"),
+    format!("{safe}#define RESTORE() __pragma(pop_macro(\"CHECK\"))\nRESTORE();\n"),
   )
   .unwrap();
   let changed = build(&out);
@@ -474,6 +474,62 @@ fn macro_stack_target_edits_invalidate_external_header_replay() {
   let changed = build(&out);
   assert_eq!(changed.indexed, 1);
   assert!(changed.error_nodes > 0, "the target's definition must remain unknown after stack metadata");
+  assert!(!changed.reused && !changed.graph_reused);
+  fs::write(&header, safe).unwrap();
+  let restored = build(&out);
+  assert_eq!(restored.indexed, 1);
+  assert_eq!(restored.error_nodes, 0);
+  let scratch = root.join("scratch");
+  build(&scratch);
+  assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
+}
+
+
+#[test]
+fn unused_pragma_header_proofs_migrate_and_invocations_invalidate_replay() {
+  use vorpal_ingest::{Manifest, cache_file_name, save_product};
+  let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let root = physical_temp_dir().join(format!("vorpal-unused-pragma-replay-{}-{nonce}", std::process::id()));
+  let src = root.join("src");
+  let sdk = root.join("sdk");
+  let out = root.join("index");
+  fs::create_dir_all(&src).unwrap();
+  fs::create_dir(&sdk).unwrap();
+  fs::create_dir_all(out.join("products")).unwrap();
+  let source = "#include \"proof.h\"\nvoid run() { CHECK(value()) after(); }\n";
+  fs::write(src.join("run.cc"), source).unwrap();
+  let header = sdk.join("proof.h");
+  let safe = "#define DIRECT() __pragma(pop_macro(\"CHECK\"))\n#define WRAPPER() DIRECT()\n#define CHECK(x) { sink(x); }\n";
+  fs::write(&header, safe).unwrap();
+  let env = ExtractionEnv { cpp_macro_include_roots: Some(vec![sdk]), ..Default::default() };
+  let extractor = env.extractor().unwrap();
+  let manifest = Manifest::scan(&src, |_| true).unwrap();
+  let stat = &manifest.entries()[0];
+  let mut legacy = extractor.extract_product(&stat.path, source).unwrap();
+  assert_eq!(legacy.error_nodes, 0);
+  let base = vorpal_ingest::extraction_identity_for_path(&stat.path, extractor.rules_digest()).unwrap();
+  let evidence = vorpal_ingest::cpp_macro_evidence::audit_with_roots(Path::new(&stat.path), source, env.cpp_macro_include_roots.as_ref().unwrap());
+  let mut hash = xxhash_rust::xxh3::Xxh3::new();
+  hash.update(b"vorpal-cpp-macro-product-v6\0");
+  hash.update(&base.to_le_bytes());
+  hash.update(&evidence.dependency_identity().to_le_bytes());
+  legacy.grammar_digest = hash.digest();
+  legacy.source_mtime_ns = stat.mtime_ns;
+  legacy.source_size = stat.size;
+  legacy.source_xxh3 = xxhash_rust::xxh3::xxh3_64(source.as_bytes());
+  // Prior policy declined all recovery merely on seeing an unused operator.
+  legacy.error_nodes = 1;
+  legacy.error_bytes = 1;
+  save_product(&out.join("products").join(cache_file_name(&stat.path)), &legacy).unwrap();
+  let build = |out: &Path| build_index_env(&src, out, CacheMode::default(), ParseHealthPolicy::default(), &env).unwrap();
+  let migrated = build(&out);
+  assert_eq!(migrated.indexed, 1, "old conservative telemetry must be reparsed");
+  assert_eq!(migrated.error_nodes, 0);
+  assert_eq!(build(&out).indexed, 0);
+  fs::write(&header, format!("{safe}WRAPPER();\n")).unwrap();
+  let changed = build(&out);
+  assert_eq!(changed.indexed, 1);
+  assert!(changed.error_nodes > 0, "invoked pragma wrappers must still disable proof");
   assert!(!changed.reused && !changed.graph_reused);
   fs::write(&header, safe).unwrap();
   let restored = build(&out);

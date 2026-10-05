@@ -592,3 +592,57 @@ fn unrelated_literal_macro_stack_metadata_keeps_recovery_and_spans() {
     assert!(report.eligible_names.is_empty());
   }
 }
+
+#[test]
+fn unused_pragma_definitions_preserve_production_spans_without_executing_wrappers() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  let definitions = "#define DIRECT() __pragma(pop_macro(\"CHECK\"))\n#define PORTABLE() _Pragma(\"pop_macro(\\\"CHECK\\\")\")\n#define WRAPPER() DIRECT()\n#define CHECK(x) { sink(x); }\n";
+  let lf = format!("{definitions}void run() {{ CHECK(value()) after(); }}\n");
+  for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("unused.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.eligible_names, ["CHECK"]);
+    assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+    for name in ["value", "after"] {
+      let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+    assert!(!report.calls.iter().any(|(name, _)| name == "CHECK"));
+    let product = extractor.extract_product("unused.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("unused.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw = SgLang::from_path("unused.cc").unwrap().grep(&source);
+    let handoff = extractor
+      .extract_product_from_root("unused.cc", &raw)
+      .unwrap();
+    let mut bank = Vec::new();
+    encode_product_into(&handoff, &mut bank);
+    assert_eq!(owned, bank);
+    for use_site in ["DIRECT();", "PORTABLE();", "WRAPPER();"] {
+      let changed = source.replace("void run()", &format!("{use_site}\nvoid run()"));
+      let report = audit_recovery(Path::new("used.cc"), &changed, &[]);
+      assert!(report.has_error, "{report:?}");
+      assert!(report.eligible_names.is_empty());
+      assert!(
+        extractor
+          .extract_product("used.cc", &changed)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+  }
+}

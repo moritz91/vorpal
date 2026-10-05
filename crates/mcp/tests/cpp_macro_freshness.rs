@@ -43,7 +43,7 @@ fn external_header_freshness(watch_rebuild: bool) {
   )
   .unwrap();
   let header = headers.join("proof.h");
-  let valid = "#define CHECK(x) { consume(x); }\n";
+  let valid = "#define UNUSED() __pragma(pop_macro(\"CHECK\"))\n#define WRAPPER() UNUSED()\n#define CHECK(x) { consume(x); }\n";
   fs::write(&header, valid).unwrap();
   let env = ExtractionEnv {
     cpp_macro_include_roots: Some(vec![headers]),
@@ -73,6 +73,10 @@ fn external_header_freshness(watch_rebuild: bool) {
   );
   fs::write(&header, valid).unwrap();
   assert!(health(&mut server, 3).contains("parse health: clean"));
+  fs::write(&header, format!("{valid}WRAPPER();\n")).unwrap();
+  assert!(health(&mut server, 8).contains("carry ERROR/MISSING nodes"));
+  fs::write(&header, valid).unwrap();
+  assert!(health(&mut server, 9).contains("parse health: clean"));
   fs::remove_file(&header).unwrap();
   assert!(health(&mut server, 4).contains("carry ERROR/MISSING nodes"));
   fs::write(&header, valid).unwrap();
