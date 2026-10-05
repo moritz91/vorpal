@@ -14,7 +14,7 @@ pub struct RecoveryAudit {
   pub calls: Vec<(String, Range<usize>)>,
   pub functions: Vec<String>,
   pub dependency_identity: u64,
-  /// Proven statement replacements used where C++ requires an expression.
+  /// Independently incompatible macro replacement/context syntax.
   pub context_errors: Vec<Range<usize>>,
 }
 
@@ -46,7 +46,6 @@ fn macro_calls(
         return None;
       }
       let function = call.field("function")?;
-      let plain = function.kind().as_ref() == "identifier";
       let mut name = function;
       loop {
         name = match name.kind().as_ref() {
@@ -58,82 +57,76 @@ fn macro_calls(
       }
       let text = name.text();
       let definition = evidence.at(&text, name.range().start)?;
-      let expression_slot = !plain
-        || call
-          .parent()
-          .is_none_or(|p| p.kind().as_ref() != "expression_statement");
-      let expression = expression_slot
-        && (|| {
-          let mut context = call.clone();
-          loop {
-            if matches!(
-              context.kind().as_ref(),
-              "expression_statement"
-                | "return_statement"
-                | "declaration"
-                | "throw_statement"
-                | "if_statement"
-                | "for_statement"
-            ) {
-              break;
-            }
-            context = context.parent()?;
-            if matches!(
-              context.kind().as_ref(),
-              "compound_statement" | "translation_unit" | "function_definition"
-            ) {
-              return None;
-            }
+      let expression = (|| {
+        let mut context = call.clone();
+        loop {
+          if matches!(
+            context.kind().as_ref(),
+            "expression_statement"
+              | "return_statement"
+              | "declaration"
+              | "throw_statement"
+              | "if_statement"
+              | "for_statement"
+          ) {
+            break;
           }
-          let range = context.range();
-          let source = parsed.root().text();
-          let start = name.range().start;
-          let end = call.range().end;
-          let prefix = &source[range.start..start];
-          let suffix = &source[end..range.end];
-          let arguments = call.field("arguments")?.text();
-          if evidence.contains_expanding_tokens(prefix)
-            || evidence.contains_expanding_tokens(suffix)
-            || evidence.contains_expanding_tokens(&arguments)
-          {
+          context = context.parent()?;
+          if matches!(
+            context.kind().as_ref(),
+            "compound_statement" | "translation_unit" | "function_definition"
+          ) {
             return None;
           }
-          let arguments = validated_arguments(&arguments)?;
-          if arguments.len() != definition.parameters {
-            return None;
-          }
-          let replacement = definition
-            .replacement
-            .instantiate(&arguments.iter().map(String::as_str).collect::<Vec<_>>())?;
-          if evidence.contains_expanding_tokens(&replacement)
-            || !crate::cpp_macro_evidence::complete_statement(&replacement)
-            || prefix.len() + suffix.len() + replacement.len() > 4 * 1024 * 1024
-          {
-            return None;
-          }
-          let fixture = format!("void proof() {{ {prefix}{replacement}{suffix}\n }}");
-          // An already malformed surrounding statement is not evidence that this
-          // invocation caused its error. Preserve that tree's ordinary diagnostics.
-          let original = format!(
-            "void proof() {{ {prefix}{}{suffix}\n }}",
-            &source[start..end]
-          );
-          if SupportLang::Cpp.grep(&original).root().has_error() {
-            return None;
-          }
-          let proof = SupportLang::Cpp.grep(&fixture);
-          let root = proof.root();
-          // The grammar permits compound statements in argument lists for SDK
-          // recovery. Native GNU statement expressions require enclosing ().
-          let bare_compound = root.dfs().any(|n| {
-            n.kind().as_ref() == "compound_statement"
-              && n
-                .parent()
-                .is_some_and(|p| p.kind().as_ref() == "argument_list")
-          });
-          Some(root.has_error() || bare_compound)
-        })()
-        .unwrap_or(false);
+        }
+        let range = context.range();
+        let source = parsed.root().text();
+        let start = name.range().start;
+        let end = call.range().end;
+        let prefix = &source[range.start..start];
+        let suffix = &source[end..range.end];
+        let arguments = call.field("arguments")?.text();
+        if evidence.contains_expanding_tokens(prefix)
+          || evidence.contains_expanding_tokens(suffix)
+          || evidence.contains_expanding_tokens(&arguments)
+        {
+          return None;
+        }
+        let arguments = validated_arguments(&arguments, definition.parameters)?;
+        if arguments.len() != definition.parameters {
+          return None;
+        }
+        let replacement = definition
+          .replacement
+          .instantiate(&arguments.iter().map(String::as_str).collect::<Vec<_>>())?;
+        if evidence.contains_expanding_tokens(&replacement)
+          || prefix.len() + suffix.len() + replacement.len() > 4 * 1024 * 1024
+        {
+          return None;
+        }
+        let fixture = format!("void proof() {{ {prefix}{replacement}{suffix}\n }}");
+        // An already malformed surrounding statement is not evidence that this
+        // invocation caused its error. Preserve that tree's ordinary diagnostics.
+        let original = format!(
+          "void proof() {{ {prefix}{}{suffix}\n }}",
+          &source[start..end]
+        );
+        if SupportLang::Cpp.grep(&original).root().has_error() {
+          return None;
+        }
+        let proof = SupportLang::Cpp.grep(&fixture);
+        let root = proof.root();
+        // The grammar permits compound statements in argument lists for SDK
+        // recovery. Native GNU statement expressions require enclosing ().
+        let bare_compound = root.dfs().any(|n| {
+          n.kind().as_ref() == "compound_statement"
+            && n
+              .parent()
+              .is_some_and(|p| p.kind().as_ref() == "argument_list")
+        });
+        Some(root.has_error() || bare_compound)
+      })()
+      .unwrap_or(false);
       Some((text.into_owned(), call.range(), expression))
     })
     .collect()
@@ -205,7 +198,7 @@ fn parse_without_context(
           if evidence.contains_expanding_tokens(&source[next..end]) {
             return None;
           }
-          let arguments = validated_arguments(&source[next..end])?;
+          let arguments = validated_arguments(&source[next..end], definition.parameters)?;
           let count = arguments.len();
           if definition.parameters != count {
             return None;
@@ -421,7 +414,7 @@ fn argument_end(source: &str, start: usize, protected: &[(Range<usize>, bool)]) 
   None
 }
 
-fn validated_arguments(arguments: &str) -> Option<Vec<String>> {
+fn validated_arguments(arguments: &str, parameters: usize) -> Option<Vec<String>> {
   let source = format!("void proof() {{ probe{arguments}; }}");
   let parsed = SupportLang::Cpp.grep(&source);
   let root = parsed.root();
@@ -447,7 +440,14 @@ fn validated_arguments(arguments: &str) -> Option<Vec<String>> {
   let range = arguments.range();
   let count = arity(&source, range.clone(), &protected);
   if count == 0 {
-    return Some(Vec::new());
+    // F() supplies one empty preprocessing argument to a one-parameter macro,
+    // but no arguments to a zero-parameter macro. The replacement/context proof
+    // decides whether that empty token sequence is syntactically usable.
+    return Some(if parameters == 1 {
+      vec![String::new()]
+    } else {
+      Vec::new()
+    });
   }
   // Preprocessing commas are protected by parentheses only, not C++ templates,
   // initializer braces or subscripts. Literal/comment commas remain protected.

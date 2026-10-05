@@ -408,6 +408,7 @@ fn legacy_invocation_proofs_cannot_replay_a_false_clean_product() {
     (4, "#define NESTED(x) { void local() { sink(x); } }\nvoid run() { NESTED(1) }\n"),
     (5, "#define CHECK(x) { sink(x); }\n#undef 123invalid\nvoid run() { CHECK(value()) }\n"),
     (7, "#define CHECK(x) { sink(x); }\nint run() { return CHECK(value()); }\n"),
+    (9, "#define DECLARE(x) { int x; }\nvoid run() { DECLARE(1 + 2); }\n"),
   ] {
     let nonce = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
@@ -576,15 +577,18 @@ fn proof_context_errors_survive_replay_and_strict_health_policies() {
 }
 
 #[test]
-fn enclosing_macro_context_migrates_false_diagnostics_from_v8() {
+fn context_policy_migrations_remove_false_diagnostics() {
   use vorpal_ingest::{Manifest, cache_file_name, save_product};
+  for (version, source) in [
+    (8, "#define CHECK(x) { sink(x); }\n#define IDENTITY(x) x\nvoid run() { IDENTITY(CHECK(value())); }\n"),
+    (9, "#define CHECK(x) { sink(x); }\nvoid run() { CHECK() }\n"),
+  ] {
   let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
   let root = physical_temp_dir().join(format!("vorpal-context-v8-{}-{nonce}", std::process::id()));
   let src = root.join("src");
   let out = root.join("index");
   fs::create_dir_all(&src).unwrap();
   fs::create_dir_all(out.join("products")).unwrap();
-  let source = "#define CHECK(x) { sink(x); }\n#define IDENTITY(x) x\nvoid run() { IDENTITY(CHECK(value())); }\n";
   fs::write(src.join("run.cc"), source).unwrap();
   let env = ExtractionEnv { cpp_macro_include_roots: Some(vec![]), ..Default::default() };
   let extractor = env.extractor().unwrap();
@@ -595,7 +599,7 @@ fn enclosing_macro_context_migrates_false_diagnostics_from_v8() {
   let base = vorpal_ingest::extraction_identity_for_path(&stat.path, extractor.rules_digest()).unwrap();
   let evidence = vorpal_ingest::cpp_macro_evidence::audit_with_roots(Path::new(&stat.path), source, &[]);
   let mut hash = xxhash_rust::xxh3::Xxh3::new();
-  hash.update(b"vorpal-cpp-macro-product-v8\0");
+  hash.update(format!("vorpal-cpp-macro-product-v{version}\0").as_bytes());
   hash.update(&base.to_le_bytes());
   hash.update(&evidence.dependency_identity().to_le_bytes());
   legacy.grammar_digest = hash.digest();
@@ -613,4 +617,5 @@ fn enclosing_macro_context_migrates_false_diagnostics_from_v8() {
   let scratch = root.join("scratch");
   build(&scratch);
   assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
+  }
 }

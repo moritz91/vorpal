@@ -3,6 +3,71 @@ use std::path::Path;
 use vorpal_ingest::cpp_macro_recovery::audit_recovery;
 
 #[test]
+fn empty_preprocessing_arguments_are_proved_in_the_replacement() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for invocation in [
+    "CHECK()",
+    "CHECK(/* empty, argument */)",
+    "CHECK( \t )",
+    "CHECK(\x0b)",
+    "CHECK(\x0c)",
+  ] {
+    let lf = format!("#define CHECK(x) {{ sink(x); }}\nvoid run() {{ {invocation} after(); }}\n");
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("empty.cc"), &source, &[]);
+      assert!(!report.has_error, "{report:?}");
+      assert_eq!(report.eligible_names, ["CHECK"]);
+      assert_eq!(report.macro_spans.len(), 1);
+      assert_eq!(&source[report.macro_spans[0].clone()], invocation);
+      assert!(!report.calls.iter().any(|(name, _)| name == "CHECK"));
+      let product = extractor.extract_product("empty.cc", &source).unwrap();
+      assert_eq!(product.error_nodes, 0);
+      let mut owned = Vec::new();
+      encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("empty.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let raw = SgLang::from_path("empty.cc").unwrap().grep(&source);
+      let handoff = extractor
+        .extract_product_from_root("empty.cc", &raw)
+        .unwrap();
+      let mut bank = Vec::new();
+      encode_product_into(&handoff, &mut bank);
+      assert_eq!(owned, bank);
+    }
+  }
+  let source = "#define ZERO() { sink(); }\nvoid run() { ZERO() }\n";
+  let report = audit_recovery(Path::new("zero.cc"), source, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["ZERO"]);
+}
+
+#[test]
+fn semicolons_cannot_hide_incompatible_replacement_syntax() {
+  for (definition, invocation) in [
+    ("#define DECLARE(x) { int x; }", "DECLARE(1 + 2)"),
+    ("#define JUMP(x) { goto x; }", "JUMP(target())"),
+    ("#define CHECK(x) if (x) { sink(); }", "CHECK()"),
+  ] {
+    let source = format!("{definition}\nvoid run() {{ {invocation}; after(); }}\n");
+    let report = audit_recovery(Path::new("invalid-replacement.cc"), &source, &[]);
+    assert!(report.has_error, "{report:?}");
+    assert_eq!(report.context_errors.len(), 1, "{report:?}");
+    assert_eq!(&source[report.context_errors[0].clone()], invocation);
+    assert!(report.calls.iter().any(|(name, _)| name == "after"));
+  }
+}
+
+#[test]
 fn macro_arguments_must_fit_their_actual_replacement_context() {
   use vorpal_core::Language;
   use vorpal_core::tree_sitter::LanguageExt;
@@ -546,7 +611,6 @@ fn comment_and_control_whitespace_invocations_cannot_escape_proof_intervals() {
   for invocation in [
     "CHECK /* note */ (value(), second())",
     "CHECK // note\n (value(,))",
-    "CHECK(\x0b)",
     "CHECK /* line\\\nsplice */ (value())",
     "CHECK // line\\\nsplice\n (value())",
     "CHECK /* trigraph??/ splice */ (value())",

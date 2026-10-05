@@ -699,7 +699,8 @@ comparison. Its full CI is green; no candidate is installed in the live tunnel.
 
 Proven statement macros retained as call_expression nodes now receive original-
 span diagnostics when an independent bounded replacement/context fixture proves
-the call incompatible with an expression or qualified/member callee slot. Other
+the replacement incompatible with its statement, expression or qualified/member
+callee slot. Other
 observed macro tokens in the surrounding statement decline this diagnosis;
 enclosing macros and keyword replacements may change the slot. GNU statement
 expressions with enclosing parentheses remain syntactically supported. Existing
@@ -713,9 +714,17 @@ expose context_errors explicitly. Proven macro callees create no runtime refs,
 including unrecovered ordinary call nodes; real argument calls retain spans.
 Ordinary same-named calls after undef remain calls. This is a bounded call-
 expression check, not general preprocessing or declaration-macro validation.
-Product identity v9 invalidates old false-clean telemetry, invented macro
+The independent context check also covers unrecovered calls followed by a
+semicolon: invalid instantiated declaration/goto/if syntax must not become clean
+merely because the unexpanded invocation is a valid C++ call statement. One empty
+preprocessing argument in F() is distinguished from the zero arguments of a
+zero-parameter macro. Whitespace/comment-only arguments keep original spans and
+are accepted only when their instantiated replacement is a complete statement.
+Multiple or mixed empty comma-separated arguments remain conservatively unsupported.
+Product identity v10 invalidates old false-clean telemetry, invented macro
 callee rows and v8 false diagnostics for valid enclosing macro expansions;
-migration includes v7/v8. All 24 recovery, 32 parser, 25 Windows/26 Linux
+migration includes v7/v8/v9, with both false errors and false-clean old products.
+All 26 recovery, 32 parser, 25 Windows/26 Linux
 evidence, ten replay, three watched MCP and four configured CLI tests pass on
 both platforms (Linux replay also flat). Native MSVC/Clang reject the return-slot
 fixture and accept the statement/undef/ordinary-call positive control. Header-only
