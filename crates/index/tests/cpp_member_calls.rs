@@ -2,6 +2,39 @@ use std::fs;
 use vorpal_kg::{EdgeType, Kg, NodeId};
 
 #[test]
+fn cpp_explicit_operators_resolve_only_with_receiver_evidence() {
+  let nonce = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let base = std::env::temp_dir().join(format!("vorpal-cpp-operators-{}-{nonce}", std::process::id()));
+  let src = base.join("src");
+  fs::create_dir_all(&src).unwrap();
+  fs::write(src.join("operators.cc"), "struct Left { int operator<<(int); };\nstruct Right { int operator<<(int); };\nint Left::operator<<(int value) { return value; }\nint Right::operator<<(int value) { return value; }\nint left(Left& object) { return object.operator<<(1); }\nint right(Right* object) { return object->operator<<(1); }\nint unknown(auto& object) { return object.operator<<(1); }\n").unwrap();
+  fs::write(src.join("specializations.cc"), "struct TemplateOwner { template<typename T> int choose(T); };\ntemplate<> int TemplateOwner::choose<int>(int value) { return value; }\nint specialized(TemplateOwner& object) { return object.choose(1); }\n").unwrap();
+  let out = base.join("index");
+  let report = vorpal_index::build_index(&src, &out).unwrap();
+  assert_eq!(report.error_files, 0);
+  let kg = Kg::load(&out).unwrap();
+  let id = |name: &str| -> NodeId {
+    (0..kg.node_count() as u64).map(NodeId::new)
+      .find(|&id| kg.node(id).is_some_and(|n| n.name == name))
+      .unwrap_or_else(|| panic!("missing {name}"))
+  };
+  let calls = |from: &str, to: &str| kg.all_evidence().iter().any(|e|
+    e.from as u64 == id(from).raw() && e.to as u64 == id(to).raw()
+      && EdgeType(e.etype).base() == EdgeType::CALLS
+      && e.outcome == vorpal_kg::EvidenceOutcome::Edge);
+  assert!(calls("left", "Left::operator<<"), "{:?}", kg.all_evidence().iter().filter(|e| e.from as u64 == id("left").raw()).collect::<Vec<_>>());
+  assert!(calls("right", "Right::operator<<"));
+  assert!(!calls("left", "Right::operator<<"));
+  assert!(!calls("right", "Left::operator<<"));
+  assert!(!calls("unknown", "Left::operator<<"));
+  assert!(!calls("unknown", "Right::operator<<"));
+  assert!(!calls("specialized", "TemplateOwner::choose<int>"));
+  drop(kg);
+  fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn cpp_calls_select_the_body_of_the_typed_receiver() {
   let base = std::env::temp_dir().join(format!("vorpal-cpp-members-{}", std::process::id()));
   let src = base.join("src");

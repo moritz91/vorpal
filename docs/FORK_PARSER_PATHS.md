@@ -587,3 +587,19 @@ MSVC x86 accepts the positive fixture and rejects malformed declaration syntax.
 The isolated ac59c50 candidate index verified 1735 files; normal MCP health
 reported 27 error-bearing files, 1865 ERROR/MISSING nodes and 137900 affected
 bytes. This predates the v3 proof change and is not a deployed generation.
+
+Explicit member operator calls now use the existing operator_name through dot
+or arrow field access, alongside existing template methods. Pointer-to-member
+operators retain their prior path. Calls retain the complete operator spelling,
+receiver evidence and original argument spans. Only exact angle-bearing operator
+names receive out-of-class body aliases; ordinary template-specialization names
+remain excluded. Typed receivers select their own class body; unknown receivers
+do not acquire edges to either candidate class.
+
+All 31 Windows/Linux parser regressions and the unchanged 179-test corpus pass.
+Four member-call graph tests and all 14 resolver evaluations retain conservative
+edges in bucketed and flat layouts. Native MSVC accepts the operator fixture;
+proof/recovery, replay, running/configured MCP, Clippy, provenance, reproduction
+and schema checks pass. The native 900-file audit changes only Catch2: 136 to
+135 ERROR/MISSING nodes and 30206 to 30195 bytes, retaining all 2317 items.
+Totals are 24 C++ paths, 1788 nodes and 137538 affected bytes.

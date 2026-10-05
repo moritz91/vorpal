@@ -110,7 +110,10 @@ if new_declarator['type'] != 'CHOICE':
             optional(symbol('new_declarator')))
     })
 
-operators = rules['field_expression']['members'][0]['content']['members'][1]['content']['members']
+field_base = rules['field_expression']
+if field_base['type'] == 'CHOICE':
+    field_base = field_base['members'][0]
+operators = field_base['members'][0]['content']['members'][1]['content']['members']
 arrow_star = {'type': 'STRING', 'value': '->*'}
 if arrow_star not in operators:
     operators.append(arrow_star)
@@ -545,6 +548,19 @@ rules['ms_asm_statement'] = seq({'type': 'STRING', 'value': '__asm'},
     optional(symbol('ms_asm_instruction')), {'type': 'STRING', 'value': '}'})
 if symbol('ms_asm_statement') not in rules['statement']['members']:
     rules['statement']['members'].append(symbol('ms_asm_statement'))
+# Explicit operator member calls use '.' or '->'; do not admit operator names
+# as pointer-to-member values after '.*'/'->*'. Existing template methods remain.
+if rules['field_expression']['type'] == 'SEQ':
+    ordinary_field = rules['field_expression']
+    operator_field = json.loads(json.dumps(ordinary_field))
+    operator_field['members'][0]['content']['members'][1]['content'] = choice(
+        {'type': 'STRING', 'value': '.'}, {'type': 'STRING', 'value': '->'})
+    operator_field['members'][1]['content'] = symbol('operator_name')
+    rules['field_expression'] = choice(ordinary_field, operator_field)
+conflict = ['field_expression', 'template_method']
+if conflict not in grammar['conflicts']:
+    grammar['conflicts'].append(conflict)
+
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
 scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())

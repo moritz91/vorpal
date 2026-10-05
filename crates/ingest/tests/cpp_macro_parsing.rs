@@ -1,4 +1,55 @@
 #[test]
+fn cpp_explicit_member_operators_preserve_callees_and_original_spans() {
+  let lf = r#"
+struct Stream {
+  Stream& operator<<(int);
+  int operator()(int);
+  int operator[](int);
+  Stream& operator++(int);
+  template<typename T> Stream& operator>>(T);
+};
+int value();
+int index();
+void after();
+void run(Stream& stream, Stream* ptr) {
+  stream.operator<<(value());
+  ptr->operator()(value());
+  stream.operator[](index());
+  ptr->operator++(0);
+  stream.operator>> <int>(value());
+  after();
+}
+void following() { after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(product.items.iter().any(|item| item.entry.name == "following"));
+    for (name, call) in [
+      ("operator<<", "stream.operator<<(value())"),
+      ("operator()", "ptr->operator()(value())"),
+      ("operator[]", "stream.operator[](index())"),
+      ("operator++", "ptr->operator++(0)"),
+      ("operator>>", "stream.operator>> <int>(value())"),
+    ] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), 1, "{name}: {:?}", product.refs);
+      assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], call);
+    }
+    assert_eq!(product.refs.iter().filter(|r| r.kind == 0 && r.name == "value").count(), 3);
+    assert_eq!(product.refs.iter().filter(|r| r.kind == 0 && r.name == "index").count(), 1);
+  }
+  for source in [
+    "void run() { stream.operator(value()); }",
+    "void run() { stream.operator<<(value()) after(); }",
+    "void run() { stream.operator<< <int>(value(); }",
+    "void run() { stream.*operator<<(value()); }",
+    "void run() { stream->*operator<<(value()); }",
+  ] {
+    assert!(SgLang::from_path("operators.cc").unwrap().grep(source).root().has_error(), "{source}");
+  }
+}
+
+#[test]
 fn cpp_trailing_primitive_type_arguments_do_not_invent_macro_runtime_callees() {
   let lf = r#"
 #define TYPE_META(v, t) ((void)(v), sizeof(t))

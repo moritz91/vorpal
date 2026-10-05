@@ -3009,6 +3009,11 @@ const DESCEND_KINDS: &[&str] = &[
 fn callee_name<'t>(node: &SgNode<'t>) -> Option<Cow<'t, str>> {
   let kind_cow = node.kind();
   let kind = kind_cow.as_ref();
+  // C++ names the operator itself, including its punctuation. Descending to an
+  // identifier child would lose a literal-operator prefix or invent another name.
+  if kind == "operator_name" {
+    return Some(node.text());
+  }
   // Pointer-to-member calls select a runtime value, not a statically named method.
   if kind == "field_expression"
     && node.field("operator").is_some_and(|op| matches!(op.text().as_ref(), ".*" | "->*"))
