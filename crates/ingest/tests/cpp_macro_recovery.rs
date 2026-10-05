@@ -15,8 +15,14 @@ fn macro_arguments_must_fit_their_actual_replacement_context() {
   for (definition, invocation) in [
     ("#define DECLARE(name) { int name; }", "DECLARE(1 + 2)"),
     ("#define JUMP(label) { goto label; }", "JUMP(target())"),
-    ("#define NESTED(x) { void local() { sink(x); } }", "NESTED(1)"),
-    ("#define METHOD(x) { struct Local { void local() { sink(x); } }; }", "METHOD(1)"),
+    (
+      "#define NESTED(x) { void local() { sink(x); } }",
+      "NESTED(1)",
+    ),
+    (
+      "#define METHOD(x) { struct Local { void local() { sink(x); } }; }",
+      "METHOD(1)",
+    ),
     ("#define DECLARE(\\u03B1) { int α; }", "DECLARE(1 + 2)"),
     ("#define DECLARE(x) { int \\u0078; }", "DECLARE(1 + 2)"),
     (
@@ -560,4 +566,29 @@ fn comment_and_control_whitespace_invocations_cannot_escape_proof_intervals() {
     )
     .has_error
   );
+}
+
+#[test]
+fn unrelated_literal_macro_stack_metadata_keeps_recovery_and_spans() {
+  let lf = "#define CHECK(x) { sink(x); }\n#pragma push_macro(\"OTHER\")\n#pragma pop_macro(\"OTHER\")\nvoid run() { CHECK(value()) after(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("stack.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.eligible_names, ["CHECK"]);
+    for name in ["value", "after"] {
+      let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+    assert!(!report.calls.iter().any(|(n, _)| n == "CHECK"));
+  }
+  for source in [
+    "#define CHECK(x) { sink(x); }\n#pragma pop_macro(\"CHECK\")\nvoid run() { CHECK(value()) }",
+    "#define CHECK(x) { sink(x); }\n#pragma pop_macro(\"value\")\nvoid run() { CHECK(value()) }",
+    "#define CHECK(x) { value(x); }\n#pragma pop_macro(\"value\")\nvoid run() { CHECK(1) }",
+    "#define CHECK(x) { sink(x); }\n#undef 123invalid\nvoid run() { CHECK(value()) }",
+  ] {
+    let report = audit_recovery(Path::new("stack.cc"), source, &[]);
+    assert!(report.has_error, "{source}: {report:?}");
+    assert!(report.eligible_names.is_empty());
+  }
 }

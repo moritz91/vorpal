@@ -693,5 +693,43 @@ fn physical_temp_dir() -> std::path::PathBuf {
 fn split_runtime_guards_remain_opaque_macro_evidence_boundaries() {
   let source = "#define CHECK(x) { sink(x); }\nvoid split() {\n#ifdef PLATFORM\nif (first()) {\n#else\nif (second()) {\n#endif\nshared();\n#ifdef PLATFORM\n} else { fallback(); }\n#else\n} else { fallback(); }\n#endif\n}\nvoid run() { CHECK(value()) }\n";
   let evidence = audit(Path::new("guards.cc"), source);
-  assert!(evidence.at("CHECK", source.find("CHECK(value").unwrap()).is_none());
+  assert!(
+    evidence
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+}
+
+#[test]
+fn literal_macro_stack_pragmas_only_invalidate_the_named_binding() {
+  let source = "#define CHECK(x) { use(x); }\n#pragma push_macro(\"OTHER\")\n#pragma pop_macro(\"OTHER\")\nvoid run() { CHECK(value()) }\n";
+  let evidence = audit(Path::new("stack.cc"), source);
+  assert!(
+    evidence
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_some()
+  );
+  assert!(evidence.macro_names.contains("OTHER"));
+  for argument in [
+    "pop_macro(\"CHECK\")",
+    "pop_macro(NAME)",
+    "pop_macro(\"\\u0043HECK\")",
+    "warning(push)",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ use(x); }}\n#pragma {argument}\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    assert!(
+      audit(Path::new("stack.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none(),
+      "{argument}"
+    );
+  }
+  let source = "#define CHECK(x) { use(x); }\n#ifdef PLATFORM\n#pragma pop_macro(\"OTHER\")\n#endif\nvoid run() { CHECK(value()) }\n";
+  assert!(
+    audit(Path::new("stack.cc"), source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_some()
+  );
 }

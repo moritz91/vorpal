@@ -98,7 +98,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v10\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v11\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -142,6 +142,7 @@ struct Audit {
   effect_definitions: BTreeMap<String, BTreeSet<String>>,
   macro_names: BTreeSet<String>,
   pasted_names: BTreeSet<String>,
+  stack_targets: BTreeSet<String>,
   ordinary_names: BTreeSet<String>,
   pragma_operator: bool,
   opaque_environment: bool,
@@ -180,6 +181,7 @@ pub fn audit_with_roots(path: &Path, source: &str, include_roots: &[PathBuf]) ->
     effect_definitions: BTreeMap::new(),
     macro_names: BTreeSet::new(),
     pasted_names: BTreeSet::new(),
+    stack_targets: BTreeSet::new(),
     ordinary_names: BTreeSet::new(),
     pragma_operator: false,
     opaque_environment: false,
@@ -311,6 +313,17 @@ impl Audit {
     let root = parsed.root();
     let mut protected = Vec::new();
     for node in root.dfs() {
+      if node.kind().as_ref() == "preproc_call"
+        && node
+          .field("directive")
+          .is_some_and(|d| d.text() == "#pragma")
+        && let Some(argument) = node.field("argument")
+        && let Some(target) = literal_macro_stack_target(&argument.text())
+      {
+        // Even an unelected branch may restore a macro affecting arguments or
+        // replacement tokens; record the name globally as potentially expanding.
+        self.macro_names.insert(target.to_owned());
+      }
       if matches!(node.kind().as_ref(), "preproc_def" | "preproc_function_def") {
         protected.push(node.range());
         let Some(name) = node.field("name") else {
@@ -518,6 +531,7 @@ impl Audit {
               let unique: std::collections::BTreeSet<_> =
                 parameters.iter().map(|n| n.text().into_owned()).collect();
               if !self.opaque_environment
+                && !self.stack_targets.contains(&name)
                 && simple_parameters
                 && unique.len() == parameters.len()
                 && let Some(replacement) = statement_replacement(
@@ -569,13 +583,7 @@ impl Audit {
             .field("argument")
             .map(|n| n.text().into_owned())
             .unwrap_or_default();
-          if directive == "#undef"
-            && !argument.trim().is_empty()
-            && argument
-              .trim()
-              .bytes()
-              .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-          {
+          if directive == "#undef" && canonical_identifier(argument.trim()) {
             environment.remove(argument.trim());
           } else if directive == "#pragma" && argument.trim() == "once" && !node.has_error() {
             if definite {
@@ -583,6 +591,14 @@ impl Audit {
             } else {
               self.possibly_once.insert(path.to_path_buf());
             }
+          } else if directive == "#pragma"
+            && let Some(target) = literal_macro_stack_target(&argument)
+          {
+            // A literal stack operation can only change this macro name. Do
+            // not claim to restore its previous definition or trust its uses.
+            environment.remove(target);
+            self.stack_targets.insert(target.to_owned());
+            self.macro_names.insert(target.to_owned());
           } else {
             self.invalidate_environment(environment);
           }
@@ -623,18 +639,23 @@ impl Audit {
                   (Some(name), Some(argument)) if name.text() == "#undef" => {
                     let argument = argument.text();
                     let name = argument.trim();
-                    if !name.is_empty()
-                      && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                    {
+                    if canonical_identifier(name) {
                       environment.remove(name);
                     } else {
                       self.invalidate_environment(environment);
                     }
                   }
-                  (Some(name), Some(argument))
-                    if name.text() == "#pragma" && argument.text().trim() == "once" =>
-                  {
-                    self.possibly_once.insert(path.to_path_buf());
+                  (Some(name), Some(argument)) if name.text() == "#pragma" => {
+                    let argument = argument.text();
+                    if argument.trim() == "once" {
+                      self.possibly_once.insert(path.to_path_buf());
+                    } else if let Some(target) = literal_macro_stack_target(&argument) {
+                      environment.remove(target);
+                      self.stack_targets.insert(target.to_owned());
+                      self.macro_names.insert(target.to_owned());
+                    } else {
+                      self.invalidate_environment(environment);
+                    }
                   }
                   _ => self.invalidate_environment(environment),
                 }
@@ -648,7 +669,7 @@ impl Audit {
                 }
               }
               "preproc_ifdef" | "preproc_else" | "preproc_elifdef" | "preproc_params"
-              | "preproc_arg" | "preproc_defined" => {}
+              | "preproc_arg" | "preproc_defined" | "preproc_directive" => {}
               kind if kind.starts_with("preproc_") => self.invalidate_environment(environment),
               _ => {}
             }
@@ -758,6 +779,17 @@ fn canonical_identifier(name: &str) -> bool {
     .next()
     .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
     && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+fn literal_macro_stack_target(argument: &str) -> Option<&str> {
+  let argument = argument.trim();
+  let inner = argument
+    .strip_prefix("push_macro(")
+    .or_else(|| argument.strip_prefix("pop_macro("))?
+    .strip_suffix(')')?
+    .trim();
+  let target = inner.strip_prefix('"')?.strip_suffix('"')?;
+  canonical_identifier(target).then_some(target)
 }
 
 fn statement_replacement(replacement: &str, parameters: &[String]) -> Option<StatementReplacement> {

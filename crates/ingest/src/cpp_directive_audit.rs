@@ -58,10 +58,14 @@ fn keyword(source: &str, span: &Range<usize>) -> Result<String, UncertainLexing>
       continue;
     }
     let start = offset;
-    while offset < span.end && (bytes[offset].is_ascii_alphabetic() || bytes[offset] == b'_') {
+    while offset < span.end && (bytes[offset].is_ascii_alphanumeric() || bytes[offset] == b'_') {
       offset += 1;
     }
-    if offset == start {
+    if offset == start
+      || bytes
+        .get(offset)
+        .is_some_and(|b| *b >= 0x80 || matches!(b, b'\\' | b'$'))
+    {
       return Err(UncertainLexing { offset });
     }
     return Ok(source[start..offset].to_owned());

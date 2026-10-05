@@ -406,6 +406,7 @@ fn legacy_invocation_proofs_cannot_replay_a_false_clean_product() {
     (2, "#define DECLARE(name) { int name; }\nvoid run() { DECLARE(1 + 2) }\n"),
     (3, "#define DECLARE(\\u03B1) { int α; }\nvoid run() { DECLARE(1 + 2) }\n"),
     (4, "#define NESTED(x) { void local() { sink(x); } }\nvoid run() { NESTED(1) }\n"),
+    (5, "#define CHECK(x) { sink(x); }\n#undef 123invalid\nvoid run() { CHECK(value()) }\n"),
   ] {
     let nonce = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
@@ -448,4 +449,37 @@ fn legacy_invocation_proofs_cannot_replay_a_false_clean_product() {
     build(&scratch);
     assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
   }
+}
+
+#[test]
+fn macro_stack_target_edits_invalidate_external_header_replay() {
+  let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let root = physical_temp_dir().join(format!("vorpal-stack-replay-{}-{nonce}", std::process::id()));
+  let src = root.join("src");
+  let sdk = root.join("sdk");
+  fs::create_dir_all(&src).unwrap();
+  fs::create_dir(&sdk).unwrap();
+  fs::write(src.join("run.cc"), "#include \"proof.h\"\nvoid run() { CHECK(value()) after(); }\n").unwrap();
+  let header = sdk.join("proof.h");
+  let safe = "#pragma push_macro(\"OTHER\")\n#pragma pop_macro(\"OTHER\")\n#define CHECK(x) { sink(x); }\n";
+  fs::write(&header, safe).unwrap();
+  let env = ExtractionEnv { cpp_macro_include_roots: Some(vec![sdk]), ..Default::default() };
+  let out = root.join("index");
+  let build = |out: &Path| build_index_env(&src, out, CacheMode::default(), ParseHealthPolicy::default(), &env).unwrap();
+  let first = build(&out);
+  assert_eq!(first.indexed, 1);
+  assert_eq!(first.error_nodes, 0);
+  assert_eq!(build(&out).indexed, 0);
+  fs::write(&header, safe.replace("OTHER", "CHECK")).unwrap();
+  let changed = build(&out);
+  assert_eq!(changed.indexed, 1);
+  assert!(changed.error_nodes > 0, "the target's definition must remain unknown after stack metadata");
+  assert!(!changed.reused && !changed.graph_reused);
+  fs::write(&header, safe).unwrap();
+  let restored = build(&out);
+  assert_eq!(restored.indexed, 1);
+  assert_eq!(restored.error_nodes, 0);
+  let scratch = root.join("scratch");
+  build(&scratch);
+  assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
 }

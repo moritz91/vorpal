@@ -463,8 +463,8 @@ impl OutlineExtractor {
 fn macro_product_identity(base: u64, dependency: u64) -> u64 {
   let mut hash = xxhash_rust::xxh3::Xxh3::new();
   // Scanner-only changes do not alter the grammar's structural fingerprint.
-  // v5 also rejects embedded function definitions in prior statement proofs.
-  hash.update(b"vorpal-cpp-macro-product-v5\0");
+  // v6 tracks literal macro-stack targets and rejects malformed undef names.
+  hash.update(b"vorpal-cpp-macro-product-v6\0");
   hash.update(&base.to_le_bytes());
   hash.update(&dependency.to_le_bytes());
   hash.digest()

@@ -18,6 +18,8 @@ fn guard_groups_keep_nested_alternatives_without_selecting_a_branch() {
     }
   }
   for source in [
+    "#if1\n#endif\n",
+    "#if\\u0058\n#endif\n",
     "#else\n",
     "#endif\n",
     "#if UNKNOWN\n",

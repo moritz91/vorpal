@@ -662,3 +662,19 @@ groups with original header/body/close spans. Duplicate else, elif after else,
 unmatched branches and absent endif fail closed. This checks delimiter order,
 not condition syntax, macro effects or compiler configuration; it still supplies
 no production evidence. Five Windows/Linux tests cover the diagnostic API.
+
+Literal `push_macro("NAME")` / `pop_macro("NAME")` pragmas now conservatively
+invalidate only that canonical ASCII name. The audit never restores a saved
+definition and prevents later proof restarts for that target; earlier entering
+intervals remain intact. Target names are globally potentially expanding, so
+arguments or replacement bodies referencing them cannot become false-clean.
+Conditional stack metadata is inspected in every branch, including its leaf
+preproc_directive metadata. Dynamic/escaped/noncanonical arguments and unknown
+pragmas remain opaque. Native MSVC and Clang accept the unrelated-target positive
+fixture. Noncanonical undef names decline proof: Clang rejects `#undef
+123invalid`, while conforming MSVC warns and proceeds. Product v6/evidence v11
+invalidate prior policy; migration tests include v5 telemetry. Header target
+edits reparse warm products, and restoration equals scratch in bucketed/flat
+layouts. All 32 parser, 21 recovery, 24 Windows/25 Linux evidence tests plus
+configured normal MCP/CLI tests pass. The diagnostic guard inventory now consumes
+complete directive identifiers and declines uncanonicalized keyword spellings.
