@@ -350,7 +350,16 @@ impl OutlinePredicate {
     match self {
       Self::Literal(value) => *value,
       Self::CppAccess => {
-        let node = node_match.get_node();
+        let mut node = node_match.get_node().clone();
+        // The access label belongs to the class-body template wrapper, not to
+        // its nested declaration. Stop at other owners rather than inheriting
+        // a surrounding class's visibility into a nested class.
+        while let Some(parent) = node.parent() {
+          if parent.kind().as_ref() != "template_declaration" {
+            break;
+          }
+          node = parent;
+        }
         if let Some(label) = node.prev_all().find(|s| s.kind().as_ref() == "access_specifier") {
           return label.text().trim().trim_end_matches(':') == "public";
         }

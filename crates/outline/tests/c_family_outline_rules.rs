@@ -418,3 +418,53 @@ fn c_last_definition_with_body_damage_is_not_a_swallow() {
   assert!(report.is_empty());
   assert_eq!(items[1].entry.range.byte_offset.end, source.trim_end().len());
 }
+
+#[test]
+fn cpp_member_templates_keep_method_kinds_and_enclosing_access() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  common::assert_outline_snapshot(
+    SupportLang::Cpp,
+    RULES,
+    r#"
+struct DefaultPublic {
+  DefaultPublic() {}
+  ~DefaultPublic() {}
+  template<class T> int choose(T) { return 1; }
+  template<class T> int declared(T);
+  int (*callback)(int);
+  int (*filtered)(int predicate(int));
+  int* (*pointerFiltered)(int callback(int));
+  int (*factory())(int predicate(int));
+  template<class T> int (*create(T))(int predicate(int));
+private:
+  template<class T> int hidden(T) { return 0; }
+};
+class Labeled {
+  template<class T> int hidden(T) { return 0; }
+public:
+  template<class T> Labeled(T) {}
+  template<class T> int visible(T) { return 1; }
+protected:
+  template<class T> int guarded(T);
+};
+"#,
+    r#"
+- Struct item exported DefaultPublic
+  - Constructor public DefaultPublic
+  - Constructor public ~DefaultPublic
+  - Method public choose
+  - Method public declared
+  - Field public callback
+  - Field public filtered
+  - Field public pointerFiltered
+  - Method public factory
+  - Method public create
+  - Method private hidden
+- Class item exported Labeled
+  - Method private hidden
+  - Constructor public Labeled
+  - Method public visible
+  - Method private guarded
+"#,
+  );
+}

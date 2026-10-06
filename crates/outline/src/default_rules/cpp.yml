@@ -117,29 +117,41 @@ language: Cpp
 role: member
 parentRuleIds: [cpp-class, cpp-struct, cpp-union]
 symbolType: method
-# A method's function declarator names a *field identifier directly* (possibly under
+# A method's function declarator names a field/ordinary identifier directly (possibly under
 # pointer/reference wrappers for pointer-returning methods). A function-pointer member
 # (`int (*cb)(int);`) fails that test — its declarator is parenthesized — and correctly
 # falls through to the field rule instead of becoming a method named `(*cb)`.
 rule:
   any:
     - kind: field_declaration
+    - kind: declaration
     - kind: function_definition
-  has:
-    field: declarator
-    any:
-      - kind: function_declarator
-        has:
-          field: declarator
-          kind: field_identifier
-          pattern: $NAME
-      - has:
-          kind: function_declarator
-          stopBy: end
-          has:
-            field: declarator
-            kind: field_identifier
-            pattern: $NAME
+  all:
+    # Member templates use ordinary identifiers and declaration/function nodes.
+    # A return type distinguishes these methods from constructor/destructor forms.
+    - has:
+        field: type
+        pattern: $TYPE
+    - has:
+        field: declarator
+        any:
+          - kind: function_declarator
+            has:
+              field: declarator
+              any:
+                - kind: field_identifier
+                - kind: identifier
+              pattern: $NAME
+          - has:
+              kind: function_declarator
+              stopBy:
+                kind: parameter_list
+              has:
+                field: declarator
+                any:
+                  - kind: field_identifier
+                  - kind: identifier
+                pattern: $NAME
 name: $NAME
 isPublic: cpp-access
 ---
@@ -153,6 +165,10 @@ rule:
   any:
     - kind: declaration
     - kind: function_definition
+  not:
+    has:
+      field: type
+      pattern: $TYPE
   has:
     field: declarator
     kind: function_declarator
@@ -170,7 +186,7 @@ parentRuleIds: [cpp-class, cpp-struct, cpp-union]
 symbolType: field
 # The name is the field identifier inside the declarator (pointer fields were `*cursor`).
 # The exclusion mirrors the method rule exactly: anything the method rule claims — a
-# function declarator naming a field identifier directly, wrapped or not — is not a field;
+# function declarator naming a field/ordinary identifier directly is not a field;
 # function-pointer members don't fit that shape and stay fields.
 rule:
   kind: field_declaration
@@ -190,13 +206,18 @@ rule:
         - kind: function_declarator
           has:
             field: declarator
-            kind: field_identifier
+            any:
+              - kind: field_identifier
+              - kind: identifier
         - has:
             kind: function_declarator
-            stopBy: end
+            stopBy:
+              kind: parameter_list
             has:
               field: declarator
-              kind: field_identifier
+              any:
+                - kind: field_identifier
+                - kind: identifier
 name: $NAME
 isPublic: cpp-access
 ---

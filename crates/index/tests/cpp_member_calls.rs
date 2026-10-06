@@ -168,3 +168,50 @@ fn cpp_type_argument_macros_do_not_link_to_same_named_runtime_functions() {
   drop(kg);
   fs::remove_dir_all(base).unwrap();
 }
+
+#[test]
+fn cpp_member_templates_keep_kinds_access_and_conservative_calls_on_replay() {
+  use vorpal_kg::SymbolKind;
+  let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let root = std::env::temp_dir().join(format!("vorpal-template-members-{}-{nonce}", std::process::id()));
+  let src = root.join("src"); let out = root.join("index");
+  fs::create_dir_all(&src).unwrap();
+  let path = src.join("members.cc");
+  let text = "struct Owner { template<class T> Owner(T) {} template<class T> int choose(T) { return 1; } private: template<class T> int hidden(T) { return 0; } };\nclass Other { public: template<class T> int visible(T) { return 1; } };\nint known(Owner& owner) { return owner.choose(1); }\nstruct Rival { template<class T> int choose(T) { return 2; } };\nint unknown(auto& mystery) { return mystery.choose(1); }\n";
+  fs::write(&path, text).unwrap();
+  let initial = vorpal_index::build_index(&src, &out).unwrap();
+  assert_eq!(initial.error_nodes, 0);
+  for visible in [true, false] {
+    if !visible {
+      fs::write(&path, text.replace("public:", "private:")).unwrap();
+      assert_eq!(vorpal_index::build_index(&src, &out).unwrap().indexed, 1);
+    }
+    assert_eq!(vorpal_index::build_index(&src, &out).unwrap().indexed, 0);
+    let kg = Kg::load(&out).unwrap();
+    let id = |name: &str| (0..kg.node_count() as u64).map(NodeId::new)
+      .find(|&id| kg.node(id).is_some_and(|n| n.name == name && (name != "choose" || n.signature.contains("return 1;")))).unwrap();
+    for (name, public) in [("choose", true), ("hidden", false), ("visible", visible)] {
+      let member = kg.node(id(name)).unwrap();
+      assert_eq!(member.kind, SymbolKind::Method, "{name}");
+      assert_eq!(member.exported, public, "{name}");
+    }
+    let constructor = (0..kg.node_count() as u64).map(NodeId::new)
+      .filter_map(|id| kg.node(id))
+      .find(|n| n.name == "Owner" && n.kind == SymbolKind::Constructor).unwrap();
+    assert!(constructor.exported);
+    let calls = |from: &str| kg.all_evidence().iter().any(|e|
+      e.from as u64 == id(from).raw() && e.to as u64 == id("choose").raw()
+        && EdgeType(e.etype).base() == EdgeType::CALLS
+        && e.outcome == vorpal_kg::EvidenceOutcome::Edge);
+    assert!(calls("known"));
+    assert!(!kg.all_evidence().iter().any(|e|
+      e.from as u64 == id("unknown").raw()
+        && kg.node(NodeId::new(e.to as u64)).is_some_and(|n| n.name == "choose")
+        && EdgeType(e.etype).base() == EdgeType::CALLS
+        && e.outcome == vorpal_kg::EvidenceOutcome::Edge));
+    drop(kg);
+    let scratch = root.join("scratch"); vorpal_index::build_index(&src, &scratch).unwrap();
+    assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
+  }
+  fs::remove_dir_all(root).unwrap();
+}

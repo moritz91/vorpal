@@ -836,9 +836,9 @@ The read-only original-source/AST audit includes 902 tracked C++ paths. This
 class/template/binary extension changes only Catch2: 118 -> 114 ERROR/MISSING
 nodes and 29982 -> 29937 affected bytes, with 3302 observed C++ call expressions
 unchanged and all 2317 extracted entries retained. The other 901 source/AST hashes remain identical. The latest verified
-external candidate cb50aa8 covers 1744 paths and normal MCP reports 26 damaged
-files / 152363 bytes. Its full CI is green after infrastructure cancellations
-were rerun. The class extension has not yet been built into that candidate.
+external candidate 4259b77 covers 1744 paths and normal MCP reports 26 damaged
+files / 152318 bytes (2014 ERROR/MISSING/context diagnostics). Its complete CI is
+green. This exact candidate includes the guarded class extension.
 The productive release and tunnel remain untouched.
 
 A bounded read-only native MSVC /E /d1PP experiment reports define/undef events,
@@ -853,3 +853,19 @@ checked tool locations. WSL libclang is not evidence of MSVC preprocessing.
 Actual Hades include proof remains conservative; compiler/source/header/config
 identity and original expansion locations would require an explicit, validated
 compiler-context design before that separate path could recover these macros.
+
+C++ member-template outlines now distinguish typed methods from constructors.
+A return-type field admits ordinary identifier declarators used in template
+methods/prototypes; constructors/destructors remain type-less. Searches through
+pointer/return declarators stop at parameter lists, so a function-pointer field
+with a named function parameter cannot invent a method named after that parameter.
+Function-pointer-returning methods retain their names. Access walks only enclosing
+template wrappers to the class body, preserving the nearest label and class/
+struct defaults without inheriting labels from an outer class.
+Windows/Linux outline suites and 35 parser regressions retain member kinds,
+access and spans; bucketed/flat replay retains those rows and source-label edits
+match scratch generations. Typed calls resolve to the appropriate owner, while
+ambiguous untyped calls remain unresolved. All 14 resolver evaluations, existing
+incremental/live/stamp tests, native MSVC syntax controls and workspace Clippy
+pass. Grammar/provenance are unchanged; edited bundled rules change the existing
+source-derived product identity, invalidating older rows.

@@ -1261,6 +1261,13 @@ void following() { after(); }
     for name in ["Wrapper", "~Wrapper", "run", "count", "again"] {
       let member = wrapper.members.iter().find(|member| member.entry.name == name).unwrap();
       assert!(source[member.entry.range.byte_offset.clone()].contains(name));
+      let expected = if matches!(name, "Wrapper" | "~Wrapper") {
+        vorpal_outline::model::SymbolType::Constructor
+      } else {
+        vorpal_outline::model::SymbolType::Method
+      };
+      assert_eq!(member.entry.symbol_type, expected, "{name}");
+      assert!(member.is_public, "{name}");
     }
     for (name, count) in [("receiver", 5), ("forward", 1), ("value", 1), ("payload", 1), ("after", 1)] {
       let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
