@@ -1463,3 +1463,70 @@ void following() { after(); }
     }
   }
 }
+
+#[test]
+fn cpp_guarded_objc_selectors_are_metadata_with_original_spans() {
+  let lf = r#"void before() { selector(real()); }
+#ifdef __OBJC__
+void run() {
+  consume(@selector(setUp));
+  consume(@selector(receive:forward:));
+  selector(real());
+}
+#endif
+void following() { selector(real()); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["before", "run", "following"] {
+      let item = product.items.iter().find(|item| item.entry.name == name).unwrap();
+      assert!(source[item.entry.range.byte_offset.clone()].starts_with(&format!("void {name}()")));
+    }
+    for name in ["selector", "real"] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), 3, "{name}: {calls:?}");
+      let expected = if name == "selector" { "selector(real())" } else { "real()" };
+      for call in calls { assert_eq!(&source[call.start as usize..call.end as usize], expected); }
+    }
+    let consume: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == "consume").collect();
+    assert_eq!(consume.len(), 2);
+    for (call, expected) in consume.iter().zip(["consume(@selector(setUp))", "consume(@selector(receive:forward:))"]) {
+      assert_eq!(&source[call.start as usize..call.end as usize], expected);
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && matches!(r.name.as_str(), "setUp" | "receive" | "forward")));
+    let raw = SgLang::from_path("guarded.cc").unwrap().grep(&source);
+    let selectors: Vec<_> = raw.root().dfs().filter(|n| n.kind() == "objc_selector_expression").collect();
+    assert_eq!(selectors.len(), 2);
+    for (node, labels) in selectors.iter().zip([vec!["setUp"], vec!["receive", "forward"]]) {
+      assert_eq!(&source[node.range()], node.text());
+      assert_eq!(node.field_children("selector").map(|n| n.text().into_owned()).collect::<Vec<_>>(), labels);
+      assert!(!node.dfs().any(|n| n.kind() == "call_expression"));
+    }
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new(); vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor.extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor.extract_product_from_root("macros.cc", &raw).unwrap();
+    let mut scan = Vec::new(); vorpal_ingest::encode_product_into(&handed, &mut scan);
+    assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace("__OBJC__", "PLATFORM"),
+    lf.replace("#ifdef __OBJC__\n", "").replace("#endif\n", ""),
+    lf.replace("#ifdef __OBJC__", "#ifdef __OBJC__\nvoid ordinary() {}\n#else"),
+    lf.replace("@selector(", "@selectorSuffix("),
+    lf.replace("@selector(setUp)", "@selector()"),
+    lf.replace("@selector(setUp)", "@selector(setUp())"),
+    lf.replace("@selector(receive:forward:)", "@selector(receive forward)"),
+    lf.replace("@selector(receive:forward:)", "@selector(receive:, forward:)"),
+    lf.replace("@selector(setUp)", "@selector(setUp, real())"),
+    lf.replace("@selector(setUp)", "@selector(setUp"),
+    lf.replace("consume(@selector(setUp));", "consume(@selector(setUp))"),
+    lf.replace("#endif\n", ""),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      assert!(SgLang::from_path("guarded.cc").unwrap().grep(&source).root().has_error(), "{source}");
+    }
+  }
+}

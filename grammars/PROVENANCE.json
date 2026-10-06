@@ -80,10 +80,11 @@
       "Explicit MSVC brace-delimited mov/cpuid instructions with named destinations, decimal/identifier sources and line-bound operands; preserve original opcode/operand spans and genuine missing operands. scripts/patch_cpp_macro_grammar.py, ABI 14.",
       "Explicit operator member access only through dot/arrow, preserving existing template methods and original operator call spans. scripts/patch_cpp_macro_grammar.py, ABI 14.",
       "Split conditional if scopes require complete opening and closing guard groups with both branches, runtime conditions and complete else bodies; retain preprocessor/runtime spans and conservative macro-evidence boundaries. scripts/patch_cpp_macro_grammar.py, ABI 14.",
-      "Scoped Objective-C++ protocol/method declarations and plain object-string literals in explicit positive __OBJC__ guards; complete blocks retain following namespaces, selector metadata and variadic message arguments retain original spans. Keyword and nonplain string prefixes remain errors. Reproduce with scripts/patch_cpp_macro_grammar.py, ABI 14."
+      "Scoped Objective-C++ protocol/method declarations and plain object-string literals in explicit positive __OBJC__ guards; complete blocks retain following namespaces, selector metadata and variadic message arguments retain original spans. Keyword and nonplain string prefixes remain errors. Reproduce with scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Scoped Objective-C selector metadata preserves original labels and spans without runtime callee nodes under exact positive guards; global C++ expressions remain unchanged."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:c2ff3e4cb148e39b",
+    "source_digest": "xxh3:03231d339c43d250",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

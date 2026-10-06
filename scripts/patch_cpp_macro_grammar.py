@@ -802,6 +802,24 @@ rules['objc_protocol_declaration'] = seq(objc_at('protocol'), objc_field('name',
     repeat(choice(objc_at('optional'), objc_at('required'), symbol('objc_method_declaration'))), objc_at('end'))
 rules['_objc_block_item']['members'].append(symbol('objc_protocol_declaration'))
 
+# Selector metadata carries names rather than runtime argument expressions.
+# Keep it in the guarded local expression context and split the keyword token
+# to reject prefixes such as @selectorSuffix.
+objc_selector_expression = choice(*objc_literal_expression['members'], symbol('objc_selector_expression'))
+
+def objc_selectors(node):
+    if node == objc_literal_expression:
+        return json.loads(json.dumps(objc_selector_expression))
+    if isinstance(node, list): return [objc_selectors(value) for value in node]
+    if isinstance(node, dict): return {key: objc_selectors(value) for key, value in node.items()}
+    return node
+for name in list(rules):
+    if name.startswith('_objc_') or name == 'objc_message_expression':
+        rules[name] = objc_selectors(rules[name])
+rules['objc_selector_expression'] = seq(objc_string('@'), objc_string('selector'), objc_string('('),
+    choice(objc_field('selector', symbol('identifier')), {'type': 'REPEAT1', 'content': seq(
+        objc_field('selector', symbol('identifier')), objc_string(':'))}), objc_string(')'))
+
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
 scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())

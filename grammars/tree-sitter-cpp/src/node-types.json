@@ -792,6 +792,10 @@
           "named": true
         },
         {
+          "type": "objc_selector_expression",
+          "named": true
+        },
+        {
           "type": "objc_string_literal",
           "named": true
         },
@@ -1110,6 +1114,10 @@
             "named": true
           },
           {
+            "type": "objc_selector_expression",
+            "named": true
+          },
+          {
             "type": "objc_string_literal",
             "named": true
           },
@@ -1235,6 +1243,10 @@
           },
           {
             "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
             "named": true
           },
           {
@@ -1867,6 +1879,10 @@
           },
           {
             "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
             "named": true
           },
           {
@@ -3147,6 +3163,10 @@
           "named": true
         },
         {
+          "type": "objc_selector_expression",
+          "named": true
+        },
+        {
           "type": "objc_string_literal",
           "named": true
         }
@@ -3196,6 +3216,10 @@
           },
           {
             "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
             "named": true
           },
           {
@@ -4351,6 +4375,10 @@
             "named": true
           },
           {
+            "type": "objc_selector_expression",
+            "named": true
+          },
+          {
             "type": "objc_string_literal",
             "named": true
           }
@@ -5039,6 +5067,10 @@
             "named": true
           },
           {
+            "type": "objc_selector_expression",
+            "named": true
+          },
+          {
             "type": "objc_string_literal",
             "named": true
           }
@@ -5054,6 +5086,10 @@
           },
           {
             "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
             "named": true
           },
           {
@@ -5144,6 +5180,22 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "objc_selector_expression",
+    "named": true,
+    "fields": {
+      "selector": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -7089,6 +7141,10 @@
         },
         {
           "type": "objc_message_expression",
+          "named": true
+        },
+        {
+          "type": "objc_selector_expression",
           "named": true
         },
         {
@@ -9277,6 +9333,10 @@
   },
   {
     "type": "return",
+    "named": false
+  },
+  {
+    "type": "selector",
     "named": false
   },
   {

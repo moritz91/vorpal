@@ -919,3 +919,23 @@ no-builtins Clippy pass. New visible kinds/fields are synchronized with
 schemas/cpp_rule.json; original C++ expression rules remain unchanged.
 The exact caae3ce candidate verifies 1744 paths and reports 26 damaged files /
 152297 bytes (2012 diagnostics); its complete CI is green. It is not installed.
+
+Selector metadata is now structural under the same exact positive Objective-C
+guard. Unary names and complete named keyword selectors retain their original
+selector fields, with no C++ call_expression inside the metadata. Ordinary
+selector(real()) calls before, within and after the guard keep original call
+spans. Empty/malformed argument lists, keyword prefixes, missing semicolons and
+wrong/outside/else guards remain errors. Other selector forms remain unsupported.
+The 902-path original-source audit changes only Catch2: 86 -> 84 ERROR/MISSING
+nodes, 29664 -> 29662 bytes, and 3304 -> 3302 AST C++ call expressions. Comparing
+the persisted 959790b product retains all 2318 item names/kinds/spans and removes
+only the two false selector call-reference rows (3233 -> 3231); genuine call refs
+are unchanged. The other 901 AST hashes match. All 38 Windows/Linux parser
+regressions, evidence/recovery, bucketed/flat replay, default-tree health and
+normal watched MCP tests pass; prefix edits produce damaged health and restoration
+returns clean health. Native Clang accepts selector metadata and rejects the
+keyword-prefix control. The unchanged corpus, schema, only-C++ provenance,
+idempotent reproduction and workspace/no-builtins Clippy pass.
+The exact 959790b candidate verifies 1744 paths / 64023 nodes and normal MCP
+reports 26 damaged files / 152045 bytes (1986 diagnostics); its full CI is green.
+This is an external candidate, not an installed release.

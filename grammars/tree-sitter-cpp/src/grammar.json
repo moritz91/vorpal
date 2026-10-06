@@ -20552,6 +20552,10 @@
                   {
                     "type": "SYMBOL",
                     "name": "objc_string_literal"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "objc_selector_expression"
                   }
                 ]
               },
@@ -20631,6 +20635,10 @@
                                 {
                                   "type": "SYMBOL",
                                   "name": "objc_string_literal"
+                                },
+                                {
+                                  "type": "SYMBOL",
+                                  "name": "objc_selector_expression"
                                 }
                               ]
                             },
@@ -20691,6 +20699,10 @@
                                 {
                                   "type": "SYMBOL",
                                   "name": "objc_string_literal"
+                                },
+                                {
+                                  "type": "SYMBOL",
+                                  "name": "objc_selector_expression"
                                 }
                               ]
                             },
@@ -20755,6 +20767,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 },
@@ -20826,6 +20842,10 @@
                             {
                               "type": "SYMBOL",
                               "name": "objc_string_literal"
+                            },
+                            {
+                              "type": "SYMBOL",
+                              "name": "objc_selector_expression"
                             }
                           ]
                         },
@@ -20928,6 +20948,10 @@
                   {
                     "type": "SYMBOL",
                     "name": "objc_string_literal"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "objc_selector_expression"
                   }
                 ]
               },
@@ -22112,6 +22136,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     },
@@ -22182,6 +22210,10 @@
                               {
                                 "type": "SYMBOL",
                                 "name": "objc_string_literal"
+                              },
+                              {
+                                "type": "SYMBOL",
+                                "name": "objc_selector_expression"
                               }
                             ]
                           },
@@ -23484,6 +23516,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -23531,6 +23567,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -23579,6 +23619,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -23626,6 +23670,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -23674,6 +23722,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -23721,6 +23773,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -23769,6 +23825,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -23816,6 +23876,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -23864,6 +23928,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -23911,6 +23979,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -23959,6 +24031,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24006,6 +24082,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24054,6 +24134,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24101,6 +24185,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24149,6 +24237,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24196,6 +24288,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24244,6 +24340,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24291,6 +24391,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24339,6 +24443,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24386,6 +24494,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24434,6 +24546,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24481,6 +24597,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24529,6 +24649,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24576,6 +24700,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24624,6 +24752,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24671,6 +24803,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24719,6 +24855,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24766,6 +24906,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24814,6 +24958,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24861,6 +25009,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24909,6 +25061,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -24956,6 +25112,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -25004,6 +25164,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -25051,6 +25215,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -25099,6 +25267,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -25146,6 +25318,10 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_string_literal"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_selector_expression"
                         }
                       ]
                     }
@@ -25196,6 +25372,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25243,6 +25423,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25291,6 +25475,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25338,6 +25526,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25386,6 +25578,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25433,6 +25629,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25481,6 +25681,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25528,6 +25732,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25576,6 +25784,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25623,6 +25835,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25671,6 +25887,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25718,6 +25938,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25766,6 +25990,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25813,6 +26041,10 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_string_literal"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_selector_expression"
                     }
                   ]
                 }
@@ -25882,6 +26114,10 @@
                       {
                         "type": "SYMBOL",
                         "name": "objc_string_literal"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "objc_selector_expression"
                       }
                     ]
                   }
@@ -26159,6 +26395,10 @@
                                           {
                                             "type": "SYMBOL",
                                             "name": "objc_string_literal"
+                                          },
+                                          {
+                                            "type": "SYMBOL",
+                                            "name": "objc_selector_expression"
                                           }
                                         ]
                                       },
@@ -26263,6 +26503,10 @@
                                                 {
                                                   "type": "SYMBOL",
                                                   "name": "objc_string_literal"
+                                                },
+                                                {
+                                                  "type": "SYMBOL",
+                                                  "name": "objc_selector_expression"
                                                 }
                                               ]
                                             },
@@ -26544,6 +26788,60 @@
               "value": "end"
             }
           ]
+        }
+      ]
+    },
+    "objc_selector_expression": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "@"
+        },
+        {
+          "type": "STRING",
+          "value": "selector"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "selector",
+              "content": {
+                "type": "SYMBOL",
+                "name": "identifier"
+              }
+            },
+            {
+              "type": "REPEAT1",
+              "content": {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "FIELD",
+                    "name": "selector",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "identifier"
+                    }
+                  },
+                  {
+                    "type": "STRING",
+                    "value": ":"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": ")"
         }
       ]
     }
