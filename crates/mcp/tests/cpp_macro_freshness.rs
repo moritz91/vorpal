@@ -119,7 +119,7 @@ fn external_header_freshness(watch_rebuild: bool) {
   let objc_guard = "#ifdef __OBJC__
 void run(Probe* object) { [object release]; }
 void guarded() { @try { before(); } @catch (Probe* error) { forward([error description]); } }
-namespace Sample { template<class T> struct Wrapper { int count() { return [object count] + value(); } }; }
+namespace Sample { template<class T> struct Wrapper { id stored = [object description]; int count() { id local = [object description]; return [object count] + value(); } }; }
 #endif
 void following() { target(); }
 void target() {}

@@ -3169,6 +3169,10 @@
           {
             "type": "initializer_list",
             "named": true
+          },
+          {
+            "type": "objc_message_expression",
+            "named": true
           }
         ]
       },
@@ -4312,6 +4316,10 @@
           },
           {
             "type": "initializer_list",
+            "named": true
+          },
+          {
+            "type": "objc_message_expression",
             "named": true
           }
         ]

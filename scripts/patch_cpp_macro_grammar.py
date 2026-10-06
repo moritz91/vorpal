@@ -747,6 +747,25 @@ for conflict in [['type_specifier', 'call_expression', '_objc_call_expression', 
     if conflict not in grammar['conflicts']:
         grammar['conflicts'].append(conflict)
 
+# Initializers inside supported Objective-C bodies/fields retain their ordinary
+# declarator kinds. Keep namespace/type/template declarations unchanged: sharing
+# the broader local type rule here regresses Catch2's root recovery.
+rules['_objc_init_declarator'] = objc_copy(rules['init_declarator'], {
+    'expression': objc_local_expression})
+rules['_objc_body_declaration'] = objc_copy(rules['declaration'], {
+    'init_declarator': alias_rule('_objc_init_declarator', 'init_declarator')})
+rules['_objc_field_declaration'] = objc_copy(rules['field_declaration'], {
+    'expression': objc_local_expression})
+rules['_objc_body_item'] = objc_copy(rules['_objc_body_item'], {
+    'declaration': alias_rule('_objc_body_declaration', 'declaration')})
+rules['_objc_field_declaration_list_item'] = objc_copy(rules['_objc_field_declaration_list_item'], {
+    'field_declaration': alias_rule('_objc_field_declaration', 'field_declaration')})
+for conflict in [['field_declaration', '_objc_field_declaration'],
+ ['declaration', '_objc_body_declaration'],
+ ['init_declarator', '_objc_init_declarator']]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
 scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())

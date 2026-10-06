@@ -823,13 +823,13 @@ try_statement/catch_clause aliases. Catch requires a nonempty declaration/list
 or ellipsis: Clang rejects empty/comment-only parameters. Missing bodies,
 handlers, parentheses, semicolons, endif groups and wrong/outside/else guards
 retain errors. Ordinary C++ declarations and expression rules are unchanged.
-All 35 Windows/Linux parser regressions, proof/recovery tests, configured replay,
+All 36 Windows/Linux parser regressions, proof/recovery tests, configured replay,
 bucketed/flat default-tree/product cache tests and normal watched MCP tests pass.
 Owned/streaming/scan handoff agree and original call/node spans are checked.
 Native Clang Objective-C++ accepts namespace/template/class fixtures and rejects
 the missing-semicolon control. The unchanged 179-test corpus, native provenance,
 schema and Clippy (including ingest without built-in parsers) pass. Reproduction
-is idempotent; only C++ provenance changes to xxh3:f4e6e5432e3cf4b2 (ABI 14),
+is idempotent; only C++ provenance changes to xxh3:7321be698cc74d20 (ABI 14),
 with the ASCII lexer fast path preserved. No new visible kind is introduced.
 
 The read-only original-source/AST audit includes 902 tracked C++ paths. This
@@ -838,7 +838,9 @@ nodes and 29982 -> 29937 affected bytes, with 3302 observed C++ call expressions
 unchanged and all 2317 extracted entries retained. The other 901 source/AST hashes remain identical. The latest verified
 external candidate 4259b77 covers 1744 paths and normal MCP reports 26 damaged
 files / 152318 bytes (2014 ERROR/MISSING/context diagnostics). Its complete CI is
-green. This exact candidate includes the guarded class extension.
+green. This exact candidate includes the guarded class extension. The later
+6397a66 candidate has the same health counts with corrected member-template
+outline rows; its full CI is green. Neither candidate is installed.
 The productive release and tunnel remain untouched.
 
 A bounded read-only native MSVC /E /d1PP experiment reports define/undef events,
@@ -869,3 +871,21 @@ ambiguous untyped calls remain unresolved. All 14 resolver evaluations, existing
 incremental/live/stamp tests, native MSVC syntax controls and workspace Clippy
 pass. Grammar/provenance are unchanged; edited bundled rules change the existing
 source-derived product identity, invalidating older rows.
+
+Equals initializers in supported Objective-C method bodies and fields now retain
+the ordinary declaration/init_declarator/field_declaration aliases and fields.
+The field's default_value and local declaration's value keep original message
+and nested-call spans. Namespace/type/template declaration rules are unchanged,
+and direct parenthesized initialization remains outside this bounded extension.
+A broader local declaration/argument-list variant passed the unchanged corpus
+but produced a large Catch2 root error in the original-source audit; it was
+withheld. The narrowed variant changes only Catch2 among 902 tracked C++ paths:
+114 -> 112 ERROR/MISSING nodes, 29937 -> 29916 affected bytes, 3302 C++ call
+expressions and all 2317 extracted entries retained. The other 901 AST hashes
+remain identical; stb_image.h retains 27 diagnostics / 7 bytes / 326 entries.
+Windows/Linux parser, proof/recovery, bucketed/flat replay, default-tree health
+and normal watched MCP regressions pass. LF/CRLF controls retain missing
+semicolons, wrong/outside/else guards and malformed messages as errors. Native
+Clang accepts the initializer fixture and rejects its missing-semicolon control.
+The unchanged corpus, provenance, generated schema and workspace/no-builtins
+Clippy pass. This grammar change introduces no new visible kind.

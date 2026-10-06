@@ -118,7 +118,7 @@ fn objc_guard_edits_revalidate_default_cpp_trees_and_products() {
   let positive = "#ifdef __OBJC__
 void run(Probe* object) { [object release]; }
 void guarded() { @try { before(); } @catch (Probe* error) { forward([error description]); } }
-namespace Sample { template<class T> struct Wrapper { int count() { return [object count] + value(); } }; }
+namespace Sample { template<class T> struct Wrapper { id stored = [object description]; int count() { id local = [object description]; return [object count] + value(); } }; }
 #endif
 void following() { after(); }
 ";

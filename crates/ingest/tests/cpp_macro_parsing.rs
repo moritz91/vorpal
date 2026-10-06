@@ -1310,3 +1310,64 @@ void following() { after(); }
     }
   }
 }
+
+#[test]
+fn cpp_guarded_objc_initializers_keep_fields_calls_and_declarator_boundaries() {
+  let lf = r#"#ifdef __OBJC__
+namespace Sample {
+template<class T> class Holder {
+public:
+  id stored = [receiver() description];
+  id run() { id local = [receiver() relay: payload()]; return local; }
+};
+}
+#endif
+void following() { after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    let holder = product.items.iter().find(|item| item.entry.name == "Holder").unwrap();
+    for (name, kind) in [("stored", vorpal_outline::model::SymbolType::Field), ("run", vorpal_outline::model::SymbolType::Method)] {
+      let member = holder.members.iter().find(|member| member.entry.name == name).unwrap();
+      assert_eq!(member.entry.symbol_type, kind);
+      assert!(member.is_public);
+      assert!(source[member.entry.range.byte_offset.clone()].contains(name));
+    }
+    for (name, count) in [("receiver", 2), ("payload", 1), ("after", 1)] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), count, "{name}: {calls:?}");
+      for call in calls { assert_eq!(&source[call.start as usize..call.end as usize], format!("{name}()")); }
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && matches!(r.name.as_str(), "description" | "relay")));
+    let raw = SgLang::from_path("guarded.cc").unwrap().grep(&source);
+    assert_eq!(raw.root().dfs().filter(|n| n.kind() == "objc_message_expression").count(), 2);
+    let field = raw.root().dfs().find(|n| n.kind() == "field_declaration").unwrap();
+    assert_eq!(field.field("declarator").unwrap().text(), "stored");
+    assert_eq!(field.field("default_value").unwrap().text(), "[receiver() description]");
+    let init = raw.root().dfs().find(|n| n.kind() == "init_declarator").unwrap();
+    assert_eq!(init.field("declarator").unwrap().text(), "local");
+    assert_eq!(init.field("value").unwrap().text(), "[receiver() relay: payload()]");
+    assert_eq!(&source[init.range()], init.text());
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new(); vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor.extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor.extract_product_from_root("macros.cc", &raw).unwrap();
+    let mut scan = Vec::new(); vorpal_ingest::encode_product_into(&handed, &mut scan);
+    assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace("__OBJC__", "PLATFORM"),
+    lf.replace("#ifdef __OBJC__\n", "").replace("#endif\n", ""),
+    lf.replace("#ifdef __OBJC__", "#ifdef __OBJC__\nvoid ordinary() {}\n#else"),
+    lf.replace("description];", "description]"),
+    lf.replace("payload()];", "payload() ]"),
+    lf.replace("[receiver() description]", "[receiver()]"),
+    lf.replace("#endif\n", ""),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      assert!(SgLang::from_path("guarded.cc").unwrap().grep(&source).root().has_error(), "{source}");
+    }
+  }
+}
