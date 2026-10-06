@@ -598,6 +598,21 @@
     }
   },
   {
+    "type": "abstract_managed_handle_declarator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "type_qualifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "abstract_parenthesized_declarator",
     "named": true,
     "fields": {},
@@ -3960,6 +3975,10 @@
             "named": true
           },
           {
+            "type": "managed_handle_declarator",
+            "named": true
+          },
+          {
             "type": "operator_cast",
             "named": true
           }
@@ -4740,6 +4759,36 @@
     }
   },
   {
+    "type": "managed_handle_declarator",
+    "named": true,
+    "fields": {
+      "declarator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "function_declarator",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "type_qualifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "ms_asm_instruction",
     "named": true,
     "fields": {
@@ -5440,6 +5489,14 @@
           {
             "type": "_declarator",
             "named": true
+          },
+          {
+            "type": "abstract_managed_handle_declarator",
+            "named": true
+          },
+          {
+            "type": "managed_handle_declarator",
+            "named": true
           }
         ]
       },
@@ -5807,10 +5864,21 @@
   {
     "type": "preproc_defined",
     "named": true,
-    "fields": {},
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
     "children": {
       "multiple": false,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "identifier",
@@ -8176,6 +8244,10 @@
         "types": [
           {
             "type": "_abstract_declarator",
+            "named": true
+          },
+          {
+            "type": "abstract_managed_handle_declarator",
             "named": true
           }
         ]

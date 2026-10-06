@@ -10,6 +10,17 @@ from pathlib import Path
 path = Path(__file__).resolve().parents[1] / 'grammars/tree-sitter-cpp/src/grammar.json'
 grammar = json.loads(path.read_text(encoding='utf-8'))
 rules = grammar['rules']
+# Reproduction starts from the ordinary C++ entries: remove the prior managed
+# guard alternatives before deriving any dialect containers below.
+for entry in ['_top_level_item', '_block_item']:
+    rules[entry]['members'] = [member for member in rules[entry]['members']
+        if not (member.get('type') == 'ALIAS' and
+            member.get('content', {}).get('name') in
+            ['_explicit_cli_if_guard', '_explicit_cli_ifdef_guard',
+             'explicit_cli_if_guard', 'explicit_cli_ifdef_guard'])]
+for name in list(rules):
+    if name.startswith(('_cli', 'cli_', '_explicit_cli_', 'explicit_cli_')):
+        del rules[name]
 def symbol(name): return {'type': 'SYMBOL', 'name': name}
 def choice(*members): return {'type': 'CHOICE', 'members': list(members)}
 def seq(*members): return {'type': 'SEQ', 'members': list(members)}
@@ -940,6 +951,88 @@ for context, ordinary, dialect, entry in [
     guard_alias = alias_rule(guard_name, 'preproc_ifdef')
     if guard_alias not in rules[entry]['members']:
         rules[entry]['members'].append(guard_alias)
+
+# C++/CLI handles are structural dialect syntax, scoped to an exact positive
+# _MANAGED guard. Require a handle in each additional definition/template path;
+# global declarators, ordinary XOR and outer else/elif arms remain unchanged.
+def sym(name): return symbol(name)
+def alias(name, kind): return alias_rule(name, kind)
+def field(name, content): return {'type': 'FIELD', 'name': name, 'content': content}
+def string(text): return {'type': 'STRING', 'value': text}
+names=['_top_level_item','_block_item','namespace_definition','declaration_list','template_declaration','preproc_if','preproc_ifdef','preproc_else','preproc_elif','preproc_elifdef','compound_statement']
+mapping={n:('_cli'+n if n.startswith('_') else '_cli_'+n) for n in names}
+def cp(n,aliased=False):
+ if isinstance(n,list):return [cp(x,aliased) for x in n]
+ if not isinstance(n,dict):return n
+ if n.get('type')=='ALIAS':return {k:cp(v,True) if k=='content' else v for k,v in n.items()}
+ if n.get('type')=='SYMBOL' and n['name'] in mapping:
+  name=n['name'];return sym(mapping[name]) if aliased or name.startswith('_') else alias(mapping[name],name)
+ return {k:cp(v,aliased) for k,v in n.items()}
+for n in names:rules[mapping[n]]=cp(rules[n])
+rules['managed_handle_declarator']=seq(string('^'),repeat(sym('type_qualifier')),field('declarator',sym('identifier')))
+rules['abstract_managed_handle_declarator']=seq(string('^'),repeat(sym('type_qualifier')))
+rules['_cli_parameter']=seq(sym('_declaration_specifiers'),field('declarator',choice(sym('managed_handle_declarator'),sym('abstract_managed_handle_declarator'))))
+ordinary_param=choice(sym('parameter_declaration'),sym('optional_parameter_declaration'),sym('variadic_parameter_declaration'));managed_param=alias('_cli_parameter','parameter_declaration');any_param=choice(ordinary_param,managed_param)
+rules['_cli_parameters']=seq(string('('),optional(seq(any_param,repeat(seq(string(','),any_param)))),string(')'))
+rules['_cli_required_parameters']=seq(string('('),repeat(seq(ordinary_param,string(','))),managed_param,repeat(seq(string(','),any_param)),string(')'))
+rules['_cli_function']=seq(field('declarator',sym('identifier')),field('parameters',alias('_cli_parameters','parameter_list')))
+rules['_cli_required_function']=seq(field('declarator',sym('identifier')),field('parameters',alias('_cli_required_parameters','parameter_list')))
+rules['_cli_handle_function']=seq(string('^'),repeat(sym('type_qualifier')),field('declarator',alias('_cli_function','function_declarator')))
+rules['_cli_definition']=seq(sym('_declaration_specifiers'),field('declarator',choice(alias('_cli_handle_function','managed_handle_declarator'),alias('_cli_required_function','function_declarator'))),field('body',alias(mapping['compound_statement'],'compound_statement')))
+# Template calls require a handle in the type argument, not an ordinary callee clone.
+rules['_cli_handle_type']=seq(field('type',sym('type_specifier')),field('declarator',sym('abstract_managed_handle_declarator')))
+rules['_cli_template_type']=seq(field('name',{'type':'ALIAS','content':sym('identifier'),'named':True,'value':'type_identifier'}),field('arguments',alias('_cli_handle_arguments','template_argument_list')))
+rules['_cli_handle_arguments']=seq(string('<'),alias('_cli_handle_type','type_descriptor'),string('>'))
+rules['_cli_scope_name']=seq(optional(string('::')),repeat(seq(sym('_namespace_identifier'),string('::'))),field('scope',alias('_cli_template_type','template_type')),string('::'),field('name',sym('identifier')))
+rules['_cli_call']=seq(field('function',alias('_cli_scope_name','qualified_identifier')),field('arguments',sym('argument_list')))
+rules['_cli_return']=seq(string('return'),alias('_cli_call','call_expression'),string(';'))
+# Only statement bodies get this additional return form.
+def statement(n):
+ if isinstance(n,list):return [statement(x) for x in n]
+ if not isinstance(n,dict):return n
+ if n==sym('statement'):return choice(n,alias('_cli_return','return_statement'))
+ return {k:statement(v) for k,v in n.items()}
+rules[mapping['_block_item']]=statement(rules[mapping['_block_item']])
+for name in [mapping['_top_level_item'],mapping['_block_item']]:rules[name]['members'].append(alias('_cli_definition','function_definition'))
+# Existing template alternatives stay ordinary; only the additional definition contains ^.
+rules[mapping['template_declaration']]['members'][-1]['members'].append(alias('_cli_definition','function_definition'))
+start=rules['preproc_if']['content']['members'][0];finish=rules['preproc_if']['content']['members'][-1];alternatives=optional(choice(sym('preproc_else'),sym('preproc_elif'),sym('preproc_elifdef')))
+rules['_cli_defined']=seq(string('defined'),string('('),field('name',{'type':'ALIAS','content':string('_MANAGED'),'named':True,'value':'identifier'}),string(')'))
+rules['_explicit_cli_if_guard']=seq(start,field('condition',alias('_cli_defined','preproc_defined')),string('\n'),repeat(sym(mapping['_top_level_item'])),field('alternative',alternatives),finish)
+startdef=rules['preproc_ifdef']['content']['members'][0]['members'][0];rules['_explicit_cli_ifdef_guard']=seq(startdef,field('name',{'type':'ALIAS','content':string('_MANAGED'),'named':True,'value':'identifier'}),string('\n'),repeat(sym(mapping['_top_level_item'])),field('alternative',alternatives),finish)
+for name in ['_top_level_item','_block_item']:
+ for guard,kind in [('_explicit_cli_if_guard','preproc_if'),('_explicit_cli_ifdef_guard','preproc_ifdef')]:rules[name]['members'].append(alias(guard,kind))
+rules['_cli_call']={'type':'PREC_DYNAMIC','value':1,'content':rules['_cli_call']}
+# Preserve ordinary qualified_identifier nesting: each namespace is a scope,
+# with the handle-bearing template scope at the final inner level.
+rules['_cli_scope_name']=seq(field('scope',alias_rule('_cli_template_type','template_type')),string('::'),field('name',symbol('identifier')))
+rules['_cli_qualified_name']=choice(rules['_cli_scope_name'],seq(symbol('_scope_resolution'),field('name',alias_rule('_cli_qualified_name','qualified_identifier'))))
+rules['_cli_call']['content']['members'][0]['content']=alias_rule('_cli_qualified_name','qualified_identifier')
+rules['_cli_field_list']=seq(string('{'),{'type':'REPEAT','content':choice(symbol('_field_declaration_list_item'),alias_rule('_cli_definition','function_definition'))},string('}'))
+rules['_cli_struct_specialization']=seq(string('struct'),field('name',alias_rule('_cli_template_type','template_type')),field('body',alias_rule('_cli_field_list','field_declaration_list')))
+rules['_cli_template_declaration']['members'][-1]['members'].append(seq(alias_rule('_cli_struct_specialization','struct_specifier'),string(';')))
+# Aliased named nodes must be named source rules, not hidden rules: otherwise
+# inherited child fields (template `name`) leak into the enclosing callee's
+# field lookup even though its S-expression shows the correct terminal name.
+managed_names = {name: name.removeprefix('_') for name in rules
+    if name.startswith(('_cli', '_explicit_cli_')) and
+    name not in ['_cli_top_level_item', '_cli_block_item']}
+def managed_named(node):
+    if isinstance(node, list): return [managed_named(child) for child in node]
+    if not isinstance(node, dict): return node
+    if node.get('type') == 'SYMBOL' and node['name'] in managed_names:
+        return symbol(managed_names[node['name']])
+    return {key: managed_named(value) for key, value in node.items()}
+for name in list(rules):
+    content = managed_named(rules[name])
+    if name in managed_names: del rules[name]
+    rules[managed_names.get(name, name)] = content
+grammar['conflicts'] = [[managed_names.get(name, name) for name in conflict]
+    for conflict in grammar['conflicts']]
+for conflict in [['_top_level_statement', '_cli_top_level_item'], ['_declarator', 'sdk_call_modifier', '_required_array_function', '_cli_required_function'], ['statement', '_cli_block_item'], ['expression', 'template_type', 'template_function', '_cli_template_type'], ['preproc_split_if_open', '_cli_block_item'], ['template_type', 'template_function', 'qualified_identifier', '_cli_template_type'], ['_field_declarator', 'sdk_call_modifier', '_cli_required_function']]:
+    conflict = [managed_names.get(name, name) for name in conflict]
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
 
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'

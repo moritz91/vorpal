@@ -164,6 +164,7 @@
           "enum": [
             "abstract_array_declarator",
             "abstract_function_declarator",
+            "abstract_managed_handle_declarator",
             "abstract_parenthesized_declarator",
             "abstract_pointer_declarator",
             "abstract_reference_declarator",
@@ -269,6 +270,7 @@
             "literal_suffix",
             "macro_statement",
             "macro_type_argument",
+            "managed_handle_declarator",
             "ms_asm_instruction",
             "ms_asm_statement",
             "ms_based_modifier",
@@ -625,6 +627,7 @@
           "enum": [
             "abstract_array_declarator",
             "abstract_function_declarator",
+            "abstract_managed_handle_declarator",
             "abstract_parenthesized_declarator",
             "abstract_pointer_declarator",
             "abstract_reference_declarator",
@@ -730,6 +733,7 @@
             "literal_suffix",
             "macro_statement",
             "macro_type_argument",
+            "managed_handle_declarator",
             "ms_asm_instruction",
             "ms_asm_statement",
             "ms_based_modifier",

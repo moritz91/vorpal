@@ -1115,8 +1115,36 @@ whole-workspace native Clippy still hits the pre-existing non-MSVC jemalloc
 build-tool boundary, so it is not reported green. No graph/product identity,
 parser grammar, installed binary or productive tunnel is changed by this fix.
 
-A separate external C++/CLI handle prototype remains withheld: native MSVC
-accepts the controlled guarded T^ fixture with /clr and rejects it in ordinary
-C++ mode. Cloning general declaration/statement rules for that guard currently
-creates excessive grammar conflicts. It is not installed or represented as a
-Catch2 recovery improvement; global C++ declarators remain unchanged.
+The exact 3224ee8 candidate verifies 1744 files / 64023 nodes and normal MCP
+retains 26 damaged files / 1977 ERROR/MISSING/context diagnostics / 151982 bytes.
+Its complete CI is green (37519854318), including the full Windows MCP protocol
+and native scope/record gates. The productive release remains unchanged.
+
+C++/CLI handle declarators now have a bounded structural path in the positive
+arm of exact #if defined(_MANAGED) and #ifdef _MANAGED groups. Additional direct
+function definitions require a handle parameter or return; template static
+return calls and struct specializations require a handle type argument. Existing
+namespace/template/body/preprocessor kinds remain aliases; named underlying
+rules prevent inherited template-name fields leaking into the callee lookup.
+Only managed_handle_declarator and abstract_managed_handle_declarator are new
+visible kinds. Original conditions/spans remain, without evaluating a guard.
+Global C++ declarators, XOR, outer else/elif arms, arbitrary unmanaged guards and
+unsupported dialect forms remain unchanged. Missing semicolons/braces/guards,
+extra guard tokens and malformed type arguments retain syntax errors.
+The 902-path original-source/AST audit changes only Catch2: 77 -> 71 ERROR/MISSING
+nodes and 29601 -> 29600 damaged bytes, with 21 Objective-C messages and 3302 C++
+AST calls unchanged. Compared with the exact 3224ee8 persisted product, all 2318
+old items, 1630 members and 3231 call names/spans survive; the two recovered
+functions are clrReferenceToString and stringify. The other 901 AST hashes are
+identical. Guard edits and parser reuse converge with fresh parses. LF/CRLF
+owned, streaming and scan-root tests retain the original static callee and
+public member spans. Native MSVC /clr accepts both newline fixtures and rejects
+the missing-semicolon control; ordinary C++ with forced _MANAGED rejects T^.
+All 43 parser, 33 recovery, 28 Windows / 29 Linux evidence tests, bucketed/flat
+replay, member-call/health tests, normal watched MCP and all 14 native Windows
+resolver evaluations pass. The unchanged corpus, complete schema generation,
+only-C++ native/Linux provenance, idempotent reproduction, workspace/no-builtins
+Linux Clippy and native ingest Clippy pass. Seven explicit generation conflicts
+are local to the dialect paths; the generated parser grows from 48027890 to
+50544515 bytes and from 20110 to 20671 states. This does not establish Hades ASSERT
+evidence past opaque includes, fix every C++/CLI form or install a candidate.

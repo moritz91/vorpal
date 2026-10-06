@@ -1777,3 +1777,143 @@ void following() { after(); }
     }
   }
 }
+
+#[test]
+fn cpp_managed_handles_stay_in_the_explicit_positive_guard() {
+  let lf = r#"
+#if defined(_MANAGED)
+namespace Native {
+template<class T> struct Box {};
+template<class T> struct Box<T^> {
+  static T^ convert(T^ value) { return value; }
+};
+template<class T> T^ retained(T^ value) { return ::Native::Box<T^>::convert(value); }
+#if defined(SECONDARY)
+template<class T> T^ nested(T^ value) { return value; }
+#else
+template<class T> T^ alternative(T^ value) { return value; }
+#endif
+}
+#else
+int ordinary(int a, int b) { return a ^ b; }
+#endif
+void following() { after(); }
+"#;
+  for guard in [
+    lf.to_owned(),
+    lf.replace("#if defined(_MANAGED)", "#ifdef _MANAGED"),
+  ] {
+    for source in [guard.clone(), guard.replace('\n', "\r\n")] {
+      let product = clean_product(&source);
+      for name in ["retained", "nested", "alternative", "ordinary", "following"] {
+        assert!(
+          product.items.iter().any(|item| item.entry.name == name),
+          "missing {name}: {:?}",
+          product.items
+        );
+      }
+      assert!(
+        product
+          .items
+          .iter()
+          .flat_map(|item| &item.members)
+          .any(|member| {
+            member.entry.name == "convert"
+              && member.is_public
+              && source[member.entry.range.byte_offset.clone()].contains("T^ convert(T^ value)")
+          })
+      );
+      let retained = product
+        .items
+        .iter()
+        .find(|item| item.entry.name == "retained")
+        .unwrap();
+      let call = if source.contains("convert(touch(value))") {
+        "::Native::Box<T^>::convert(touch(value))"
+      } else {
+        "::Native::Box<T^>::convert(value)"
+      };
+      assert_eq!(
+        &source[retained.entry.range.byte_offset.clone()],
+        format!("T^ retained(T^ value) {{ return {call}; }}")
+      );
+      let convert: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "convert")
+        .collect();
+      assert_eq!(convert.len(), 1, "{:?}", product.refs);
+      assert_eq!(
+        &source[convert[0].start as usize..convert[0].end as usize],
+        call
+      );
+      assert!(!product.refs.iter().any(|r| r.kind == 0 && r.name == "Box"));
+      let touch: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "touch")
+        .collect();
+      assert_eq!(
+        touch.len(),
+        usize::from(source.contains("convert(touch(value))"))
+      );
+      for call in touch {
+        assert_eq!(
+          &source[call.start as usize..call.end as usize],
+          "touch(value)"
+        );
+      }
+
+      let raw = SgLang::from_path("managed.cc").unwrap().grep(&source);
+      assert!(
+        raw
+          .root()
+          .dfs()
+          .any(|n| n.kind().as_ref() == "abstract_managed_handle_declarator" && n.text() == "^")
+      );
+      assert!(
+        raw
+          .root()
+          .dfs()
+          .any(|n| n.kind().as_ref() == "managed_handle_declarator" && n.text() == "^ value")
+      );
+      assert!(
+        raw
+          .root()
+          .dfs()
+          .any(|n| n.kind().as_ref() == "binary_expression" && n.text() == "a ^ b")
+      );
+      let extractor = OutlineExtractor::new().unwrap();
+      let mut owned = Vec::new();
+      vorpal_ingest::encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let handed = extractor
+        .extract_product_from_root("macros.cc", &raw)
+        .unwrap();
+      let mut scan = Vec::new();
+      vorpal_ingest::encode_product_into(&handed, &mut scan);
+      assert_eq!(owned, scan);
+    }
+  }
+  for bad in [
+    lf.replace("_MANAGED", "PLATFORM"),
+    lf.replace("_MANAGED", "_MANAGED_EXTRA"),
+    lf.replace("#if defined(_MANAGED)", "#if defined(_MANAGED) trailing"),
+    lf.replace("convert(value);", "convert(value)"),
+    lf.replace("::Native::Box<T^>", "::Native::Box<^>"),
+    lf.replace("\n#endif\nvoid following", "\nvoid following"),
+    "#ifdef _MANAGED\nvoid good() {}\n#else\ntemplate<class T> T^ bad(T^ value) { return value; }\n#endif\n".to_owned(),
+    "#ifdef PLATFORM\nvoid good() {}\n#elif defined(_MANAGED)\ntemplate<class T> T^ bad(T^ value) { return value; }\n#endif\n".to_owned(),
+    "template<class T> T^ bad(T^ value) { return value; }".to_owned(),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      let raw = SgLang::from_path("managed.cc").unwrap().grep(&source);
+      assert!(raw.root().has_error(), "{source}");
+      assert!(OutlineExtractor::new().unwrap().extract_product("managed.cc", &source).unwrap().error_nodes > 0, "{source}");
+    }
+  }
+}
