@@ -2003,6 +2003,8 @@ impl Server {
     // product pack, ANN sidecars) rather than the served in-memory graph — they wait for an
     // in-flight background persist so their generation pin exists. The navigation and
     // pattern tools keep serving from the sealed graph at full speed during the window.
+    // Edge navigation carries occurrence sites, so it needs the evidence family
+    // attached by pin_served_generation even when the sealed graph already has edges.
     const GENERATION_BOUND: &[&str] = &[
       "index",
       "search",
@@ -2017,6 +2019,12 @@ impl Server {
       "why",
       "compare_generations",
       "impact",
+      "callers",
+      "callees",
+      "references",
+      "importers",
+      "implementors",
+      "type_users",
     ];
     if GENERATION_BOUND.contains(&tool) {
       self.reap_persist(true);
@@ -3908,5 +3916,82 @@ mod warm_and_reconcile_policy_tests {
     assert!(reconcile_due(hour, hour, Some(Duration::from_secs(300)), false, false, Some(Duration::from_secs(10))));
     assert!(reconcile_due(hour, hour, None, false, false, None));
     assert!(reconcile_due(hour, hour, Some(Duration::from_secs(1)), true, false, Some(RECONCILE_DEADLINE)));
+  }
+}
+
+
+#[cfg(test)]
+mod pending_call_site_tests {
+  use super::*;
+
+  #[test]
+  fn graph_sites_wait_for_the_served_graphs_evidence_commit() {
+    for relation in ["callees", "callers"] {
+      let root = std::env::temp_dir().join(format!(
+        "vorpal-pending-sites-{}-{relation}",
+        std::process::id()
+      ));
+      let src = root.join("src");
+      let out = root.join("index");
+      std::fs::create_dir_all(&src).unwrap();
+      std::fs::write(src.join("calls.cc"), "#define CHECK(x) if (x) { consume(x); }\nvoid run() { CHECK(target()) else after(); }\nvoid after() {}\nvoid target() {}\n").unwrap();
+      let env = ExtractionEnv {
+        cpp_macro_include_roots: Some(vec![]),
+        ..Default::default()
+      };
+      let build = vorpal_index::build_index_live(&src, &out, None, &env).unwrap();
+      let kg = build.kg.unwrap();
+      assert!(!kg.has_evidence());
+      let pending = build.pending.unwrap();
+      // Hold the actual artifact commit: the graph exists, its evidence does not.
+      let (release, wait) = std::sync::mpsc::channel();
+      let mut server = Server::with_profile_env_rebuild(out, Profile::Full, env, false);
+      server.kg = Some(kg);
+      server.persisting = Some(std::thread::spawn(move || {
+        wait.recv().unwrap();
+        pending.persist()
+      }));
+      let (_, nodes) = server
+        .run_tool("node", &json!({"name":"run"}))
+        .unwrap_or_else(|e| panic!("{}", e.message));
+      assert_eq!(
+        nodes["total"], 1,
+        "node navigation still serves before persistence"
+      );
+      assert!(!server.kg.as_ref().unwrap().has_evidence());
+      let name = if relation == "callees" {
+        "run"
+      } else {
+        "after"
+      };
+      let (reply, receive) = std::sync::mpsc::channel();
+      let query = std::thread::spawn(move || {
+        let response = server.run_tool(
+          "graph",
+          &json!({"relation":relation,"name":name,"format":"lean"}),
+        );
+        reply.send(response.map_err(|e| e.message)).unwrap();
+        server
+      });
+      let early = receive
+        .recv_timeout(std::time::Duration::from_millis(100))
+        .ok();
+      release.send(()).unwrap();
+      let (_, data) = early.unwrap_or_else(|| receive.recv().unwrap()).unwrap();
+      let mut server = query.join().unwrap();
+      let rows = data["records"].as_array().unwrap();
+      assert_eq!(rows.len(), if relation == "callees" { 2 } else { 1 });
+      for row in rows {
+        assert_eq!(
+          row["site"], "void run() { CHECK(target()) else after(); }",
+          "{data}"
+        );
+        assert_eq!(row["site_line"], 2, "{data}");
+      }
+      server.reap_persist(true);
+      drop(server);
+      // Pinning may still have a background scope-table reader.
+      let _ = std::fs::remove_dir_all(root);
+    }
   }
 }

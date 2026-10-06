@@ -1067,3 +1067,27 @@ push/pop; restored definitions are absent from its timeline. Plain /E retains
 this bounded control's lines and actual expanded values, but user #line tokens,
 raw strings, dependency snapshots and compiler/environment identity still need
 independent proof before any compiler-backed recovery could be banked.
+
+
+The full CI for 39b933e exposed a deferred-persistence MCP race: a freshly
+sealed graph could carry the correct edges before its evidence family was
+committed, so a navigation response omitted original call-site lines. Edge
+navigation (callers/callees/references/importers/implementors/type_users) now
+drains the served generation's commit and attaches its exact evidence before
+answering. Node and pattern navigation still serve the in-memory graph without
+waiting. A channel-held real PendingPersist regression reproduces the missing
+sites before the fix and retains original lines for callers and callees after
+it, without depending on a fast filesystem. Windows/Linux MCP unit, macro
+freshness and live-differential tests pass; Linux's complete protocol suite and
+MCP Clippy also pass. The wider native Windows protocol suite exposed six path,
+scope and Unix-specific assertion failures; these are separate follow-up
+findings, not a green complete native protocol result. No grammar/product
+format or productive installation is changed by the persistence fix.
+
+The exact 39b933e candidate retains 1744 files / 64023 nodes and normal MCP
+reports 26 damaged files / 1977 ERROR/MISSING/context diagnostics / 151982 bytes.
+Two unchanged-source binary migrations from 5340a72 invalidate old false-clean
+macro products: the valid dangling-if fixture recovers run -> after, while the
+closed-statement/orphan-else fixture reports 19 original damaged bytes. Both
+warm replay and scratch generation agree; source hashes stay unchanged. These
+external candidate indexes remain separate from the productive release.
