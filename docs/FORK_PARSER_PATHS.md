@@ -956,4 +956,23 @@ The unchanged corpus, provenance, generated schema, idempotent reproduction and
 workspace/no-builtins Clippy pass. No new visible kind is introduced.
 The 09080eb external candidate verifies 1744 paths / 64023 nodes and normal MCP
 reports 26 damaged files / 152043 bytes (1984 diagnostics). Its complete CI is
-still running at this check; a running check is not a success result.
+green.
+
+Guarded constructor member-initializer argument lists now preserve structural
+Objective-C messages through the ordinary field_initializer/list and
+argument_list aliases. Constructor names, access and original spans remain;
+namespace/type declarations are unchanged. Missing initializer parentheses,
+message delimiters, member names and class semicolons stay errors. The 902-path
+audit changes only Catch2: 81 -> 77 ERROR/MISSING nodes, 29635 -> 29601 affected
+bytes and 19 -> 21 message nodes, with 3302 AST C++ calls unchanged. Comparison
+against the persisted f594e31 product retains all 2318 item names/kinds/spans,
+1630 member names/kinds/access/spans and 3231 call-reference names/spans. All
+other 901 AST hashes match. All 40 Windows/Linux parser regressions, evidence/
+recovery, bucketed/flat replay, default-tree health and normal watched MCP tests
+pass; malformed constructor edits revalidate health and restoration is clean.
+Native Clang accepts the constructor fixture and rejects its missing-parenthesis
+control. The unchanged corpus, schema, only-C++ provenance, idempotent reproduction
+and workspace/no-builtins Clippy pass; no new visible kind is introduced.
+The f594e31 external candidate verifies 1744 paths / 64023 nodes and normal MCP
+reports 26 damaged files / 152016 bytes (1981 diagnostics). Its full CI remains
+running at this check. Productive binaries, release and tunnel are unchanged.

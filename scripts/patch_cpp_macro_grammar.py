@@ -838,6 +838,19 @@ rules['_objc_message_field_expression'] = seq({'type': 'PREC', 'value': 16, 'con
     objc_field('argument', choice(objc_expression, alias_rule('_objc_message_field_expression', 'field_expression'))),
     objc_field('operator', objc_string('.')))}, objc_field('field', symbol('_field_identifier')))
 
+# Constructor member-initializer arguments share the same bounded dialect
+# context. Retain ordinary named aliases; namespace/type declarations stay intact.
+rules['_objc_field_initializer'] = objc_copy(rules['field_initializer'], {
+    'argument_list': alias_rule('_objc_argument_list', 'argument_list')})
+rules['_objc_field_initializer_list'] = objc_copy(rules['field_initializer_list'], {
+    'field_initializer': alias_rule('_objc_field_initializer', 'field_initializer')})
+rules['_objc_constructor_or_destructor_definition'] = objc_copy(
+    rules['_objc_constructor_or_destructor_definition'], {
+    'field_initializer_list': alias_rule('_objc_field_initializer_list', 'field_initializer_list')})
+conflict = ['field_initializer', '_objc_field_initializer']
+if conflict not in grammar['conflicts']:
+    grammar['conflicts'].append(conflict)
+
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
 scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())

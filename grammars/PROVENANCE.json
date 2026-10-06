@@ -82,10 +82,11 @@
       "Split conditional if scopes require complete opening and closing guard groups with both branches, runtime conditions and complete else bodies; retain preprocessor/runtime spans and conservative macro-evidence boundaries. scripts/patch_cpp_macro_grammar.py, ABI 14.",
       "Scoped Objective-C++ protocol/method declarations and plain object-string literals in explicit positive __OBJC__ guards; complete blocks retain following namespaces, selector metadata and variadic message arguments retain original spans. Keyword and nonplain string prefixes remain errors. Reproduce with scripts/patch_cpp_macro_grammar.py, ABI 14.",
       "Scoped Objective-C selector metadata preserves original labels and spans without runtime callee nodes under exact positive guards; global C++ expressions remain unchanged.",
-      "Named dotted fields rooted in guarded Objective-C messages preserve ordinary field_expression aliases and original spans without broadening global C++ member/template rules."
+      "Named dotted fields rooted in guarded Objective-C messages preserve ordinary field_expression aliases and original spans without broadening global C++ member/template rules.",
+      "Guarded Objective-C constructor member-initializer arguments retain field_initializer/list and argument_list aliases with original message/call spans; global C++ declarations remain unchanged."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:eaa092425f51fb67",
+    "source_digest": "xxh3:ace552e20533a9a7",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

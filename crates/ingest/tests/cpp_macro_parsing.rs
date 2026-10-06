@@ -1594,3 +1594,64 @@ void following() { consume(ordinary.location); }
     }
   }
 }
+
+#[test]
+fn cpp_guarded_objc_constructor_initializers_preserve_member_and_argument_spans() {
+  let lf = r#"#ifdef __OBJC__
+struct Holder {
+  id stored;
+  Holder(id input) : stored([receiver(input) copy]) { after(); }
+  Holder(const Holder& other) : stored([other.stored copy]) { after(); }
+};
+#endif
+void following() { ordinary(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    let owner = product.items.iter().find(|item| item.entry.name == "Holder").unwrap();
+    let constructors: Vec<_> = owner.members.iter().filter(|member| member.entry.symbol_type == vorpal_outline::model::SymbolType::Constructor).collect();
+    assert_eq!(constructors.len(), 2);
+    for constructor in constructors {
+      assert_eq!(constructor.entry.name, "Holder"); assert!(constructor.is_public);
+      assert!(source[constructor.entry.range.byte_offset.clone()].contains("stored(["));
+    }
+    assert!(owner.members.iter().any(|member| member.entry.name == "stored" && member.entry.symbol_type == vorpal_outline::model::SymbolType::Field));
+    assert!(product.items.iter().any(|item| item.entry.name == "following"));
+    for (name, count, expected) in [("receiver", 1, "receiver(input)"), ("after", 2, "after()"), ("ordinary", 1, "ordinary()")] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), count, "{name}: {calls:?}");
+      for call in calls { assert_eq!(&source[call.start as usize..call.end as usize], expected); }
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && matches!(r.name.as_str(), "copy" | "stored")));
+    let raw = SgLang::from_path("guarded.cc").unwrap().grep(&source);
+    let initializers: Vec<_> = raw.root().dfs().filter(|n| n.kind() == "field_initializer").collect();
+    assert_eq!(initializers.len(), 2);
+    for (initializer, expected) in initializers.iter().zip(["stored([receiver(input) copy])", "stored([other.stored copy])"]) {
+      assert_eq!(initializer.text(), expected); assert_eq!(&source[initializer.range()], expected);
+      assert_eq!(initializer.children().find(|n| n.kind() == "field_identifier").unwrap().text(), "stored");
+      let args = initializer.children().find(|n| n.kind() == "argument_list").unwrap();
+      assert_eq!(&source[args.range()], args.text());
+      assert_eq!(args.dfs().filter(|n| n.kind() == "objc_message_expression").count(), 1);
+    }
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new(); vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new(); extractor.extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor.extract_product_from_root("macros.cc", &raw).unwrap();
+    let mut scan = Vec::new(); vorpal_ingest::encode_product_into(&handed, &mut scan); assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace("__OBJC__", "PLATFORM"),
+    lf.replace("#ifdef __OBJC__\n", "").replace("#endif\n", ""),
+    lf.replace("#ifdef __OBJC__", "#ifdef __OBJC__\nvoid ordinary() {}\n#else"),
+    lf.replace("copy])", "copy]"),
+    lf.replace("copy])", "copy)"),
+    lf.replace("stored([", "(["),
+    lf.replace("};", "}"),
+    lf.replace("#endif\n", ""),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      assert!(SgLang::from_path("guarded.cc").unwrap().grep(&source).root().has_error(), "{source}");
+    }
+  }
+}
