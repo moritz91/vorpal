@@ -427,7 +427,7 @@ impl Handler for Server {
         items
           .iter()
           .filter_map(|root| root.get("uri").and_then(Value::as_str))
-          .filter_map(|uri| uri.strip_prefix("file://").map(PathBuf::from))
+          .filter_map(|uri| url::Url::parse(uri).ok()?.to_file_path().ok())
           .collect()
       })
       .unwrap_or_default();
@@ -449,18 +449,16 @@ impl Server {
     let Some(source_root) = self.source_root() else {
       return;
     };
-    let root_str = source_root.to_string_lossy().into_owned();
     let mut inside: Vec<String> = Vec::new();
     for root in roots {
       let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.clone());
-      let spelled = root.to_string_lossy();
-      if spelled.as_ref() == root_str || root_str.starts_with(&format!("{spelled}/")) {
+      if source_root.starts_with(&root) {
         // A root at or above the tree: the whole tree is in play.
         inside.clear();
         break;
       }
-      if let Some(rel) = spelled.strip_prefix(&format!("{root_str}/")) {
-        inside.push(rel.to_string());
+      if let Ok(rel) = root.strip_prefix(&source_root) {
+        inside.push(rel.to_string_lossy().into_owned());
       }
     }
     if inside.is_empty() {
@@ -3347,9 +3345,9 @@ impl Server {
       if self.radius.files.contains(path) {
         continue;
       }
-      let dir = match root.as_deref().and_then(|root| path.strip_prefix(root)).and_then(|rel| rel.strip_prefix('/')) {
-        Some(rel) => rel.split_once('/').map_or(".", |(first, _)| first).to_string(),
-        None => path.rsplit_once('/').map_or("", |(dir, _)| dir).to_string(),
+      let dir = match root.as_deref().and_then(|root| path.strip_prefix(root)).and_then(|rel| rel.strip_prefix(std::path::is_separator)) {
+        Some(rel) => rel.split_once(std::path::is_separator).map_or(".", |(first, _)| first).to_string(),
+        None => path.rsplit_once(std::path::is_separator).map_or("", |(dir, _)| dir).to_string(),
       };
       self.radius.dirs.insert(dir);
       self.radius.files.insert(path.to_string());

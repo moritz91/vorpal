@@ -4962,6 +4962,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tikv-jemallocator",
+ "url",
  "vorpal-config",
  "vorpal-core",
  "vorpal-dynamic",

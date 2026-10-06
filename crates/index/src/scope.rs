@@ -221,7 +221,10 @@ impl PathScope {
         _ => format!("{what} entry '{entry}' names nothing"),
       })?;
       let mut spelled = resolved.to_string_lossy().into_owned();
-      while spelled.len() > 1 && spelled.ends_with('/') {
+      while spelled.len() > 1
+        && spelled.ends_with(std::path::is_separator)
+        && Path::new(&spelled).parent().is_some()
+      {
         spelled.pop();
       }
       if !prefixes.contains(&spelled) {
@@ -591,16 +594,38 @@ impl FileTable {
 
   /// The dense-id blocks of the files under one absolute prefix (segment-exact: the entry
   /// itself when it is a file, and everything below `prefix/`).
-  fn runs_under<'p>(&self, path_of: &impl Fn(u32) -> &'p str, prefix: &str, out: &mut Vec<Range<u64>>) {
-    let below = format!("{prefix}/");
-    let past = format!("{prefix}0");
+  fn runs_under<'p>(
+    &self,
+    path_of: &impl Fn(u32) -> &'p str,
+    prefix: &str,
+    out: &mut Vec<Range<u64>>,
+  ) {
     let exact_lo = self.order.partition_point(|&f| path_of(f) < prefix);
     let exact_hi = self.order.partition_point(|&f| path_of(f) <= prefix);
-    let lo = self.order.partition_point(|&f| path_of(f) < below.as_str());
-    let hi = self.order.partition_point(|&f| path_of(f) < past.as_str());
-    for i in (exact_lo..exact_hi).chain(lo..hi) {
+    for i in exact_lo..exact_hi {
       let file = self.order[i] as usize;
       out.push(self.starts[file]..self.ends[file]);
+    }
+    let separators: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+    for &separator in separators {
+      // Filesystem roots already end in a separator. Do not turn C:\ into C:\\.
+      let below = if prefix.ends_with(std::path::is_separator) {
+        if !prefix.ends_with(separator) {
+          continue;
+        }
+        prefix.to_string()
+      } else {
+        format!("{prefix}{separator}")
+      };
+      // One lexical interval per native separator, excluding prefix siblings.
+      let mut past = below[..below.len() - 1].to_string();
+      past.push(char::from_u32(separator as u32 + 1).unwrap());
+      let lo = self.order.partition_point(|&f| path_of(f) < below.as_str());
+      let hi = self.order.partition_point(|&f| path_of(f) < past.as_str());
+      for i in lo..hi {
+        let file = self.order[i] as usize;
+        out.push(self.starts[file]..self.ends[file]);
+      }
     }
   }
 
@@ -712,21 +737,29 @@ pub fn default_layout_root(index_dir: &Path) -> Option<PathBuf> {
 fn under(path: &str, prefix: &str) -> bool {
   path.len() >= prefix.len()
     && path.starts_with(prefix)
-    && (path.len() == prefix.len() || path.as_bytes()[prefix.len()] == b'/')
+    && (path.len() == prefix.len()
+      || prefix.ends_with(std::path::is_separator)
+      || std::path::is_separator(path.as_bytes()[prefix.len()] as char))
 }
 
 /// The number of leading directory segments `path` shares with `anchor_dir` — the path
 /// proximity used to order a symbol's neighbours nearest-first (same file, then same
 /// directory, then the longest shared ancestor).
 pub fn shared_dir_segments(path: &str, anchor_dir: &str) -> usize {
-  let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
-  if dir.starts_with('/') != anchor_dir.starts_with('/') {
+  let dir = path
+    .rsplit_once(std::path::is_separator)
+    .map_or("", |(dir, _)| dir);
+  if Path::new(dir).has_root() != Path::new(anchor_dir).has_root() {
     return 0;
   }
   dir
-    .trim_start_matches('/')
-    .split('/')
-    .zip(anchor_dir.trim_start_matches('/').split('/'))
+    .trim_start_matches(std::path::is_separator)
+    .split(std::path::is_separator)
+    .zip(
+      anchor_dir
+        .trim_start_matches(std::path::is_separator)
+        .split(std::path::is_separator),
+    )
     .take_while(|(a, b)| a == b)
     .count()
 }
@@ -874,4 +907,48 @@ mod tests {
     assert_eq!(shared_dir_segments("/x/a.c", "/r/fs"), 0);
     assert_eq!(shared_dir_segments("a.c", "/r/fs"), 0);
   }
+
+  #[test]
+  fn native_scope_rows_and_ranges_agree_for_directories_files_and_roots() {
+    let base = tree("native-ranges");
+    let paths: Vec<String> = [
+      "fs/read_write.c",
+      "fsnotify/mark.c",
+      "mm/slab.c",
+      "mm/slab.h",
+    ]
+    .iter()
+    .map(|p| base.join(p).to_string_lossy().into_owned())
+    .collect();
+    let rows: Vec<(&str, u64, u64)> = paths
+      .iter()
+      .enumerate()
+      .map(|(i, p)| (p.as_str(), i as u64 * 5, i as u64 * 5 + 5))
+      .collect();
+    let table = FileTable::from_rows(&rows);
+    for (within, except) in [
+      (vec!["fs".to_string()], vec![]),
+      (vec!["mm/slab.c".to_string()], vec![]),
+      (vec![], vec!["mm".to_string()]),
+      (
+        vec![base.to_string_lossy().into_owned()],
+        vec!["fs".to_string()],
+      ),
+    ] {
+      let scope = PathScope::resolve_with_except(&within, &except, Some(&base)).unwrap();
+      let ranges = table.ranges_for(|f| rows[f as usize].0, &scope);
+      for (path, start, end) in &rows {
+        for id in *start..*end {
+          assert_eq!(ranges.contains(id), scope.admits(path), "{path}: {scope:?}");
+        }
+      }
+    }
+    let root = base.ancestors().last().unwrap();
+    let scope = PathScope::resolve(&[root.to_string_lossy().into_owned()], None).unwrap();
+    assert_eq!(scope.prefixes()[0], root.to_string_lossy());
+    assert!(scope.admits(&paths[0]));
+    assert_eq!(table.ranges_for(|f| rows[f as usize].0, &scope).rows(), 20);
+    let _ = std::fs::remove_dir_all(base);
+  }
+
 }

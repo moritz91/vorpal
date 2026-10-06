@@ -2008,30 +2008,30 @@ fn common_abs_root(rows: &[serde_json::Value]) -> Option<String> {
     .iter()
     .filter_map(|row| row.get("path").and_then(serde_json::Value::as_str));
   let first = paths.next()?;
-  if !first.starts_with('/') {
+  if !std::path::Path::new(first).has_root() {
     return None;
   }
-  let mut root: Vec<&str> = first.split('/').collect();
-  root.pop(); // never include the basename
+  let mut end = first.rfind(std::path::is_separator)? + 1;
   for path in paths {
-    if !path.starts_with('/') {
+    if !std::path::Path::new(path).has_root() {
       return None;
     }
-    let segments: Vec<&str> = path.split('/').collect();
-    let keep = root
-      .iter()
-      .zip(segments.iter().take(segments.len().saturating_sub(1)))
-      .take_while(|(a, b)| a == b)
-      .count();
-    root.truncate(keep);
-    if root.len() <= 1 {
-      return None;
+    // Slice the original spelling: base + relative path must reconstruct it
+    // byte-for-byte, including native drive/UNC prefixes and separator spelling.
+    while !path.starts_with(&first[..end]) {
+      end = first[..end - 1].rfind(std::path::is_separator)? + 1;
     }
   }
-  if root.len() <= 2 {
-    return None; // a single top-level segment is not worth the header line
+  let root = &first[..end];
+  if std::path::Path::new(root)
+    .components()
+    .filter(|c| matches!(c, std::path::Component::Normal(_)))
+    .count()
+    < 2
+  {
+    return None;
   }
-  Some(root.join("/") + "/")
+  Some(root.to_string())
 }
 
 pub fn toon_from_values(rows: &[serde_json::Value]) -> String {
@@ -2966,6 +2966,39 @@ mod paging_tests {
     // Relative paths (tests, non-canonical callers): no root line, cells untouched.
     let rel = vec![serde_json::json!({"name": "n", "path": "src/x.rs"})];
     assert!(!lean_from_values(&rel).contains("root:"));
+  }
+
+  #[test]
+  fn native_structured_base_preserves_absolute_path_spelling() {
+    let root = std::env::temp_dir()
+      .canonicalize()
+      .unwrap()
+      .join("vorpal native records");
+    let paths = [root.join("fs/x.c"), root.join("mm/y.c")];
+    let paths: Vec<String> = paths
+      .iter()
+      .map(|p| p.to_string_lossy().into_owned())
+      .collect();
+    let mut data = serde_json::json!({"records": [{"path":paths[0]}, {"path":paths[1]}]});
+    shape_structured(&mut data, Some("lean"));
+    let base = data["base"].as_str().unwrap();
+    assert!(std::path::Path::new(base).is_absolute());
+    for (row, original) in data["records"].as_array().unwrap().iter().zip(&paths) {
+      let relative = row["path"].as_str().unwrap();
+      assert!(!std::path::Path::new(relative).has_root());
+      assert_eq!(format!("{base}{relative}"), *original);
+    }
+    #[cfg(windows)]
+    {
+      let rows = [
+        serde_json::json!({"path":"C:\\source\\a.cc"}),
+        serde_json::json!({"path":"D:\\source\\b.cc"}),
+      ];
+      assert!(
+        common_abs_root(&rows).is_none(),
+        "different drives have no shared absolute base"
+      );
+    }
   }
 
   #[test]

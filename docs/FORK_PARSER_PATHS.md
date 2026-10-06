@@ -1091,3 +1091,32 @@ macro products: the valid dangling-if fixture recovers run -> after, while the
 closed-statement/orphan-else fixture reports 19 original damaged bytes. Both
 warm replay and scratch generation agree; source hashes stay unchanged. These
 external candidate indexes remain separate from the productive release.
+
+
+Native Windows MCP scope matching now recognizes both platform separators in
+segment-exact directory/file admission and the sorted FileTable intervals.
+Filesystem roots keep their separator; prefix siblings remain excluded.
+Neighbour proximity and query-radius directories use the same native boundaries.
+Structured records factor a shared absolute directory by slicing its original
+spelling, preserving lossless base + relative-path reconstruction for drive and
+verbatim Windows paths. Relative/mixed/different-drive pages remain unfactored.
+Client workspace roots decode file URLs (including percent-encoded spaces, #
+and Unicode) with url::Url, then compare canonical Path components rather than
+slash-only string prefixes. Non-file or invalid URLs do not become local paths;
+manual scopes still take precedence over client roots.
+All 20 MCP protocol tests now pass on both Windows and Linux, as do 12 MCP unit
+tests, three macro-header freshness cases, the live/scratch differential, 39
+index unit cases and the path-prefix/scoped-oracle regressions. Native tests
+cover file/directory/root row-vs-range parity, original path reconstruction and
+escaped roots with an excluded prefix sibling. CI/release Windows gates run the
+complete MCP protocol/unit suite and the scope/native-record unit regressions.
+Linux workspace Clippy -D warnings, native MCP Clippy and Actionlint pass;
+whole-workspace native Clippy still hits the pre-existing non-MSVC jemalloc
+build-tool boundary, so it is not reported green. No graph/product identity,
+parser grammar, installed binary or productive tunnel is changed by this fix.
+
+A separate external C++/CLI handle prototype remains withheld: native MSVC
+accepts the controlled guarded T^ fixture with /clr and rejects it in ordinary
+C++ mode. Cloning general declaration/statement rules for that guard currently
+creates excessive grammar conflicts. It is not installed or represented as a
+Catch2 recovery improvement; global C++ declarators remain unchanged.

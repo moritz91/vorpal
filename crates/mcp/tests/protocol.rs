@@ -106,7 +106,7 @@ fn temp_tree(tag: &str) -> (PathBuf, PathBuf) {
 #[test]
 fn initialize_handshake_and_tool_listing() {
   let (_src, idx) = temp_tree("handshake");
-  let mut server = Server::new(idx);
+  let mut server = Server::new(idx.clone());
 
   let response = request(
     &mut server,
@@ -132,7 +132,7 @@ fn initialize_handshake_and_tool_listing() {
   let instructions = response["result"]["instructions"].as_str().expect("instructions");
   assert!(!instructions.is_empty());
   // The fast-path note names THIS index, absolute, so a shell client can go straight there.
-  assert!(instructions.contains("--index /"), "{instructions}");
+  assert!(instructions.contains(&format!("--index {}", idx.display())), "{instructions}");
   assert!(instructions.contains("graph callers <name>"), "{instructions}");
   // Legacy results carry no modern envelope fields.
   assert!(response["result"].get("resultType").is_none());
@@ -800,7 +800,7 @@ fn typed_records_and_cursor_pagination() {
   assert_eq!(record["kind"], "Function");
   assert!(record["path"].as_str().unwrap().ends_with("b.rs"));
   // Paths are relative to one `base`; bulky node metadata is omitted by default.
-  assert!(data["base"].as_str().is_some_and(|b| b.starts_with('/') && b.ends_with('/')));
+  assert!(data["base"].as_str().is_some_and(|b| std::path::Path::new(b).has_root() && b.ends_with(std::path::is_separator)));
   assert!(!record["path"].as_str().unwrap().starts_with('/'));
   assert!(record.get("signature").is_none() && record.get("external_id").is_none());
 
@@ -1101,7 +1101,7 @@ fn abs_path(data: &Value, row: usize) -> String {
     "{}{}",
     data["base"].as_str().unwrap_or(""),
     data["records"][row]["path"].as_str().unwrap_or("")
-  )
+  ).replace(std::path::MAIN_SEPARATOR, "/")
 }
 
 fn structured(server: &mut Server, id: u64, tool: &str, args: Value) -> Value {
@@ -1439,7 +1439,7 @@ fn client_roots_become_the_default_scope() {
   let req_id = req["id"].clone();
 
   // The client's answer: one root, the `sub` directory inside the tree.
-  let sub_uri = format!("file://{}", src.join("sub").display());
+  let sub_uri = url::Url::from_directory_path(src.join("sub")).unwrap().to_string();
   let none = server.handle_line(
     &json!({"jsonrpc": "2.0", "id": req_id, "result": {"roots": [{"uri": sub_uri, "name": "sub"}]}}).to_string(),
   );
@@ -1455,7 +1455,7 @@ fn client_roots_become_the_default_scope() {
     .handle_line(&json!({"jsonrpc": "2.0", "method": "notifications/roots/list_changed"}).to_string())
     .expect("re-asks for roots");
   let req: Value = serde_json::from_str(&line).unwrap();
-  let root_uri = format!("file://{}", src.display());
+  let root_uri = url::Url::from_directory_path(&src).unwrap().to_string();
   server.handle_line(
     &json!({"jsonrpc": "2.0", "id": req["id"], "result": {"roots": [{"uri": root_uri}]}}).to_string(),
   );
@@ -1471,10 +1471,56 @@ fn client_roots_become_the_default_scope() {
     .expect("re-asks for roots");
   let req: Value = serde_json::from_str(&line).unwrap();
   server.handle_line(
-    &json!({"jsonrpc": "2.0", "id": req["id"], "result": {"roots": [{"uri": format!("file://{}", src.display())}]}}).to_string(),
+    &json!({"jsonrpc": "2.0", "id": req["id"], "result": {"roots": [{"uri": url::Url::from_directory_path(&src).unwrap().to_string()}]}}).to_string(),
   );
   let still = structured(&mut server, 6, "graph", json!({"relation": "callers", "name": "target"}));
   assert_eq!(still["scope"]["source"], "session", "{still}");
   assert_eq!(still["total"], 1, "{still}");
+  let _ = fs::remove_dir_all(src.parent().unwrap());
+}
+
+
+#[test]
+fn roots_decode_escaped_native_paths_without_admitting_prefix_siblings() {
+  let (src, idx) = scoped_tree("escaped-roots");
+  let name = "sub space #ü";
+  fs::rename(src.join("sub"), src.join(name)).unwrap();
+  fs::create_dir_all(src.join(format!("{name}-sibling"))).unwrap();
+  fs::write(
+    src.join(format!("{name}-sibling/c.rs")),
+    "use b::target; pub fn sibling() { target(); }\n",
+  )
+  .unwrap();
+  vorpal_index::build_index(&src, &idx).unwrap();
+  let mut server = Server::new(idx);
+  request(
+    &mut server,
+    1,
+    "initialize",
+    json!({"protocolVersion":"2025-06-18", "capabilities":{"roots":{"listChanged":true}}}),
+  );
+  let req = server
+    .handle_line(&json!({"jsonrpc":"2.0", "method":"notifications/initialized"}).to_string())
+    .unwrap();
+  let req: Value = serde_json::from_str(&req).unwrap();
+  let uri = url::Url::from_directory_path(src.join(name))
+    .unwrap()
+    .to_string();
+  assert!(uri.contains("%20") && uri.contains("%23"));
+  server.handle_line(
+    &json!({"jsonrpc":"2.0","id":req["id"],"result":{"roots":[{"uri":uri}]}}).to_string(),
+  );
+  let data = structured(
+    &mut server,
+    2,
+    "graph",
+    json!({"relation":"callers","name":"target"}),
+  );
+  assert_eq!(data["total"], 1, "{data}");
+  assert_eq!(data["outsideScope"], 2, "{data}");
+  assert_eq!(data["records"][0]["name"], "caller2", "{data}");
+  assert_eq!(data["scope"]["source"], "roots");
+  assert_eq!(data["scope"]["within"], json!([name]));
+  drop(server);
   let _ = fs::remove_dir_all(src.parent().unwrap());
 }
