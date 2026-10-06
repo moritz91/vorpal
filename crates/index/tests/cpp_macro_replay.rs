@@ -725,3 +725,39 @@ fn literal_condition_policy_migrates_and_external_edits_revalidate_products() {
   }
   let scratch = root.join("scratch"); build(&scratch); assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
 }
+
+
+#[test]
+fn dangling_else_header_edits_reparse_unchanged_sources_and_restore_scratch_graphs() {
+  let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let root = physical_temp_dir().join(format!("vorpal-macro-else-{}-{nonce}", std::process::id()));
+  let src = root.join("src"); let sdk = root.join("sdk"); let out = root.join("index");
+  fs::create_dir_all(&src).unwrap(); fs::create_dir(&sdk).unwrap();
+  let source = "#include <proof.h>\nvoid run() { CHECK(value()) else after(); }\nvoid following() { next(); }\n";
+  let path = src.join("run.cc"); fs::write(&path, source).unwrap();
+  let header = sdk.join("proof.h");
+  let open = "#define CHECK(x) if (x) { sink(x); }\n";
+  let closed = "#define CHECK(x)        { sink(x); }\n";
+  assert_eq!(open.len(), closed.len()); fs::write(&header, open).unwrap();
+  let env = ExtractionEnv { cpp_macro_include_roots: Some(vec![sdk]), ..Default::default() };
+  let build = |out: &Path| build_index_env(&src, out, CacheMode::default(), ParseHealthPolicy::default(), &env).unwrap();
+  let initial = build(&out); assert_eq!(initial.indexed, 1); assert_eq!(initial.error_nodes, 0);
+  let original_generation = fs::read(out.join("CURRENT")).unwrap();
+  assert_eq!(build(&out).indexed, 0);
+  let product = env.extractor().unwrap().extract_product(path.to_str().unwrap(), source).unwrap();
+  assert!(product.refs.iter().any(|r| r.name == "after" && &source[r.start as usize..r.end as usize] == "after()"));
+  let modified = fs::metadata(&header).unwrap().modified().unwrap();
+  fs::write(&header, closed).unwrap();
+  fs::File::options().write(true).open(&header).unwrap().set_times(fs::FileTimes::new().set_modified(modified)).unwrap();
+  let edited = build(&out); assert_eq!(edited.indexed, 1); assert!(edited.error_nodes > 0);
+  assert!(!edited.reused && !edited.graph_reused);
+  assert_eq!(build(&out).indexed, 0);
+  let no_hints = std::collections::HashSet::new(); fs::write(&header, open).unwrap();
+  let restored = vorpal_index::build_index_live(&src, &out, Some(&no_hints), &env).unwrap();
+  assert_eq!(restored.report.indexed, 1); assert_eq!(restored.report.error_nodes, 0);
+  restored.pending.unwrap().persist().unwrap();
+  assert_eq!(fs::read(out.join("CURRENT")).unwrap(), original_generation);
+  let scratch = root.join("scratch"); build(&scratch);
+  assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
+  assert_eq!(fs::read_to_string(path).unwrap(), source);
+}

@@ -98,7 +98,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v15\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v16\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -1022,6 +1022,30 @@ pub(crate) fn complete_statement(replacement: &str) -> bool {
       statements[0].kind().as_ref(),
       "if_statement" | "try_statement" | "compound_statement"
     )
+}
+
+// Called only after complete_statement and independent argument/expansion proof.
+// Appending a literal empty else body identifies a dangling if through nested
+// if/else and loop bodies, without evaluating conditions or rewriting input.
+#[cfg(feature = "builtin-parser")]
+pub(crate) fn statement_accepts_else(replacement: &str) -> bool {
+  let replacement = replacement.replace("\\\r\n", "").replace("\\\n", "");
+  let parsed = SupportLang::Cpp.grep(format!("void proof() {{ {replacement}\n else {{}}\n }}"));
+  let root = parsed.root();
+  if root.has_error() {
+    return false;
+  }
+  root
+    .children()
+    .find(|n| n.kind().as_ref() == "function_definition")
+    .and_then(|n| n.field("body"))
+    .is_some_and(|body| {
+      body
+        .children()
+        .filter(|n| n.is_named() && n.kind().as_ref() != "comment")
+        .count()
+        == 1
+    })
 }
 
 fn canonical_identifier(name: &str) -> bool {

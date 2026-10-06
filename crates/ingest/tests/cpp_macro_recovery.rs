@@ -991,3 +991,233 @@ fn surrounding_macro_expansions_and_gnu_statement_expressions_decline_context_er
     }
   }
 }
+
+#[test]
+fn dangling_if_macros_retain_else_calls_and_nearest_if_binding() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for replacement in [
+    "if (x) { sink(x); }",
+    "if (x) {} else if (other()) { sink(x); }",
+    "if (x) {} else while (other()) if (x) { sink(x); }",
+  ] {
+    for body in [
+      "CHECK /* name */ (value()) /* boundary */ else after();",
+      "if (outer()) CHECK(value()) else after();",
+      "if (outer()) CHECK(value()) else after(); else fallback();",
+    ] {
+      let lf = format!(
+        "#define CHECK(x) {replacement}\nvoid run() {{ {body} }}\nvoid following() {{ next(); }}\n"
+      );
+      for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+        let audit = audit_recovery(Path::new("open-if.cc"), &source, &[]);
+        assert!(!audit.has_error, "{source}: {audit:?}");
+        assert_eq!(audit.eligible_names, ["CHECK"]);
+        for name in ["value", "after", "next"] {
+          let (_, span) = audit.calls.iter().find(|(n, _)| n == name).unwrap();
+          assert_eq!(&source[span.clone()], format!("{name}()"));
+        }
+        assert!(
+          !audit
+            .calls
+            .iter()
+            .any(|(n, _)| matches!(n.as_str(), "CHECK" | "other" | "sink"))
+        );
+        let product = extractor.extract_product("open-if.cc", &source).unwrap();
+        assert_eq!(product.error_nodes, 0);
+        for name in ["value", "after", "next"] {
+          let call = product
+            .refs
+            .iter()
+            .find(|r| r.name == name && r.kind == 0)
+            .unwrap();
+          assert_eq!(
+            &source[call.start as usize..call.end as usize],
+            format!("{name}()")
+          );
+        }
+        assert!(
+          !product
+            .refs
+            .iter()
+            .any(|r| r.name == "CHECK" && r.kind == 0)
+        );
+        let following = product
+          .items
+          .iter()
+          .find(|n| n.entry.name == "following")
+          .unwrap();
+        assert_eq!(
+          &source[following.entry.range.byte_offset.clone()],
+          "void following() { next(); }"
+        );
+        let mut owned = Vec::new();
+        encode_product_into(&product, &mut owned);
+        let mut streamed = Vec::new();
+        extractor
+          .extract_product_encoded("open-if.cc", &source, 0, 0, &mut streamed)
+          .unwrap();
+        assert_eq!(owned, streamed);
+        let raw = SgLang::from_path("open-if.cc").unwrap().grep(&source);
+        let handoff = extractor
+          .extract_product_from_root("open-if.cc", &raw)
+          .unwrap();
+        let mut scanned = Vec::new();
+        encode_product_into(&handoff, &mut scanned);
+        assert_eq!(owned, scanned);
+        let names = ["CHECK".to_owned()];
+        let parsed = vorpal_language::with_cpp_statement_macro_kinds(&names, &names, || {
+          SgLang::from_path("open-if.cc").unwrap().grep(&source)
+        });
+        let statement = parsed
+          .root()
+          .dfs()
+          .find(|n| n.kind().as_ref() == "macro_statement")
+          .unwrap();
+        assert_eq!(statement.field("name").unwrap().text(), "CHECK");
+        assert_eq!(statement.field("arguments").unwrap().text(), "(value())");
+        assert_eq!(
+          statement.field("alternative").unwrap().text(),
+          "else after();"
+        );
+        if body.starts_with("if (outer())") {
+          let outer = statement.parent().unwrap();
+          assert_eq!(outer.kind().as_ref(), "if_statement");
+          assert_eq!(
+            outer.field("alternative").is_some(),
+            body.contains("fallback")
+          );
+        }
+      }
+    }
+  }
+}
+
+#[test]
+fn closed_macro_else_and_extra_semicolons_remain_original_span_errors() {
+  use vorpal_ingest::OutlineExtractor;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for replacement in [
+    "{ sink(x); }",
+    "if (x) { sink(x); } else { sink(0); }",
+    "try { sink(x); } catch (...) {}",
+  ] {
+    for body in [
+      "CHECK(value()) else after();",
+      "CHECK(value()); else after();",
+      "if (outer()) CHECK(value()); else after();",
+    ] {
+      let lf = format!(
+        "#define CHECK(x) {replacement}\nvoid run() {{ {body} }}\nvoid following() {{ next(); }}\n"
+      );
+      for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+        let report = audit_recovery(Path::new("invalid-else.cc"), &source, &[]);
+        assert!(report.has_error, "{source}: {report:?}");
+        assert!(
+          report
+            .context_errors
+            .iter()
+            .any(|span| source[span.clone()].starts_with("CHECK(value())")
+              && source[span.clone()].ends_with("else")),
+          "{report:?}"
+        );
+        assert!(!report.calls.iter().any(|(n, _)| n == "CHECK"));
+        assert!(report.calls.iter().any(|(n, _)| n == "value"));
+        assert!(report.calls.iter().any(|(n, _)| n == "next"));
+        assert!(
+          extractor
+            .extract_product("invalid-else.cc", &source)
+            .unwrap()
+            .error_nodes
+            > 0
+        );
+      }
+    }
+    let source = format!(
+      "#define CHECK(x) {replacement}\nvoid run() {{ if (outer()) CHECK(value()) else after(); }}\n"
+    );
+    let report = audit_recovery(Path::new("outer-else.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert!(report.calls.iter().any(|(n, _)| n == "after"));
+  }
+  for body in [
+    "CHECK(value()); else after();",
+    "if (outer()) CHECK(value()); else after();",
+    "CHECK(value()) else",
+    "CHECK(value()) else after()",
+  ] {
+    let source = format!("#define CHECK(x) if (x) {{ sink(x); }}\nvoid run() {{ {body} }}\n");
+    assert!(
+      audit_recovery(Path::new("broken-open-if.cc"), &source, &[]).has_error,
+      "{source}"
+    );
+  }
+  let mixed = "#define CHECK(x) if (x) { sink(x); }\nvoid first() { CHECK(value()) }\n#undef CHECK\n#define CHECK(x) { sink(x); }\nvoid second() { CHECK(value()) }\n";
+  assert!(
+    audit_recovery(Path::new("mixed.cc"), mixed, &[])
+      .eligible_names
+      .is_empty()
+  );
+  let ordinary = "void run() { CHECK(value()) else after(); }\n";
+  assert!(audit_recovery(Path::new("ordinary.cc"), ordinary, &[]).has_error);
+}
+
+#[test]
+fn typed_macro_scanner_context_is_nested_panic_safe_and_thread_local() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_language::{SupportLang, with_cpp_statement_macro_kinds, with_cpp_statement_macros};
+  let source = "void run() { CHECK(value()) else after(); }";
+  let names = ["CHECK".to_owned()];
+  let shape = || {
+    let parsed = SupportLang::Cpp.grep(source);
+    parsed
+      .root()
+      .dfs()
+      .any(|n| n.kind().as_ref() == "macro_statement" && n.field("alternative").is_some())
+  };
+  assert!(!shape());
+  with_cpp_statement_macro_kinds(&names, &names, || {
+    assert!(shape());
+    with_cpp_statement_macros(&names, || assert!(!shape()));
+    assert!(shape());
+    with_cpp_statement_macros(&[], || assert!(!shape()));
+    let panic =
+      std::panic::catch_unwind(|| with_cpp_statement_macros(&names, || panic!("fixture")));
+    assert!(panic.is_err());
+    assert!(shape());
+    assert!(
+      !std::thread::spawn(move || {
+        let parsed = SupportLang::Cpp.grep(source);
+        parsed
+          .root()
+          .dfs()
+          .any(|n| n.kind().as_ref() == "macro_statement")
+      })
+      .join()
+      .unwrap()
+    );
+  });
+  assert!(!shape());
+}
+
+#[test]
+fn opaque_macro_prefixes_decline_additional_else_context_diagnostics() {
+  let source = "#define PREFIX() if (outer())\n#define CHECK(x) { sink(x); }\nvoid run() { PREFIX() CHECK(value()) else after(); }\n";
+  let report = audit_recovery(Path::new("opaque-prefix.cc"), source, &[]);
+  assert!(report.context_errors.is_empty(), "{report:?}");
+  // The unsupported prefix remains outside recovery; no native-invalid claim.
+  let source =
+    "#define CHECK(x) { sink(x); }\nvoid run() { CHECK(first()) CHECK(value()) else after(); }\n";
+  let report = audit_recovery(Path::new("adjacent.cc"), source, &[]);
+  assert!(report.has_error);
+  assert_eq!(report.context_errors.len(), 1, "{report:?}");
+}

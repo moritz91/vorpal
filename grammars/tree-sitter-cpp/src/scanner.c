@@ -5,7 +5,7 @@
 #include <string.h>
 #include <wctype.h>
 
-enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO };
+enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO, PROVEN_OPEN_IF_MACRO };
 
 // vorpal: scoped statement-macro proof context; never serialized into a tree.
 #if defined(_MSC_VER)
@@ -60,7 +60,7 @@ static bool statement_spacing(TSLexer *lexer) {
         }
     }
 }
-static bool scan_statement_macro(TSLexer *lexer) {
+static bool scan_statement_macro(TSLexer *lexer, const bool *valid_symbols) {
     if (!statement_macros) return false;
     while (statement_space(lexer->lookahead)) lexer->advance(lexer, true);
     char name[128];
@@ -76,10 +76,14 @@ static bool scan_statement_macro(TSLexer *lexer) {
     lexer->mark_end(lexer);
     if (!statement_spacing(lexer) || lexer->lookahead != '(') return false;
     for (const char *entry = statement_macros; *entry;) {
-        const char *end = strchr(entry, '\n');
+        bool open_if = *entry == '?';
+        const char *name_entry = entry + (open_if ? 1 : 0);
+        const char *end = strchr(name_entry, '\n');
         if (!end) return false;
-        if ((unsigned)(end - entry) == length && !memcmp(entry, name, length)) {
-            lexer->result_symbol = PROVEN_STATEMENT_MACRO;
+        if ((unsigned)(end - name_entry) == length && !memcmp(name_entry, name, length)) {
+            enum TokenType kind = open_if ? PROVEN_OPEN_IF_MACRO : PROVEN_STATEMENT_MACRO;
+            if (!valid_symbols[kind]) return false;
+            lexer->result_symbol = kind;
             return true;
         }
         entry = end + 1;
@@ -188,8 +192,8 @@ bool tree_sitter_cpp_external_scanner_scan(void *payload, TSLexer *lexer, const 
         return false;
     }
 
-    if (valid_symbols[PROVEN_STATEMENT_MACRO]) {
-        return scan_statement_macro(lexer);
+    if (valid_symbols[PROVEN_STATEMENT_MACRO] || valid_symbols[PROVEN_OPEN_IF_MACRO]) {
+        return scan_statement_macro(lexer, valid_symbols);
     }
 
     // No skipping leading whitespace: raw-string grammar is space-sensitive.

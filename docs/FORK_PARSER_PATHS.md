@@ -279,6 +279,14 @@ between Rust and C. The borrowed context is thread-local, synchronous, nested an
 panic-safe, and never serialized in trees. An empty context keeps ordinary parsing.
 `macro_statement` preserves original name/argument spans without inventing a call
 edge to the macro name; argument calls and following functions are retained.
+Independently instantiated replacements also prove whether an adjacent else can
+bind to a dangling if. A distinct hidden scanner token retains this syntax class
+for every use of a name; mixed classes decline the whole name. Original name and
+argument spans remain fields of macro_statement, whose optional alternative is
+an existing else_clause. Open-if statements do not absorb source semicolons.
+Literal adjacent orphan else / extra-semicolon cases receive original-span
+context diagnostics only in independently proven, nonexpanding contexts; closed
+statements can still be consequences of an enclosing ordinary if.
 
 Owned and streaming extraction share one proof-backed parse. Scan-root handoff
 reparses under the configured proof rather than banking a context-free tree.
@@ -1029,3 +1037,33 @@ replacement and the TEST/TEST_CALL forms. Source, database and invocation hashes
 and output remain in external audit artifacts. This establishes the selected
 compiler experiment, not source-interval recovery evidence: the macro-stack
 trace limitation remains, and no compiler backend or productive binary is changed.
+
+
+The dangling-if recovery regression fixes a false-clean native-valid case:
+CHECK(value()) else after(); previously lost the real after() call by parsing
+else as a declaration type. Nested if/else and trailing loop-body if replacements
+retain nearest-if binding, original argument/else calls and following functions.
+Complete if/else, compound and try replacements cannot acquire an orphan else;
+extra source semicolons, missing else bodies/semicolons and ordinary unproven
+calls remain damaged. Opaque prefix/keyword macros decline the new diagnostic.
+The typed borrowed scanner context restores across nested parses, panic and
+threads; default parsing clears both token families. No new visible kind or
+source transformation is introduced. Evidence v16 / product v15 invalidate prior
+proofs, alongside the changed C++ grammar identity.
+All 42 parser, 33 recovery, 28 Windows / 29 Linux evidence tests, 14 replay tests
+in bucketed/flat formats, member-call/default-tree-health tests and normal MCP
+with background rebuild on/off pass. MCP verifies both original callees after
+same-size external-header edits with restored timestamps and restoration. Native
+MSVC accepts open/nested/outer-if positives (LF/CRLF) and rejects orphan/extra-
+semicolon/missing-semicolon controls. All 902 original source/AST hashes match
+with an empty scanner context, and the unchanged corpus, generated schema,
+only-C++ provenance, idempotent reproduction and workspace/no-builtins Clippy
+pass. The generated C parser grows from 47815016 to 48027890 bytes (20076 to
+20110 states), with no new generation conflicts. This does not establish actual
+Hades ASSERT evidence past opaque SDK includes or change installed binaries.
+
+The native /d1PP macro-stack control also shifts reported source lines after
+push/pop; restored definitions are absent from its timeline. Plain /E retains
+this bounded control's lines and actual expanded values, but user #line tokens,
+raw strings, dependency snapshots and compiler/environment identity still need
+independent proof before any compiler-backed recovery could be banked.

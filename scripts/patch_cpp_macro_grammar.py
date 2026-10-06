@@ -535,13 +535,21 @@ rules['base_class_clause'] = decltype_base(rules['base_class_clause'])
 rules['decltype']['members'][2] = choice(symbol('expression'), symbol('comma_expression'))
 # Proof-backed statement names come only from a scoped external scanner context.
 # Without that context the new branch is unreachable, including ordinary calls.
-external = symbol('_proven_statement_macro')
-if external not in grammar['externals']:
-    grammar['externals'].append(external)
-rules['macro_statement'] = {'type': 'PREC_RIGHT', 'value': 1, 'content': seq(
+for name in ['_proven_statement_macro', '_proven_open_if_macro']:
+    external = symbol(name)
+    if external not in grammar['externals']:
+        grammar['externals'].append(external)
+closed_macro_statement = {'type': 'PREC_RIGHT', 'value': 1, 'content': seq(
     {'type': 'FIELD', 'name': 'name', 'content': alias_rule('_proven_statement_macro', 'identifier')},
     {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')},
     optional({'type': 'STRING', 'value': ';'}))}
+# An independently proven dangling if can consume else. A source semicolon
+# terminates that attachment and remains a separate empty statement.
+open_if_macro_statement = {'type': 'PREC_RIGHT', 'value': 1, 'content': seq(
+    {'type': 'FIELD', 'name': 'name', 'content': alias_rule('_proven_open_if_macro', 'identifier')},
+    {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')},
+    optional({'type': 'FIELD', 'name': 'alternative', 'content': symbol('else_clause')}))}
+rules['macro_statement'] = choice(closed_macro_statement, open_if_macro_statement)
 if symbol('macro_statement') not in rules['statement']['members']:
     rules['statement']['members'].append(symbol('macro_statement'))
 # The audited native cpuid helper uses a brace-delimited MSVC assembly block.

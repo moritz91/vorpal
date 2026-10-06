@@ -4680,6 +4680,16 @@
     "type": "macro_statement",
     "named": true,
     "fields": {
+      "alternative": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "else_clause",
+            "named": true
+          }
+        ]
+      },
       "arguments": {
         "multiple": false,
         "required": true,

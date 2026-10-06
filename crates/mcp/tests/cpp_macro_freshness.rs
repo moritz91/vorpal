@@ -14,6 +14,19 @@ fn health(server: &mut Server, id: u64) -> String {
     .to_owned()
 }
 
+fn assert_else_callees(server: &mut Server, id: u64) {
+  let response = server.handle_line(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"graph","arguments":{"relation":"callees","name":"run","format":"lean"}}}).to_string()).unwrap();
+  let response: Value = serde_json::from_str(&response).unwrap();
+  assert_eq!(response["result"]["isError"], false, "{response}");
+  let records = response["result"]["structuredContent"]["records"].as_array().unwrap();
+  assert_eq!(records.len(), 2, "{response}");
+  for name in ["target", "after"] {
+    let call = records.iter().find(|r| r["name"] == name).unwrap();
+    assert_eq!(call["site"], "void run() { CHECK(target()) else after(); }");
+    assert_eq!(call["site_line"], 2);
+  }
+}
+
 #[test]
 fn running_server_revalidates_external_macro_headers_without_source_events() {
   external_header_freshness(false);
@@ -170,6 +183,26 @@ void target() {}
   fs::write(src.join("calls.cc"), objc_guard).unwrap();
   assert!(health(&mut server, 45).contains("parse health: clean"));
 
+
+  let dangling = "#include <proof.h>\nvoid run() { CHECK(target()) else after(); }\nvoid after() {}\nvoid target() {}\n";
+  let open = "#define CHECK(x) if (x) { consume(x); }\n";
+  let closed = "#define CHECK(x)        { consume(x); }\n";
+  assert_eq!(open.len(), closed.len());
+  fs::write(&header, open).unwrap(); fs::write(src.join("calls.cc"), dangling).unwrap();
+  assert!(health(&mut server, 46).contains("parse health: clean"));
+  assert_else_callees(&mut server, 146);
+  let modified = fs::metadata(&header).unwrap().modified().unwrap();
+  fs::write(&header, closed).unwrap();
+  fs::File::options().write(true).open(&header).unwrap().set_times(fs::FileTimes::new().set_modified(modified)).unwrap();
+  assert!(health(&mut server, 47).contains("macro-context diagnostics"));
+  fs::write(&header, open).unwrap();
+  assert!(health(&mut server, 48).contains("parse health: clean"));
+  assert_else_callees(&mut server, 148);
+  fs::write(src.join("calls.cc"), dangling.replace("CHECK(target()) else", "CHECK(target()); else")).unwrap();
+  assert!(health(&mut server, 49).contains("carry ERROR/MISSING nodes"));
+  fs::write(src.join("calls.cc"), dangling).unwrap();
+  assert!(health(&mut server, 50).contains("parse health: clean"));
+  assert_else_callees(&mut server, 150);
 
   // Quiet queries retain the served generation rather than rebuilding forever.
   assert!(health(&mut server, 7).contains("parse health: clean"));

@@ -85,10 +85,11 @@
       "Named dotted fields rooted in guarded Objective-C messages preserve ordinary field_expression aliases and original spans without broadening global C++ member/template rules.",
       "Guarded Objective-C constructor member-initializer arguments retain field_initializer/list and argument_list aliases with original message/call spans; global C++ declarations remain unchanged.",
       "Separate guarded Objective-C declaration/body contexts reject standalone dialect statements in files/namespaces and retain nested function-body preprocessor contexts; upstream C++ fragment rules are unchanged.",
-      "Exact #ifndef __OBJC__ guards retain an ordinary C++ first arm and a complete Objective-C else arm in separate declaration/body contexts; original preproc aliases and spans are retained without condition evaluation."
+      "Exact #ifndef __OBJC__ guards retain an ordinary C++ first arm and a complete Objective-C else arm in separate declaration/body contexts; original preproc aliases and spans are retained without condition evaluation.",
+      "Proof-backed dangling-if macro scanner token and else_clause attachment, closed-statement framing preserved; original source spans and empty default context retained."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:b838eb7147d89575",
+    "source_digest": "xxh3:0454f5390dfdd658",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

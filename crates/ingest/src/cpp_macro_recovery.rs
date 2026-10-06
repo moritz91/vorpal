@@ -66,7 +66,9 @@ fn macro_calls(
               let mut statements: Vec<_> = context
                 .dfs()
                 .filter(|n| n.kind().as_ref() == "macro_statement")
-                .map(|n| n.range())
+                .filter_map(|n| {
+                  Some(n.field("name")?.range().start..n.field("arguments")?.range().end)
+                })
                 .collect();
               statements.sort_by_key(|s| s.start);
               let mut cursor = range.start;
@@ -214,6 +216,7 @@ fn parse_without_context(
     .collect();
   let mut candidates: BTreeMap<String, BTreeMap<usize, usize>> = BTreeMap::new();
   let mut rejected = BTreeSet::new();
+  let mut invocation_kinds: BTreeMap<String, BTreeMap<usize, (usize, bool)>> = BTreeMap::new();
   let bytes = source.as_bytes();
   let mut i = 0;
   while i < bytes.len() {
@@ -256,9 +259,17 @@ fn parse_without_context(
           {
             return None;
           }
-          Some(count)
+          Some((
+            count,
+            end,
+            crate::cpp_macro_evidence::statement_accepts_else(&replacement),
+          ))
         });
-        if let Some(count) = proven {
+        if let Some((count, end, open_if)) = proven {
+          invocation_kinds
+            .entry(name.to_owned())
+            .or_default()
+            .insert(start, (end, open_if));
           candidates
             .entry(name.to_owned())
             .or_default()
@@ -271,27 +282,51 @@ fn parse_without_context(
       i += 1;
     }
   }
+  // Offset-free scanner framing cannot change syntax class in the middle of a file.
+  for (name, sites) in &invocation_kinds {
+    let classes: BTreeSet<_> = sites.values().map(|(_, open_if)| *open_if).collect();
+    if classes.len() != 1 {
+      rejected.insert(name.clone());
+    }
+  }
+  let open_if_names: Vec<_> = invocation_kinds
+    .iter()
+    .filter(|(_, sites)| sites.values().all(|(_, open_if)| *open_if))
+    .map(|(name, _)| name.clone())
+    .collect();
   let mut eligible_names: Vec<_> = candidates
     .into_keys()
     .filter(|name| name.len() <= 128 && name.is_ascii() && !rejected.contains(name))
     .collect();
-  let mut parsed =
-    vorpal_language::with_cpp_statement_macros(&eligible_names, || lang.grep(source));
+  let parse = |names: &[String]| {
+    let open: Vec<_> = open_if_names
+      .iter()
+      .filter(|name| names.contains(name))
+      .cloned()
+      .collect();
+    vorpal_language::with_cpp_statement_macro_kinds(names, &open, || lang.grep(source))
+  };
+  let mut parsed = parse(&eligible_names);
   let uses = macro_calls(&parsed, &evidence);
   let invalid: BTreeSet<_> = uses
     .iter()
     .filter(|(_, _, expression)| *expression)
     .map(|(name, _, _)| name.clone())
     .collect();
-  let errors = uses
+  let mut errors: Vec<_> = uses
     .into_iter()
     .filter(|(_, _, expression)| *expression)
     .map(|(_, span, _)| span)
     .collect();
   if eligible_names.iter().any(|name| invalid.contains(name)) {
     eligible_names.retain(|name| !invalid.contains(name));
-    parsed = vorpal_language::with_cpp_statement_macros(&eligible_names, || lang.grep(source));
+    parsed = parse(&eligible_names);
   }
+  errors.extend(incompatible_else_spans(
+    &parsed,
+    &evidence,
+    &invocation_kinds,
+  ));
   let macro_calls = macro_calls(&parsed, &evidence)
     .into_iter()
     .map(|(_, span, _)| span)
@@ -305,6 +340,104 @@ fn parse_without_context(
       macro_calls,
     },
   )
+}
+
+// The upstream grammar can read an orphan `else after();` as a declaration
+// whose type is the identifier "else". Diagnose only scanner-proven invocations
+// and their adjacent literal else; unrelated calls and opaque expansions decline.
+fn incompatible_else_spans(
+  parsed: &crate::ParsedRoot,
+  evidence: &crate::cpp_macro_evidence::Evidence,
+  sites: &BTreeMap<String, BTreeMap<usize, (usize, bool)>>,
+) -> Vec<Range<usize>> {
+  let root = parsed.root();
+  let source = root.text();
+  let bytes = source.as_bytes();
+  let mut errors = Vec::new();
+  let mut statements = BTreeMap::new();
+  let mut enclosing_if = BTreeMap::new();
+  for node in root.dfs() {
+    if node.kind().as_ref() == "macro_statement" {
+      statements.insert(node.range().start, node);
+    } else if node.kind().as_ref() == "if_statement" {
+      if let (Some(alternative), Some(consequence)) =
+        (node.field("alternative"), node.field("consequence"))
+      {
+        enclosing_if.insert(alternative.range().start, consequence.range());
+      }
+    }
+  }
+  for invocations in sites.values() {
+    for (&start, &(end, open_if)) in invocations {
+      let Some(statement) = statements.get(&start) else {
+        continue;
+      };
+      let Some(mut next) = invocation_spacing(bytes, end) else {
+        continue;
+      };
+      let mut semicolon = false;
+      while bytes.get(next) == Some(&b';') {
+        semicolon = true;
+        let Some(after) = invocation_spacing(bytes, next + 1) else {
+          break;
+        };
+        next = after;
+      }
+      if bytes.get(next..next + 4) != Some(b"else")
+        || bytes
+          .get(next + 4)
+          .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_')
+        || evidence.contains_expanding_tokens("else")
+      {
+        continue;
+      }
+      let mut parent = statement.parent();
+      let mut body_start = None;
+      while let Some(node) = parent {
+        if node.kind().as_ref() == "compound_statement" {
+          body_start = Some(node.range().start);
+          break;
+        }
+        parent = node.parent();
+      }
+      let Some(mut cursor) = body_start else {
+        continue;
+      };
+      // An opaque prefix macro may manufacture the enclosing if. Independently
+      // proven statement invocations cannot manufacture a containing function;
+      // inspect original gaps between them and decline expanding prefixes.
+      let mut expanding = false;
+      for (&prior_start, prior) in &statements {
+        if prior_start < cursor || prior_start >= start {
+          continue;
+        }
+        let Some(arguments) = prior.field("arguments") else {
+          continue;
+        };
+        if arguments.range().end > start {
+          continue;
+        }
+        expanding |= evidence.contains_expanding_tokens(&source[cursor..prior_start]);
+        cursor = arguments.range().end;
+      }
+      expanding |= evidence.contains_expanding_tokens(&source[cursor..start]);
+      if expanding {
+        continue;
+      }
+      // A closed statement is a valid consequence of an enclosing ordinary if.
+      // An extra source semicolon breaks both the enclosing and internal if.
+      let attached = !semicolon
+        && (open_if
+          || enclosing_if
+            .get(&next)
+            .is_some_and(|body| body.start <= start && body.end >= end));
+      if !attached {
+        // Keep original invocation/else bytes; no fabricated token or source mask.
+        errors.push(start..next + 4);
+      }
+    }
+  }
+  errors
 }
 
 fn statement_space(byte: &u8) -> bool {
