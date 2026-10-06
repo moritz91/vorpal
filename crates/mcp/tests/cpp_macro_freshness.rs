@@ -153,6 +153,10 @@ void target() {}
   assert!(health(&mut server, 37).contains("carry ERROR/MISSING nodes"));
   fs::write(src.join("calls.cc"), objc_guard).unwrap();
   assert!(health(&mut server, 38).contains("parse health: clean"));
+  fs::write(src.join("calls.cc"), objc_guard.replace("namespace Sample {", "namespace Sample { [object release];")).unwrap();
+  assert!(health(&mut server, 39).contains("carry ERROR/MISSING nodes"));
+  fs::write(src.join("calls.cc"), objc_guard).unwrap();
+  assert!(health(&mut server, 40).contains("parse health: clean"));
 
   // Quiet queries retain the served generation rather than rebuilding forever.
   assert!(health(&mut server, 7).contains("parse health: clean"));

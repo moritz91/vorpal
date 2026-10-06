@@ -974,5 +974,25 @@ Native Clang accepts the constructor fixture and rejects its missing-parenthesis
 control. The unchanged corpus, schema, only-C++ provenance, idempotent reproduction
 and workspace/no-builtins Clippy pass; no new visible kind is introduced.
 The f594e31 external candidate verifies 1744 paths / 64023 nodes and normal MCP
-reports 26 damaged files / 152016 bytes (1981 diagnostics). Its full CI remains
-running at this check. Productive binaries, release and tunnel are unchanged.
+reports 26 damaged files / 152016 bytes (1981 diagnostics). Its full CI is
+green. Productive binaries, release and tunnel are unchanged.
+
+Guarded dialect declaration scopes now preserve ordinary C++ top-level fragment
+rules without admitting new standalone Objective-C messages, message-bearing
+calls/returns or exception statements. File/namespace bodies and their nested
+conditional groups remain declaration contexts; functions/methods retain dialect
+statement contexts through nested preprocessing groups, including local equals
+initializers. A native Clang namespace control is rejected; the previous candidate
+incorrectly reported that message clean. LF/CRLF regressions retain following
+functions and owned/streaming/scan parity for both clean and erroneous source.
+All 902 original source/AST hashes remain identical. Comparison with the aba00d1
+persisted Catch2 product retains all 2318 item names/kinds/spans, 1630 member
+names/kinds/access/spans and 3231 call-reference names/spans. All 41 Windows/Linux
+parser regressions, evidence/recovery, bucketed/flat replay, default-tree health,
+normal watched MCP tests, unchanged corpus, only-C++ provenance, schema,
+idempotent reproduction and workspace/no-builtins Clippy pass. No new visible
+kind is introduced. This does not turn tree-sitter into a compiler/type checker.
+The exact aba00d1 candidate verifies 1744 paths / 64023 nodes and normal MCP
+reports 26 damaged files / 151982 bytes (1977 diagnostics); full CI is green.
+The previous binary's false-clean namespace-message product is retained in an
+external migration fixture for validating the changed grammar identity.

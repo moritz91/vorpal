@@ -851,6 +851,64 @@ conflict = ['field_initializer', '_objc_field_initializer']
 if conflict not in grammar['conflicts']:
     grammar['conflicts'].append(conflict)
 
+# Declaration scopes admit guarded dialect declarations and function bodies,
+# but do not acquire standalone Objective-C statements. Preserve the upstream
+# C++ top-level fragment rules; keep dialect statements inside body contexts.
+objc_top_preproc = {name: name.replace('_objc_preproc', '_objc_top_preproc')
+    for name in rules if name.startswith('_objc_preproc')}
+objc_top_replacements = {name: symbol(top) for name, top in objc_top_preproc.items()}
+objc_top_replacements['_objc_block_item'] = symbol('_objc_top_level_item')
+rules['_objc_top_level_item'] = objc_copy(rules['_objc_block_item'], objc_top_replacements)
+rules['_objc_top_level_item']['members'] = [symbol('_top_level_statement')
+    if member == symbol('_objc_statement') else member
+    for member in rules['_objc_top_level_item']['members']]
+for name, top in objc_top_preproc.items():
+    rules[top] = objc_copy(rules[name], objc_top_replacements)
+objc_body_preproc = {name: name.replace('_objc_preproc', '_objc_body_preproc')
+    for name in objc_top_preproc}
+objc_body_replacements = {name: symbol(body) for name, body in objc_body_preproc.items()}
+objc_body_replacements['_objc_block_item'] = symbol('_objc_body_item')
+for name, body in objc_body_preproc.items():
+    rules[body] = objc_copy(rules[name], objc_body_replacements)
+rules['_objc_body_item'] = objc_copy(rules['_objc_body_item'], {
+    name.removeprefix('_objc_'): alias_rule(body, name.removeprefix('_objc_'))
+    for name, body in objc_body_preproc.items()})
+rules['_objc_declaration_list'] = objc_copy(rules['_objc_declaration_list'], {
+    '_objc_block_item': symbol('_objc_top_level_item')})
+rules['_explicit_objc_top_guard'] = objc_copy(rules['_explicit_objc_guard'], {
+    '_objc_block_item': symbol('_objc_top_level_item')})
+rules['_top_level_item'] = objc_copy(rules['_top_level_item'], {
+    '_explicit_objc_guard': symbol('_explicit_objc_top_guard')})
+objc_top_members = []
+for member in rules['_top_level_item']['members']:
+    if member not in objc_top_members:
+        objc_top_members.append(member)
+rules['_top_level_item']['members'] = objc_top_members
+for conflict in [['type_specifier', 'call_expression', '_objc_type_specifier'],
+                 ['_top_level_statement', '_objc_top_level_item']]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+
+for conflict in [
+    ['preproc_ifdef', '_objc_body_preproc_ifdef'],
+    ['preproc_else', '_objc_body_preproc_else'],
+    ['preproc_ifdef', 'preproc_ifdef_in_initializer_list', '_objc_body_preproc_ifdef'],
+    ['preproc_else', 'preproc_else_in_initializer_list', '_objc_body_preproc_else'],
+    ['preproc_if', '_objc_body_preproc_if'],
+    ['preproc_elifdef', '_objc_body_preproc_elifdef'],
+    ['preproc_if', 'preproc_if_in_initializer_list', '_objc_body_preproc_if'],
+    ['preproc_elifdef', 'preproc_elifdef_in_initializer_list', '_objc_body_preproc_elifdef'],
+    ['preproc_elif', '_objc_body_preproc_elif'],
+    ['preproc_ifdef_in_initializer_list', '_objc_body_preproc_ifdef'],
+    ['preproc_else_in_initializer_list', '_objc_body_preproc_else'],
+    ['preproc_elif', 'preproc_elif_in_initializer_list', '_objc_body_preproc_elif'],
+    ['preproc_if_in_initializer_list', '_objc_body_preproc_if'],
+    ['preproc_elifdef_in_initializer_list', '_objc_body_preproc_elifdef'],
+    ['preproc_elif_in_initializer_list', '_objc_body_preproc_elif'],
+]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
 scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())

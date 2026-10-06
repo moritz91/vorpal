@@ -1655,3 +1655,57 @@ void following() { ordinary(); }
     }
   }
 }
+
+#[test]
+fn cpp_guarded_objc_statements_require_a_body_context() {
+  let lf = r#"#ifdef __OBJC__
+@protocol Fixture
+-(void) release;
+@end
+namespace Sample {
+  void run() {
+#if PLATFORM
+    [receiver() release];
+#endif
+    consume([receiver() description]);
+  }
+  struct Owner { void run() { [receiver() release]; } };
+}
+#endif
+void following() { after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert!(product.items.iter().any(|i| i.entry.name == "following"));
+    let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == "receiver").collect();
+    assert_eq!(calls.len(), 3);
+    for call in calls { assert_eq!(&source[call.start as usize..call.end as usize], "receiver()"); }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && matches!(r.name.as_str(), "release" | "description")));
+    let raw = SgLang::from_path("guarded.cc").unwrap().grep(&source);
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new(); vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new(); extractor.extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor.extract_product_from_root("macros.cc", &raw).unwrap();
+    let mut scan = Vec::new(); vorpal_ingest::encode_product_into(&handed, &mut scan); assert_eq!(owned, scan);
+  }
+  for statement in ["[receiver() release];", "consume([receiver() release]);", "return [receiver() description];", "@try {} @catch (...) {}"] {
+    for body in [statement.to_owned(), format!("namespace Invalid {{ {statement} }}"), format!("namespace Invalid {{\n#if PLATFORM\n{statement}\n#else\nvoid valid() {{}}\n#endif\n}}") ] {
+      let bad = format!("#ifdef __OBJC__\n{body}\n#endif\nvoid following() {{ after(); }}\n");
+      for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+        let raw = SgLang::from_path("guarded.cc").unwrap().grep(&source);
+        assert!(raw.root().has_error(), "{source}");
+        let extractor = OutlineExtractor::new().unwrap();
+        let product = extractor.extract_product("guarded.cc", &source).unwrap();
+        assert!(product.error_nodes > 0, "{source}");
+        let following = product.items.iter().find(|i| i.entry.name == "following").unwrap();
+        assert_eq!(&source[following.entry.range.byte_offset.clone()], "void following() { after(); }");
+        let mut owned = Vec::new(); vorpal_ingest::encode_product_into(&product, &mut owned);
+        let mut streamed = Vec::new(); extractor.extract_product_encoded("guarded.cc", &source, 0, 0, &mut streamed).unwrap();
+        assert_eq!(owned, streamed);
+        let handed = extractor.extract_product_from_root("guarded.cc", &raw).unwrap();
+        let mut scan = Vec::new(); vorpal_ingest::encode_product_into(&handed, &mut scan); assert_eq!(owned, scan);
+      }
+    }
+  }
+}

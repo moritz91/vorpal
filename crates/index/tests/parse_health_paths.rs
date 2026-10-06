@@ -164,6 +164,10 @@ void following() { after(); }
     assert!(vorpal_index::build_index(&src, &out).unwrap().error_nodes > 0);
     fs::write(&file, positive).unwrap();
     assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);
+    fs::write(&file, positive.replace("namespace Sample {", "namespace Sample { [object release];")).unwrap();
+    assert!(vorpal_index::build_index(&src, &out).unwrap().error_nodes > 0);
+    fs::write(&file, positive).unwrap();
+    assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);
     let scratch = root.join("scratch"); vorpal_index::build_index(&src, &scratch).unwrap();
     assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
   }
