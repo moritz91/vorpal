@@ -820,6 +820,24 @@ rules['objc_selector_expression'] = seq(objc_string('@'), objc_string('selector'
     choice(objc_field('selector', symbol('identifier')), {'type': 'REPEAT1', 'content': seq(
         objc_field('selector', symbol('identifier')), objc_string(':'))}), objc_string(')'))
 
+# Admit only named dotted fields rooted in a message (or a prior dotted field).
+# Ordinary C++ field/member/template expressions keep their existing grammar.
+objc_message_field_expression = choice(*objc_selector_expression['members'],
+    alias_rule('_objc_message_field_expression', 'field_expression'))
+
+def objc_message_fields(node):
+    if node == objc_selector_expression:
+        return json.loads(json.dumps(objc_message_field_expression))
+    if isinstance(node, list): return [objc_message_fields(value) for value in node]
+    if isinstance(node, dict): return {key: objc_message_fields(value) for key, value in node.items()}
+    return node
+for name in list(rules):
+    if name.startswith('_objc_') or name == 'objc_message_expression':
+        rules[name] = objc_message_fields(rules[name])
+rules['_objc_message_field_expression'] = seq({'type': 'PREC', 'value': 16, 'content': seq(
+    objc_field('argument', choice(objc_expression, alias_rule('_objc_message_field_expression', 'field_expression'))),
+    objc_field('operator', objc_string('.')))}, objc_field('field', symbol('_field_identifier')))
+
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
 scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())

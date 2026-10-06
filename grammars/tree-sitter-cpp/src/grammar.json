@@ -20556,6 +20556,15 @@
                   {
                     "type": "SYMBOL",
                     "name": "objc_selector_expression"
+                  },
+                  {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_objc_message_field_expression"
+                    },
+                    "named": true,
+                    "value": "field_expression"
                   }
                 ]
               },
@@ -20639,6 +20648,15 @@
                                 {
                                   "type": "SYMBOL",
                                   "name": "objc_selector_expression"
+                                },
+                                {
+                                  "type": "ALIAS",
+                                  "content": {
+                                    "type": "SYMBOL",
+                                    "name": "_objc_message_field_expression"
+                                  },
+                                  "named": true,
+                                  "value": "field_expression"
                                 }
                               ]
                             },
@@ -20703,6 +20721,15 @@
                                 {
                                   "type": "SYMBOL",
                                   "name": "objc_selector_expression"
+                                },
+                                {
+                                  "type": "ALIAS",
+                                  "content": {
+                                    "type": "SYMBOL",
+                                    "name": "_objc_message_field_expression"
+                                  },
+                                  "named": true,
+                                  "value": "field_expression"
                                 }
                               ]
                             },
@@ -20771,6 +20798,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 },
@@ -20846,6 +20882,15 @@
                             {
                               "type": "SYMBOL",
                               "name": "objc_selector_expression"
+                            },
+                            {
+                              "type": "ALIAS",
+                              "content": {
+                                "type": "SYMBOL",
+                                "name": "_objc_message_field_expression"
+                              },
+                              "named": true,
+                              "value": "field_expression"
                             }
                           ]
                         },
@@ -20952,6 +20997,15 @@
                   {
                     "type": "SYMBOL",
                     "name": "objc_selector_expression"
+                  },
+                  {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_objc_message_field_expression"
+                    },
+                    "named": true,
+                    "value": "field_expression"
                   }
                 ]
               },
@@ -22140,6 +22194,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     },
@@ -22214,6 +22277,15 @@
                               {
                                 "type": "SYMBOL",
                                 "name": "objc_selector_expression"
+                              },
+                              {
+                                "type": "ALIAS",
+                                "content": {
+                                  "type": "SYMBOL",
+                                  "name": "_objc_message_field_expression"
+                                },
+                                "named": true,
+                                "value": "field_expression"
                               }
                             ]
                           },
@@ -23520,6 +23592,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -23571,6 +23652,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -23623,6 +23713,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -23674,6 +23773,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -23726,6 +23834,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -23777,6 +23894,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -23829,6 +23955,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -23880,6 +24015,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -23932,6 +24076,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -23983,6 +24136,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24035,6 +24197,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24086,6 +24257,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24138,6 +24318,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24189,6 +24378,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24241,6 +24439,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24292,6 +24499,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24344,6 +24560,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24395,6 +24620,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24447,6 +24681,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24498,6 +24741,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24550,6 +24802,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24601,6 +24862,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24653,6 +24923,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24704,6 +24983,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24756,6 +25044,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24807,6 +25104,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24859,6 +25165,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24910,6 +25225,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -24962,6 +25286,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -25013,6 +25346,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -25065,6 +25407,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -25116,6 +25467,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -25168,6 +25528,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -25219,6 +25588,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -25271,6 +25649,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -25322,6 +25709,15 @@
                         {
                           "type": "SYMBOL",
                           "name": "objc_selector_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_message_field_expression"
+                          },
+                          "named": true,
+                          "value": "field_expression"
                         }
                       ]
                     }
@@ -25376,6 +25772,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25427,6 +25832,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25479,6 +25893,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25530,6 +25953,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25582,6 +26014,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25633,6 +26074,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25685,6 +26135,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25736,6 +26195,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25788,6 +26256,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25839,6 +26316,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25891,6 +26377,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25942,6 +26437,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -25994,6 +26498,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -26045,6 +26558,15 @@
                     {
                       "type": "SYMBOL",
                       "name": "objc_selector_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
                     }
                   ]
                 }
@@ -26118,6 +26640,15 @@
                       {
                         "type": "SYMBOL",
                         "name": "objc_selector_expression"
+                      },
+                      {
+                        "type": "ALIAS",
+                        "content": {
+                          "type": "SYMBOL",
+                          "name": "_objc_message_field_expression"
+                        },
+                        "named": true,
+                        "value": "field_expression"
                       }
                     ]
                   }
@@ -26399,6 +26930,15 @@
                                           {
                                             "type": "SYMBOL",
                                             "name": "objc_selector_expression"
+                                          },
+                                          {
+                                            "type": "ALIAS",
+                                            "content": {
+                                              "type": "SYMBOL",
+                                              "name": "_objc_message_field_expression"
+                                            },
+                                            "named": true,
+                                            "value": "field_expression"
                                           }
                                         ]
                                       },
@@ -26507,6 +27047,15 @@
                                                 {
                                                   "type": "SYMBOL",
                                                   "name": "objc_selector_expression"
+                                                },
+                                                {
+                                                  "type": "ALIAS",
+                                                  "content": {
+                                                    "type": "SYMBOL",
+                                                    "name": "_objc_message_field_expression"
+                                                  },
+                                                  "named": true,
+                                                  "value": "field_expression"
                                                 }
                                               ]
                                             },
@@ -26842,6 +27391,58 @@
         {
           "type": "STRING",
           "value": ")"
+        }
+      ]
+    },
+    "_objc_message_field_expression": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "PREC",
+          "value": 16,
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "FIELD",
+                "name": "argument",
+                "content": {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_message_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_message_field_expression"
+                      },
+                      "named": true,
+                      "value": "field_expression"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "FIELD",
+                "name": "operator",
+                "content": {
+                  "type": "STRING",
+                  "value": "."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "field",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_field_identifier"
+          }
         }
       ]
     }

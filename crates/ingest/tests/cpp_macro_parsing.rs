@@ -1530,3 +1530,67 @@ void following() { selector(real()); }
     }
   }
 }
+
+#[test]
+fn cpp_guarded_objc_message_fields_keep_structure_and_call_spans() {
+  let lf = r#"void before() { consume(ordinary.location); }
+#ifdef __OBJC__
+long run() {
+  auto local = [receiver() range:payload()].location;
+  consume([receiver() range].nested.location);
+  consume(ordinary.location);
+  return local;
+}
+#endif
+void following() { consume(ordinary.location); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["before", "run", "following"] { assert!(product.items.iter().any(|item| item.entry.name == name)); }
+    for (name, count) in [("receiver", 2), ("payload", 1)] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), count, "{name}: {calls:?}");
+      for call in calls { assert_eq!(&source[call.start as usize..call.end as usize], format!("{name}()")); }
+    }
+    let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == "consume").collect();
+    assert_eq!(calls.len(), 4);
+    for (call, expected) in calls.iter().zip(["consume(ordinary.location)", "consume([receiver() range].nested.location)", "consume(ordinary.location)", "consume(ordinary.location)"]) {
+      assert_eq!(&source[call.start as usize..call.end as usize], expected);
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && matches!(r.name.as_str(), "range" | "nested" | "location")));
+    let raw = SgLang::from_path("guarded.cc").unwrap().grep(&source);
+    let fields: Vec<_> = raw.root().dfs().filter(|n| n.kind() == "field_expression").collect();
+    assert_eq!(fields.len(), 6);
+    for field in &fields {
+      assert_eq!(&source[field.range()], field.text());
+      assert_eq!(field.field("operator").unwrap().text(), ".");
+      assert!(matches!(field.field("field").unwrap().text().as_ref(), "nested" | "location"));
+    }
+    let rooted: Vec<_> = fields.iter().filter(|n| n.field("argument").unwrap().kind() == "objc_message_expression").collect();
+    assert_eq!(rooted.len(), 2);
+    assert_eq!(rooted[0].field("argument").unwrap().text(), "[receiver() range:payload()]");
+    assert_eq!(rooted[0].field("field").unwrap().text(), "location");
+    assert_eq!(rooted[1].field("argument").unwrap().text(), "[receiver() range]");
+    assert_eq!(rooted[1].field("field").unwrap().text(), "nested");
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new(); vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new(); extractor.extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor.extract_product_from_root("macros.cc", &raw).unwrap();
+    let mut scan = Vec::new(); vorpal_ingest::encode_product_into(&handed, &mut scan); assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace("__OBJC__", "PLATFORM"),
+    lf.replace("#ifdef __OBJC__\n", "").replace("#endif\n", ""),
+    lf.replace("#ifdef __OBJC__", "#ifdef __OBJC__\nvoid ordinary() {}\n#else"),
+    lf.replace("].location;", "].;"),
+    lf.replace("].location;", "] location;"),
+    lf.replace("].location;", "].location"),
+    lf.replace("range:payload()]", "range:payload()"),
+    lf.replace("#endif\n", ""),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      assert!(SgLang::from_path("guarded.cc").unwrap().grep(&source).root().has_error(), "{source}");
+    }
+  }
+}

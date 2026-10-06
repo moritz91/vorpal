@@ -121,7 +121,7 @@ fn objc_guard_edits_revalidate_default_cpp_trees_and_products() {
 @end
 void run(Probe* object) { [object release]; consume(@selector(action)); selector(real()); }
 void guarded() { @try { before(); } @catch (Probe* error) { forward([error description]); } }
-namespace Sample { template<class T> struct Wrapper { id stored = @\"text\"; int count() { id local = [object format:@\"value\", payload()]; return [object count] + value(); } }; }
+namespace Sample { template<class T> struct Wrapper { id stored = @\"text\"; int count() { id local = [object format:@\"value\", payload()]; return [object range].location + value(); } }; }
 #endif
 void following() { after(); }
 ";
@@ -153,6 +153,10 @@ void following() { after(); }
     fs::write(&file, positive).unwrap();
     assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);
     fs::write(&file, positive.replace("@selector(action)", "@selectorSuffix(action)")).unwrap();
+    assert!(vorpal_index::build_index(&src, &out).unwrap().error_nodes > 0);
+    fs::write(&file, positive).unwrap();
+    assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);
+    fs::write(&file, positive.replace("[object range].location", "[object range].")).unwrap();
     assert!(vorpal_index::build_index(&src, &out).unwrap().error_nodes > 0);
     fs::write(&file, positive).unwrap();
     assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);

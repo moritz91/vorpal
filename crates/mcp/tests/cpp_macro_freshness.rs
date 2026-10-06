@@ -122,7 +122,7 @@ fn external_header_freshness(watch_rebuild: bool) {
 @end
 void run(Probe* object) { [object release]; consume(@selector(action)); selector(real()); }
 void guarded() { @try { before(); } @catch (Probe* error) { forward([error description]); } }
-namespace Sample { template<class T> struct Wrapper { id stored = @\"text\"; int count() { id local = [object format:@\"value\", payload()]; return [object count] + value(); } }; }
+namespace Sample { template<class T> struct Wrapper { id stored = @\"text\"; int count() { id local = [object format:@\"value\", payload()]; return [object range].location + value(); } }; }
 #endif
 void following() { target(); }
 void target() {}
@@ -145,6 +145,10 @@ void target() {}
   assert!(health(&mut server, 33).contains("carry ERROR/MISSING nodes"));
   fs::write(src.join("calls.cc"), objc_guard).unwrap();
   assert!(health(&mut server, 34).contains("parse health: clean"));
+  fs::write(src.join("calls.cc"), objc_guard.replace("[object range].location", "[object range].")).unwrap();
+  assert!(health(&mut server, 35).contains("carry ERROR/MISSING nodes"));
+  fs::write(src.join("calls.cc"), objc_guard).unwrap();
+  assert!(health(&mut server, 36).contains("parse health: clean"));
 
   // Quiet queries retain the served generation rather than rebuilding forever.
   assert!(health(&mut server, 7).contains("parse health: clean"));

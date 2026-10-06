@@ -939,3 +939,21 @@ idempotent reproduction and workspace/no-builtins Clippy pass.
 The exact 959790b candidate verifies 1744 paths / 64023 nodes and normal MCP
 reports 26 damaged files / 152045 bytes (1986 diagnostics); its full CI is green.
 This is an external candidate, not an installed release.
+
+Named dotted fields rooted in a guarded message retain the existing
+field_expression kind and argument/operator/field spans, including chained
+named fields. Ordinary C++ field/member/template expressions are unchanged.
+Only the message-rooted dotted form is added; missing names, dots, delimiters,
+semicolons and wrong/outside/else guards remain errors. The 902-path audit changes
+only Catch2: 84 -> 81 ERROR/MISSING nodes and 29662 -> 29635 affected bytes, with
+3302 AST calls unchanged. Comparing the persisted 09080eb product retains all
+2318 item names/kinds/spans and all 3231 call-reference names/spans. The other
+901 AST hashes match. All 39 Windows/Linux parser regressions, evidence/recovery,
+bucketed/flat replay and normal watched MCP tests pass; malformed field edits
+produce damaged health and restoration is clean. Native Clang accepts the
+message/field/chained-field fixture and rejects its missing-semicolon control.
+The unchanged corpus, provenance, generated schema, idempotent reproduction and
+workspace/no-builtins Clippy pass. No new visible kind is introduced.
+The 09080eb external candidate verifies 1744 paths / 64023 nodes and normal MCP
+reports 26 damaged files / 152043 bytes (1984 diagnostics). Its complete CI is
+still running at this check; a running check is not a success result.
