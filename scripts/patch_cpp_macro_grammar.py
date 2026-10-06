@@ -766,6 +766,42 @@ for conflict in [['field_declaration', '_objc_field_declaration'],
     if conflict not in grammar['conflicts']:
         grammar['conflicts'].append(conflict)
 
+# Objective-C string constants use ordinary quoted contents but not C++ wide,
+# UTF or raw-string prefixes. Keep their object-literal kind and original span.
+objc_literal_expression = choice(*objc_local_expression['members'], symbol('objc_string_literal'))
+def objc_literals(node):
+    if node == objc_local_expression:
+        return json.loads(json.dumps(objc_literal_expression))
+    if isinstance(node, list): return [objc_literals(value) for value in node]
+    if isinstance(node, dict): return {key: objc_literals(value) for key, value in node.items()}
+    return node
+for name in list(rules):
+    if name.startswith('_objc_') or name == 'objc_message_expression':
+        rules[name] = objc_literals(rules[name])
+rules['_objc_plain_string_literal'] = json.loads(json.dumps(rules['string_literal']))
+rules['_objc_plain_string_literal']['members'][0] = objc_string('"')
+rules['objc_string_literal'] = seq(objc_string('@'),
+    objc_field('value', alias_rule('_objc_plain_string_literal', 'string_literal')))
+# Only keyword messages can carry additional comma-separated variadic arguments.
+# Preserve each argument's span; the selector does not become a C++ call node.
+objc_message_keywords = rules['objc_message_expression']['members'][2]['members'][1]
+objc_message_argument = objc_message_keywords['content']['members'][2]['content']
+rules['objc_message_expression']['members'][2]['members'][1] = seq(
+    objc_message_keywords, repeat(seq(objc_string(','), objc_field('argument', objc_message_argument))))
+# Complete protocol blocks prevent their method declarations and @end from
+# swallowing following namespaces as a recovered C++ function. Split '@' from
+# keyword tokens so the word lexer rejects prefixes such as @protocolFixture.
+def objc_at(keyword): return seq(objc_string('@'), objc_string(keyword))
+rules['objc_method_declaration'] = seq(choice(objc_string('-'), objc_string('+')),
+    objc_string('('), objc_field('return_type', symbol('type_descriptor')), objc_string(')'),
+    choice(objc_field('selector', symbol('identifier')), {'type': 'REPEAT1', 'content': seq(
+        objc_field('selector', symbol('identifier')), objc_string(':'), objc_string('('),
+        objc_field('parameter_type', symbol('type_descriptor')), objc_string(')'),
+        objc_field('parameter', symbol('identifier')))}), objc_string(';'))
+rules['objc_protocol_declaration'] = seq(objc_at('protocol'), objc_field('name', symbol('identifier')),
+    repeat(choice(objc_at('optional'), objc_at('required'), symbol('objc_method_declaration'))), objc_at('end'))
+rules['_objc_block_item']['members'].append(symbol('objc_protocol_declaration'))
+
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
 scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())

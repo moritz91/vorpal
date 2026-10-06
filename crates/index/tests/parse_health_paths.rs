@@ -116,9 +116,12 @@ fn objc_guard_edits_revalidate_default_cpp_trees_and_products() {
   fs::create_dir_all(&src).unwrap();
   let file = src.join("guarded.cc");
   let positive = "#ifdef __OBJC__
+@protocol ProbeProtocol
+-(void) action;
+@end
 void run(Probe* object) { [object release]; }
 void guarded() { @try { before(); } @catch (Probe* error) { forward([error description]); } }
-namespace Sample { template<class T> struct Wrapper { id stored = [object description]; int count() { id local = [object description]; return [object count] + value(); } }; }
+namespace Sample { template<class T> struct Wrapper { id stored = @\"text\"; int count() { id local = [object format:@\"value\", payload()]; return [object count] + value(); } }; }
 #endif
 void following() { after(); }
 ";
@@ -143,6 +146,10 @@ void following() { after(); }
     fs::write(&file, positive.replace("(Probe* error)", "()")).unwrap();
     assert!(vorpal_index::build_index(&src, &out).unwrap().error_nodes > 0);
     assert!(vorpal_index::parse_health_report(&out).unwrap().contains("1 of 1 files carry ERROR/MISSING nodes"));
+    fs::write(&file, positive).unwrap();
+    assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);
+    fs::write(&file, positive.replace("@protocol ProbeProtocol", "@protocolProbeProtocol")).unwrap();
+    assert!(vorpal_index::build_index(&src, &out).unwrap().error_nodes > 0);
     fs::write(&file, positive).unwrap();
     assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);
     let scratch = root.join("scratch"); vorpal_index::build_index(&src, &scratch).unwrap();

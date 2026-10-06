@@ -815,7 +815,7 @@ class/struct/union bodies, constructors/destructors and directly supported
 function statements preserve existing named kinds through aliases. Binary
 operands retain the ordinary operator precedence/fields. C++ calls inside
 receivers and arguments retain their refs; selectors do not become C++ callees.
-This remains bounded dialect support: Objective-C strings, @finally and other
+This remains bounded dialect support: Objective-C selector/protocol expressions, @finally and other
 unsupported expression/declaration forms remain errors; C++/CLI is separate.
 
 Local @try/@catch rules preserve complete bodies/handlers using existing
@@ -823,13 +823,13 @@ try_statement/catch_clause aliases. Catch requires a nonempty declaration/list
 or ellipsis: Clang rejects empty/comment-only parameters. Missing bodies,
 handlers, parentheses, semicolons, endif groups and wrong/outside/else guards
 retain errors. Ordinary C++ declarations and expression rules are unchanged.
-All 36 Windows/Linux parser regressions, proof/recovery tests, configured replay,
+All 37 Windows/Linux parser regressions, proof/recovery tests, configured replay,
 bucketed/flat default-tree/product cache tests and normal watched MCP tests pass.
 Owned/streaming/scan handoff agree and original call/node spans are checked.
 Native Clang Objective-C++ accepts namespace/template/class fixtures and rejects
 the missing-semicolon control. The unchanged 179-test corpus, native provenance,
 schema and Clippy (including ingest without built-in parsers) pass. Reproduction
-is idempotent; only C++ provenance changes to xxh3:7321be698cc74d20 (ABI 14),
+is idempotent; only C++ provenance changes to xxh3:c2ff3e4cb148e39b (ABI 14),
 with the ASCII lexer fast path preserved. No new visible kind is introduced.
 
 The read-only original-source/AST audit includes 902 tracked C++ paths. This
@@ -889,3 +889,33 @@ semicolons, wrong/outside/else guards and malformed messages as errors. Native
 Clang accepts the initializer fixture and rejects its missing-semicolon control.
 The unchanged corpus, provenance, generated schema and workspace/no-builtins
 Clippy pass. This grammar change introduces no new visible kind.
+
+Complete Objective-C protocol blocks and plain object-string constants have
+local structural kinds under the exact positive guard. Protocol methods retain
+return_type, selector, parameter_type and parameter fields; optional/required
+sections and a mandatory end delimiter remain explicit. Keyword tokens split
+from @ reject protocolFixture/optionally/ending prefixes. Missing delimiters,
+method types/parameters and semicolons remain errors. Object strings retain
+ordinary quoted value/content spans; C++ wide/UTF/raw prefixes are not admitted.
+Only keyword messages admit complete comma-separated variadic arguments, each
+with its original argument field. Protocol declarations/selectors do not invent
+C++ items/callees; native type checking and other dialect forms remain separate.
+
+The original 902-path source/AST audit changes only Catch2: 112 -> 86 ERROR/
+MISSING nodes and 29916 -> 29664 affected bytes, with message nodes 10 -> 19.
+Comparison against the caae3ce persisted product retains all 2317 prior item
+names/kinds/spans and all 3231 prior call-reference names/spans. The restored
+Catch namespace is the only additional item (2318 total); annotationName.c_str()
+and testCaseName.c_str() are the two additional genuine call refs (3233 total).
+Observed AST call expressions increase 3302 -> 3304. stb_image.h stays at 27
+nodes / 7 bytes / 326 entries, and the other 901 AST hashes remain identical.
+All 37 Windows/Linux parser regressions, evidence/recovery, default-tree and
+bucketed/flat product replay, and normal watched MCP tests pass. Cache/MCP
+controls reject protocol keyword prefixes after edits and restore clean health.
+Native Clang accepts the protocol/string/variadic fixture and rejects invalid
+keyword/string prefixes and a comma tail after a unary selector. The unchanged
+corpus, schema, only-C++ provenance, idempotent reproduction and workspace/
+no-builtins Clippy pass. New visible kinds/fields are synchronized with
+schemas/cpp_rule.json; original C++ expression rules remain unchanged.
+The exact caae3ce candidate verifies 1744 paths and reports 26 damaged files /
+152297 bytes (2012 diagnostics); its complete CI is green. It is not installed.

@@ -117,9 +117,12 @@ fn external_header_freshness(watch_rebuild: bool) {
   fs::write(&header, format!("{valid}{literal_conditions}")).unwrap();
   assert!(health(&mut server, 25).contains("parse health: clean"));
   let objc_guard = "#ifdef __OBJC__
+@protocol ProbeProtocol
+-(void) action;
+@end
 void run(Probe* object) { [object release]; }
 void guarded() { @try { before(); } @catch (Probe* error) { forward([error description]); } }
-namespace Sample { template<class T> struct Wrapper { id stored = [object description]; int count() { id local = [object description]; return [object count] + value(); } }; }
+namespace Sample { template<class T> struct Wrapper { id stored = @\"text\"; int count() { id local = [object format:@\"value\", payload()]; return [object count] + value(); } }; }
 #endif
 void following() { target(); }
 void target() {}
@@ -134,6 +137,10 @@ void target() {}
   assert!(health(&mut server, 29).contains("carry ERROR/MISSING nodes"));
   fs::write(src.join("calls.cc"), objc_guard).unwrap();
   assert!(health(&mut server, 30).contains("parse health: clean"));
+  fs::write(src.join("calls.cc"), objc_guard.replace("@protocol ProbeProtocol", "@protocolProbeProtocol")).unwrap();
+  assert!(health(&mut server, 31).contains("carry ERROR/MISSING nodes"));
+  fs::write(src.join("calls.cc"), objc_guard).unwrap();
+  assert!(health(&mut server, 32).contains("parse health: clean"));
 
   // Quiet queries retain the served generation rather than rebuilding forever.
   assert!(health(&mut server, 7).contains("parse health: clean"));

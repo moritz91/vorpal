@@ -1321,6 +1321,7 @@ public:
   id run() { id local = [receiver() relay: payload()]; return local; }
 };
 }
+
 #endif
 void following() { after(); }
 "#;
@@ -1364,6 +1365,97 @@ void following() { after(); }
     lf.replace("description];", "description]"),
     lf.replace("payload()];", "payload() ]"),
     lf.replace("[receiver() description]", "[receiver()]"),
+    lf.replace("#endif\n", ""),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      assert!(SgLang::from_path("guarded.cc").unwrap().grep(&source).root().has_error(), "{source}");
+    }
+  }
+}
+
+#[test]
+fn cpp_guarded_objc_protocols_strings_and_variadic_messages_keep_structure() {
+  let lf = r#"#ifdef __OBJC__
+@protocol Fixture
+@optional
+-(void) setUp;
+-(void) tearDown;
+@required
++(id) create;
+-(void) receive:(id)value forward:(id)other;
+@end
+namespace Sample {
+struct Owner {
+  id stored = @"text";
+  id run() { consume(@ "literal\n"); return [[receiver() alloc] initWithFormat:@"%s", payload(), nested()]; }
+};
+}
+#endif
+void following() { after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    let owner = product.items.iter().find(|item| item.entry.name == "Owner").unwrap();
+    for (name, kind) in [("stored", vorpal_outline::model::SymbolType::Field), ("run", vorpal_outline::model::SymbolType::Method)] {
+      let member = owner.members.iter().find(|member| member.entry.name == name).unwrap();
+      assert_eq!(member.entry.symbol_type, kind);
+      assert!(member.is_public);
+      assert!(source[member.entry.range.byte_offset.clone()].contains(name));
+    }
+    for name in ["receiver", "payload", "nested", "consume", "after"] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), 1, "{name}: {calls:?}");
+      let call = calls[0];
+      let expected = if name == "consume" { "consume(@ \"literal\\n\")".to_owned() } else { format!("{name}()") };
+      assert_eq!(&source[call.start as usize..call.end as usize], expected);
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && matches!(r.name.as_str(), "setUp" | "tearDown" | "create" | "receive" | "forward" | "alloc" | "initWithFormat")));
+    assert!(!product.items.iter().any(|item| item.entry.name == "Fixture" || item.entry.name == "end"));
+    let raw = SgLang::from_path("guarded.cc").unwrap().grep(&source);
+    let protocol = raw.root().dfs().find(|n| n.kind() == "objc_protocol_declaration").unwrap();
+    assert_eq!(protocol.field("name").unwrap().text(), "Fixture");
+    assert_eq!(&source[protocol.range()], protocol.text());
+    let methods: Vec<_> = protocol.dfs().filter(|n| n.kind() == "objc_method_declaration").collect();
+    assert_eq!(methods.len(), 4);
+    assert_eq!(methods[0].field("return_type").unwrap().text(), "void");
+    assert_eq!(methods[3].field("parameter_type").unwrap().text(), "id");
+    assert_eq!(methods[3].field("parameter").unwrap().text(), "value");
+    let literals: Vec<_> = raw.root().dfs().filter(|n| n.kind() == "objc_string_literal").collect();
+    assert_eq!(literals.len(), 3);
+    for literal in literals {
+      assert_eq!(&source[literal.range()], literal.text());
+      assert!(literal.field("value").unwrap().text().starts_with('"'));
+    }
+    let message = raw.root().dfs().find(|n| n.kind() == "objc_message_expression" && n.text().contains("initWithFormat")).unwrap();
+    let arguments: Vec<_> = message.field_children("argument").collect();
+    assert_eq!(arguments.iter().map(|n| n.text().into_owned()).collect::<Vec<_>>(), ["@\"%s\"", "payload()", "nested()"]);
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new(); vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor.extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor.extract_product_from_root("macros.cc", &raw).unwrap();
+    let mut scan = Vec::new(); vorpal_ingest::encode_product_into(&handed, &mut scan);
+    assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace("__OBJC__", "PLATFORM"),
+    lf.replace("#ifdef __OBJC__\n", "").replace("#endif\n", ""),
+    lf.replace("#ifdef __OBJC__", "#ifdef __OBJC__\nvoid ordinary() {}\n#else"),
+    lf.replace("@protocol Fixture", "@protocolFixture"),
+    lf.replace("@optional", "@optionally"),
+    lf.replace("@end", "@ending"),
+    lf.replace("@end\n", ""),
+    lf.replace("setUp;", "setUp"),
+    lf.replace("-(void) setUp;", "-() setUp;"),
+    lf.replace("receive:(id)value", "receive:()value"),
+    lf.replace("@\"text\"", "@L\"text\""),
+    lf.replace("@\"text\"", "@u8\"text\""),
+    lf.replace("@\"text\"", "@R\"(text)\""),
+    lf.replace("@\"text\"", "@\"text"),
+    lf.replace("nested()];", "nested(),];"),
+    lf.replace("initWithFormat:@\"%s\"", "description"),
+    lf.replace("stored = @\"text\";", "stored = @\"text\""),
     lf.replace("#endif\n", ""),
   ] {
     for source in [bad.clone(), bad.replace('\n', "\r\n")] {

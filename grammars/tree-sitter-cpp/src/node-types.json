@@ -792,6 +792,10 @@
           "named": true
         },
         {
+          "type": "objc_string_literal",
+          "named": true
+        },
+        {
           "type": "preproc_defined",
           "named": true
         },
@@ -1106,6 +1110,10 @@
             "named": true
           },
           {
+            "type": "objc_string_literal",
+            "named": true
+          },
+          {
             "type": "preproc_defined",
             "named": true
           }
@@ -1227,6 +1235,10 @@
           },
           {
             "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_string_literal",
             "named": true
           },
           {
@@ -1855,6 +1867,10 @@
           },
           {
             "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_string_literal",
             "named": true
           }
         ]
@@ -2776,6 +2792,10 @@
           "named": true
         },
         {
+          "type": "objc_protocol_declaration",
+          "named": true
+        },
+        {
           "type": "preproc_call",
           "named": true
         },
@@ -3125,6 +3145,10 @@
         {
           "type": "objc_message_expression",
           "named": true
+        },
+        {
+          "type": "objc_string_literal",
+          "named": true
         }
       ]
     }
@@ -3172,6 +3196,10 @@
           },
           {
             "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_string_literal",
             "named": true
           }
         ]
@@ -4321,6 +4349,10 @@
           {
             "type": "objc_message_expression",
             "named": true
+          },
+          {
+            "type": "objc_string_literal",
+            "named": true
           }
         ]
       }
@@ -5005,6 +5037,10 @@
           {
             "type": "objc_message_expression",
             "named": true
+          },
+          {
+            "type": "objc_string_literal",
+            "named": true
           }
         ]
       },
@@ -5019,6 +5055,10 @@
           {
             "type": "objc_message_expression",
             "named": true
+          },
+          {
+            "type": "objc_string_literal",
+            "named": true
           }
         ]
       },
@@ -5028,6 +5068,94 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "objc_method_declaration",
+    "named": true,
+    "fields": {
+      "parameter": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameter_type": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "type_descriptor",
+            "named": true
+          }
+        ]
+      },
+      "return_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_descriptor",
+            "named": true
+          }
+        ]
+      },
+      "selector": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "objc_protocol_declaration",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "objc_method_declaration",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "objc_string_literal",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string_literal",
             "named": true
           }
         ]
@@ -5751,6 +5879,10 @@
           "named": true
         },
         {
+          "type": "objc_protocol_declaration",
+          "named": true
+        },
+        {
           "type": "preproc_call",
           "named": true
         },
@@ -5903,6 +6035,10 @@
           "named": true
         },
         {
+          "type": "objc_protocol_declaration",
+          "named": true
+        },
+        {
           "type": "preproc_call",
           "named": true
         },
@@ -6023,6 +6159,10 @@
         },
         {
           "type": "namespace_definition",
+          "named": true
+        },
+        {
+          "type": "objc_protocol_declaration",
           "named": true
         },
         {
@@ -6242,6 +6382,10 @@
           "named": true
         },
         {
+          "type": "objc_protocol_declaration",
+          "named": true
+        },
+        {
           "type": "preproc_call",
           "named": true
         },
@@ -6391,6 +6535,10 @@
         },
         {
           "type": "namespace_definition",
+          "named": true
+        },
+        {
+          "type": "objc_protocol_declaration",
           "named": true
         },
         {
@@ -6941,6 +7089,10 @@
         },
         {
           "type": "objc_message_expression",
+          "named": true
+        },
+        {
+          "type": "objc_string_literal",
           "named": true
         }
       ]
@@ -8599,6 +8751,10 @@
     "named": false
   },
   {
+    "type": "@",
+    "named": false
+  },
+  {
     "type": "@catch",
     "named": false
   },
@@ -8928,6 +9084,10 @@
     "named": false
   },
   {
+    "type": "end",
+    "named": false
+  },
+  {
     "type": "enum",
     "named": false
   },
@@ -9048,6 +9208,10 @@
     "named": false
   },
   {
+    "type": "optional",
+    "named": false
+  },
+  {
     "type": "or",
     "named": false
   },
@@ -9080,6 +9244,10 @@
     "named": false
   },
   {
+    "type": "protocol",
+    "named": false
+  },
+  {
     "type": "public",
     "named": false
   },
@@ -9093,6 +9261,10 @@
   },
   {
     "type": "register",
+    "named": false
+  },
+  {
+    "type": "required",
     "named": false
   },
   {

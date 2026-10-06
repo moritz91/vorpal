@@ -20548,6 +20548,10 @@
                     },
                     "named": true,
                     "value": "binary_expression"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "objc_string_literal"
                   }
                 ]
               },
@@ -20570,68 +20574,137 @@
               }
             },
             {
-              "type": "REPEAT1",
-              "content": {
-                "type": "SEQ",
-                "members": [
-                  {
-                    "type": "FIELD",
-                    "name": "selector",
-                    "content": {
-                      "type": "SYMBOL",
-                      "name": "identifier"
-                    }
-                  },
-                  {
-                    "type": "STRING",
-                    "value": ":"
-                  },
-                  {
-                    "type": "FIELD",
-                    "name": "argument",
-                    "content": {
-                      "type": "CHOICE",
-                      "members": [
-                        {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "REPEAT1",
+                  "content": {
+                    "type": "SEQ",
+                    "members": [
+                      {
+                        "type": "FIELD",
+                        "name": "selector",
+                        "content": {
+                          "type": "SYMBOL",
+                          "name": "identifier"
+                        }
+                      },
+                      {
+                        "type": "STRING",
+                        "value": ":"
+                      },
+                      {
+                        "type": "FIELD",
+                        "name": "argument",
+                        "content": {
                           "type": "CHOICE",
                           "members": [
                             {
-                              "type": "SYMBOL",
-                              "name": "expression"
+                              "type": "CHOICE",
+                              "members": [
+                                {
+                                  "type": "SYMBOL",
+                                  "name": "expression"
+                                },
+                                {
+                                  "type": "SYMBOL",
+                                  "name": "objc_message_expression"
+                                },
+                                {
+                                  "type": "ALIAS",
+                                  "content": {
+                                    "type": "SYMBOL",
+                                    "name": "_objc_call_expression"
+                                  },
+                                  "named": true,
+                                  "value": "call_expression"
+                                },
+                                {
+                                  "type": "ALIAS",
+                                  "content": {
+                                    "type": "SYMBOL",
+                                    "name": "_objc_binary_expression"
+                                  },
+                                  "named": true,
+                                  "value": "binary_expression"
+                                },
+                                {
+                                  "type": "SYMBOL",
+                                  "name": "objc_string_literal"
+                                }
+                              ]
                             },
                             {
                               "type": "SYMBOL",
                               "name": "objc_message_expression"
-                            },
-                            {
-                              "type": "ALIAS",
-                              "content": {
-                                "type": "SYMBOL",
-                                "name": "_objc_call_expression"
-                              },
-                              "named": true,
-                              "value": "call_expression"
-                            },
-                            {
-                              "type": "ALIAS",
-                              "content": {
-                                "type": "SYMBOL",
-                                "name": "_objc_binary_expression"
-                              },
-                              "named": true,
-                              "value": "binary_expression"
                             }
                           ]
-                        },
-                        {
-                          "type": "SYMBOL",
-                          "name": "objc_message_expression"
                         }
-                      ]
-                    }
+                      }
+                    ]
                   }
-                ]
-              }
+                },
+                {
+                  "type": "REPEAT",
+                  "content": {
+                    "type": "SEQ",
+                    "members": [
+                      {
+                        "type": "STRING",
+                        "value": ","
+                      },
+                      {
+                        "type": "FIELD",
+                        "name": "argument",
+                        "content": {
+                          "type": "CHOICE",
+                          "members": [
+                            {
+                              "type": "CHOICE",
+                              "members": [
+                                {
+                                  "type": "SYMBOL",
+                                  "name": "expression"
+                                },
+                                {
+                                  "type": "SYMBOL",
+                                  "name": "objc_message_expression"
+                                },
+                                {
+                                  "type": "ALIAS",
+                                  "content": {
+                                    "type": "SYMBOL",
+                                    "name": "_objc_call_expression"
+                                  },
+                                  "named": true,
+                                  "value": "call_expression"
+                                },
+                                {
+                                  "type": "ALIAS",
+                                  "content": {
+                                    "type": "SYMBOL",
+                                    "name": "_objc_binary_expression"
+                                  },
+                                  "named": true,
+                                  "value": "binary_expression"
+                                },
+                                {
+                                  "type": "SYMBOL",
+                                  "name": "objc_string_literal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "SYMBOL",
+                              "name": "objc_message_expression"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
             }
           ]
         },
@@ -20678,6 +20751,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 },
@@ -20745,6 +20822,10 @@
                               },
                               "named": true,
                               "value": "binary_expression"
+                            },
+                            {
+                              "type": "SYMBOL",
+                              "name": "objc_string_literal"
                             }
                           ]
                         },
@@ -20843,6 +20924,10 @@
                     },
                     "named": true,
                     "value": "binary_expression"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "objc_string_literal"
                   }
                 ]
               },
@@ -21901,6 +21986,10 @@
           },
           "named": true,
           "value": "declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "objc_protocol_declaration"
         }
       ]
     },
@@ -22019,6 +22108,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     },
@@ -22085,6 +22178,10 @@
                                 },
                                 "named": true,
                                 "value": "binary_expression"
+                              },
+                              {
+                                "type": "SYMBOL",
+                                "name": "objc_string_literal"
                               }
                             ]
                           },
@@ -23383,6 +23480,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23426,6 +23527,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23470,6 +23575,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23513,6 +23622,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23557,6 +23670,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23600,6 +23717,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23644,6 +23765,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23687,6 +23812,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23731,6 +23860,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23774,6 +23907,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23818,6 +23955,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23861,6 +24002,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23905,6 +24050,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23948,6 +24097,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -23992,6 +24145,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24035,6 +24192,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24079,6 +24240,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24122,6 +24287,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24166,6 +24335,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24209,6 +24382,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24253,6 +24430,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24296,6 +24477,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24340,6 +24525,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24383,6 +24572,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24427,6 +24620,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24470,6 +24667,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24514,6 +24715,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24557,6 +24762,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24601,6 +24810,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24644,6 +24857,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24688,6 +24905,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24731,6 +24952,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24775,6 +25000,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24818,6 +25047,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24862,6 +25095,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24905,6 +25142,10 @@
                           },
                           "named": true,
                           "value": "binary_expression"
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "objc_string_literal"
                         }
                       ]
                     }
@@ -24951,6 +25192,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -24994,6 +25239,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25038,6 +25287,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25081,6 +25334,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25125,6 +25382,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25168,6 +25429,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25212,6 +25477,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25255,6 +25524,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25299,6 +25572,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25342,6 +25619,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25386,6 +25667,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25429,6 +25714,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25473,6 +25762,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25516,6 +25809,10 @@
                       },
                       "named": true,
                       "value": "binary_expression"
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "objc_string_literal"
                     }
                   ]
                 }
@@ -25581,6 +25878,10 @@
                         },
                         "named": true,
                         "value": "binary_expression"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "objc_string_literal"
                       }
                     ]
                   }
@@ -25854,6 +26155,10 @@
                                             },
                                             "named": true,
                                             "value": "binary_expression"
+                                          },
+                                          {
+                                            "type": "SYMBOL",
+                                            "name": "objc_string_literal"
                                           }
                                         ]
                                       },
@@ -25954,6 +26259,10 @@
                                                   },
                                                   "named": true,
                                                   "value": "binary_expression"
+                                                },
+                                                {
+                                                  "type": "SYMBOL",
+                                                  "name": "objc_string_literal"
                                                 }
                                               ]
                                             },
@@ -26000,6 +26309,241 @@
         {
           "type": "STRING",
           "value": ";"
+        }
+      ]
+    },
+    "_objc_plain_string_literal": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "\""
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "ALIAS",
+                "content": {
+                  "type": "IMMEDIATE_TOKEN",
+                  "content": {
+                    "type": "PREC",
+                    "value": 1,
+                    "content": {
+                      "type": "PATTERN",
+                      "value": "[^\\\\\"\\n]+"
+                    }
+                  }
+                },
+                "named": true,
+                "value": "string_content"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "escape_sequence"
+              }
+            ]
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "\""
+        }
+      ]
+    },
+    "objc_string_literal": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "@"
+        },
+        {
+          "type": "FIELD",
+          "name": "value",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_objc_plain_string_literal"
+            },
+            "named": true,
+            "value": "string_literal"
+          }
+        }
+      ]
+    },
+    "objc_method_declaration": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "-"
+            },
+            {
+              "type": "STRING",
+              "value": "+"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "FIELD",
+          "name": "return_type",
+          "content": {
+            "type": "SYMBOL",
+            "name": "type_descriptor"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "selector",
+              "content": {
+                "type": "SYMBOL",
+                "name": "identifier"
+              }
+            },
+            {
+              "type": "REPEAT1",
+              "content": {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "FIELD",
+                    "name": "selector",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "identifier"
+                    }
+                  },
+                  {
+                    "type": "STRING",
+                    "value": ":"
+                  },
+                  {
+                    "type": "STRING",
+                    "value": "("
+                  },
+                  {
+                    "type": "FIELD",
+                    "name": "parameter_type",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "type_descriptor"
+                    }
+                  },
+                  {
+                    "type": "STRING",
+                    "value": ")"
+                  },
+                  {
+                    "type": "FIELD",
+                    "name": "parameter",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "identifier"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": ";"
+        }
+      ]
+    },
+    "objc_protocol_declaration": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "@"
+            },
+            {
+              "type": "STRING",
+              "value": "protocol"
+            }
+          ]
+        },
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "STRING",
+                    "value": "@"
+                  },
+                  {
+                    "type": "STRING",
+                    "value": "optional"
+                  }
+                ]
+              },
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "STRING",
+                    "value": "@"
+                  },
+                  {
+                    "type": "STRING",
+                    "value": "required"
+                  }
+                ]
+              },
+              {
+                "type": "SYMBOL",
+                "name": "objc_method_declaration"
+              }
+            ]
+          }
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "@"
+            },
+            {
+              "type": "STRING",
+              "value": "end"
+            }
+          ]
         }
       ]
     }
