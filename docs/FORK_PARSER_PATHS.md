@@ -994,5 +994,38 @@ idempotent reproduction and workspace/no-builtins Clippy pass. No new visible
 kind is introduced. This does not turn tree-sitter into a compiler/type checker.
 The exact aba00d1 candidate verifies 1744 paths / 64023 nodes and normal MCP
 reports 26 damaged files / 151982 bytes (1977 diagnostics); full CI is green.
-The previous binary's false-clean namespace-message product is retained in an
-external migration fixture for validating the changed grammar identity.
+The exact 35ca69b candidate has the same verified normal-MCP counts and full
+green CI (37470128426). With unchanged source, its changed grammar identity
+reparses the previous false-clean namespace-message product: normal MCP retains
+the syntax error and following function; warm replay and scratch generations
+match. The migration fixture remains outside both checkouts.
+
+
+An exact #ifndef __OBJC__ with a complete #else arm now supplies the guarded
+Objective-C context only in that else arm. The first arm remains ordinary C++;
+separate declaration/body rules retain preproc_ifdef and preproc_else aliases,
+original guard/alternative spans and function bodies through nested groups.
+Wrong/prefix names, elif alternatives, extra else-line tokens, messages in the
+first arm or directly in namespace scope, and missing semicolons/guards remain
+errors. Native Clang accepts both language variants of the positive fixture and
+rejects the C++ first-arm and Objective-C namespace negatives. No condition is
+evaluated and no new visible kind is introduced.
+The 902-path source/AST audit changes only Catch2's guard structure; its 77
+ERROR/MISSING nodes, 29601 damaged bytes, 21 messages and 3302 C++ calls are
+unchanged. Comparison against the persisted 35ca69b product retains all 2318 item
+names/kinds/spans, 1630 member names/kinds/access/spans and 3231 call-reference
+names/spans. All other 901 AST hashes match. All 42 Windows/Linux parser
+regressions, evidence/recovery, bucketed/flat replay and normal watched MCP tests
+pass. Guard edits and malformed else lines revalidate health; restoration is
+clean. The unchanged corpus, schema, idempotent reproduction, only-C++ provenance
+and workspace/no-builtins Clippy pass. The generated C parser grows from
+43702756 to 47815016 bytes (18920 to 20076 states); generation adds no conflicts.
+This extension does not repair Catch2's remaining split-function main prefix.
+
+A read-only native MSVC /E /d1PP invocation using the existing Windows-fast
+compile database successfully preprocesses the unchanged binary serialization
+test translation unit. It records ASSERT's actual two-parameter if/throw
+replacement and the TEST/TEST_CALL forms. Source, database and invocation hashes
+and output remain in external audit artifacts. This establishes the selected
+compiler experiment, not source-interval recovery evidence: the macro-stack
+trace limitation remains, and no compiler backend or productive binary is changed.

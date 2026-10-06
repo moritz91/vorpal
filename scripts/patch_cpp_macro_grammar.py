@@ -591,7 +591,8 @@ if conflict not in grammar['conflicts']:
 
 # Objective-C++ message syntax is local to the positive arm of an explicit
 # #ifdef __OBJC__ group. Ordinary C++ expression rules and the external scanner
-# are unchanged; the else/elif arms outside an enclosing ObjC scope stay C++.
+# are unchanged; ordinary else/elif arms stay C++. A separate exact negative
+# guard below admits its complete else arm with declaration/body boundaries.
 def objc_copy(node, replacements):
     if isinstance(node, list):
         return [objc_copy(value, replacements) for value in node]
@@ -606,7 +607,8 @@ def objc_string(value): return {'type': 'STRING', 'value': value}
 objc_guard = alias_rule('_explicit_objc_guard', 'preproc_ifdef')
 # On a second run do not copy our global entry point back into local bodies.
 objc_base_items = json.loads(json.dumps(rules['_block_item']))
-objc_base_items['members'] = [member for member in objc_base_items['members'] if member != objc_guard]
+objc_base_items['members'] = [member for member in objc_base_items['members']
+    if member not in [objc_guard, alias_rule('_explicit_objc_inverse_body_guard', 'preproc_ifdef')]]
 objc_expression = symbol('objc_message_expression')
 rules['objc_message_expression'] = seq(objc_string('['),
     objc_field('receiver', choice(symbol('expression'), objc_expression)),
@@ -908,6 +910,28 @@ for conflict in [
 ]:
     if conflict not in grammar['conflicts']:
         grammar['conflicts'].append(conflict)
+
+# An exact negative dialect guard can expose Objective-C only in its complete
+# else arm. Keep the first arm ordinary C++ and distinguish declaration/body
+# contexts. No elif branch or condition evaluation supplies this dialect context.
+for context, ordinary, dialect, entry in [
+    ('top', '_top_level_item', '_objc_top_level_item', '_top_level_item'),
+    ('body', '_block_item', '_objc_body_item', '_block_item'),
+]:
+    alternative = json.loads(json.dumps(rules['preproc_else']))
+    alternative['content']['members'][1]['content'] = symbol(dialect)
+    alternative['content']['members'].insert(1, objc_string(chr(10)))
+    alternative_name = '_objc_inverse_' + context + '_else'
+    rules[alternative_name] = alternative
+    members = json.loads(json.dumps(rules['_explicit_objc_top_guard']['members']))
+    members[0] = json.loads(json.dumps(objc_ifdef[0]['members'][1]))
+    members[3]['content'] = symbol(ordinary)
+    members[4] = objc_field('alternative', alias_rule(alternative_name, 'preproc_else'))
+    guard_name = '_explicit_objc_inverse_' + context + '_guard'
+    rules[guard_name] = {'type': 'SEQ', 'members': members}
+    guard_alias = alias_rule(guard_name, 'preproc_ifdef')
+    if guard_alias not in rules[entry]['members']:
+        rules[entry]['members'].append(guard_alias)
 
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'

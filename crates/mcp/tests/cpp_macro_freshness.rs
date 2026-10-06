@@ -158,6 +158,19 @@ void target() {}
   fs::write(src.join("calls.cc"), objc_guard).unwrap();
   assert!(health(&mut server, 40).contains("parse health: clean"));
 
+  let inverse = "#ifndef __OBJC__\nvoid ordinary() { before(); }\n#else\nvoid guarded() { [object release]; }\n#endif\nvoid following() { after(); }\n";
+  fs::write(src.join("calls.cc"), inverse).unwrap();
+  assert!(health(&mut server, 41).contains("parse health: clean"));
+  fs::write(src.join("calls.cc"), inverse.replace("__OBJC__", "PLATFORM")).unwrap();
+  assert!(health(&mut server, 42).contains("carry ERROR/MISSING nodes"));
+  fs::write(src.join("calls.cc"), inverse).unwrap();
+  assert!(health(&mut server, 43).contains("parse health: clean"));
+  fs::write(src.join("calls.cc"), inverse.replace("#else", "#else junk")).unwrap();
+  assert!(health(&mut server, 44).contains("carry ERROR/MISSING nodes"));
+  fs::write(src.join("calls.cc"), objc_guard).unwrap();
+  assert!(health(&mut server, 45).contains("parse health: clean"));
+
+
   // Quiet queries retain the served generation rather than rebuilding forever.
   assert!(health(&mut server, 7).contains("parse health: clean"));
   drop(server);

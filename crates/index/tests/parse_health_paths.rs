@@ -168,6 +168,15 @@ void following() { after(); }
     assert!(vorpal_index::build_index(&src, &out).unwrap().error_nodes > 0);
     fs::write(&file, positive).unwrap();
     assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);
+    let inverse = "#ifndef __OBJC__\nvoid ordinary() { before(); }\n#else\nvoid guarded() { [object release]; }\n#endif\nvoid following() { after(); }\n";
+    fs::write(&file, inverse).unwrap();
+    assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);
+    fs::write(&file, inverse.replace("__OBJC__", "PLATFORM")).unwrap();
+    assert!(vorpal_index::build_index(&src, &out).unwrap().error_nodes > 0);
+    fs::write(&file, inverse).unwrap();
+    assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);
+    fs::write(&file, positive).unwrap();
+    assert_eq!(vorpal_index::build_index(&src, &out).unwrap().error_nodes, 0);
     let scratch = root.join("scratch"); vorpal_index::build_index(&src, &scratch).unwrap();
     assert_eq!(fs::read(out.join("CURRENT")).unwrap(), fs::read(scratch.join("CURRENT")).unwrap());
   }

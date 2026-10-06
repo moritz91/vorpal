@@ -1709,3 +1709,71 @@ void following() { after(); }
     }
   }
 }
+
+#[test]
+fn cpp_inverse_objc_guard_preserves_else_spans_and_body_boundaries() {
+  let lf = r#"
+#ifndef __OBJC__
+namespace Ordinary { void run() { normal(); } }
+#else
+@protocol Probe
+- (id)description;
+@end
+namespace Dialect {
+  void run() {
+#if FEATURE
+    consume([receiver() description]);
+#endif
+  }
+}
+#endif
+void nested() {
+#ifndef __OBJC__
+  ordinary();
+#else
+  consume([receiver() description]);
+#endif
+}
+void following() { after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    let following = product.items.iter().find(|i| i.entry.name == "following").unwrap();
+    assert_eq!(&source[following.entry.range.byte_offset.clone()], "void following() { after(); }");
+    let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == "receiver").collect();
+    assert_eq!(calls.len(), 2);
+    for call in calls { assert_eq!(&source[call.start as usize..call.end as usize], "receiver()"); }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && r.name == "description"));
+    let raw = SgLang::from_path("inverse.cc").unwrap().grep(&source);
+    let groups: Vec<_> = raw.root().dfs().filter(|n| n.kind().as_ref() == "preproc_ifdef" && n.field("name").is_some_and(|f| f.text() == "__OBJC__")).collect();
+    assert_eq!(groups.len(), 2);
+    for group in groups {
+      let alternative = group.field("alternative").unwrap();
+      assert_eq!(alternative.kind().as_ref(), "preproc_else");
+      assert!(alternative.text().starts_with("#else"));
+      assert!(alternative.text().contains("consume([receiver() description]);"));
+    }
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new(); vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new(); extractor.extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor.extract_product_from_root("macros.cc", &raw).unwrap();
+    let mut scan = Vec::new(); vorpal_ingest::encode_product_into(&handed, &mut scan); assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace("__OBJC__", "PLATFORM"),
+    lf.replace("__OBJC__", "__OBJC__EXTRA"),
+    lf.replace("#else", "#elif defined(__OBJC__)"),
+    lf.replace("#else", "#else junk"),
+    lf.replace("consume([receiver() description]);", "consume([receiver() description])"),
+    lf.replace("normal();", "[receiver() description];"),
+    lf.replace("namespace Dialect {", "namespace Dialect { [receiver() description];"),
+    lf.replace("#endif\nvoid nested", "void nested"),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      let raw = SgLang::from_path("inverse.cc").unwrap().grep(&source);
+      assert!(raw.root().has_error(), "{source}");
+      assert!(OutlineExtractor::new().unwrap().extract_product("inverse.cc", &source).unwrap().error_nodes > 0, "{source}");
+    }
+  }
+}

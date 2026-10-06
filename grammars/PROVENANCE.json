@@ -84,10 +84,11 @@
       "Scoped Objective-C selector metadata preserves original labels and spans without runtime callee nodes under exact positive guards; global C++ expressions remain unchanged.",
       "Named dotted fields rooted in guarded Objective-C messages preserve ordinary field_expression aliases and original spans without broadening global C++ member/template rules.",
       "Guarded Objective-C constructor member-initializer arguments retain field_initializer/list and argument_list aliases with original message/call spans; global C++ declarations remain unchanged.",
-      "Separate guarded Objective-C declaration/body contexts reject standalone dialect statements in files/namespaces and retain nested function-body preprocessor contexts; upstream C++ fragment rules are unchanged."
+      "Separate guarded Objective-C declaration/body contexts reject standalone dialect statements in files/namespaces and retain nested function-body preprocessor contexts; upstream C++ fragment rules are unchanged.",
+      "Exact #ifndef __OBJC__ guards retain an ordinary C++ first arm and a complete Objective-C else arm in separate declaration/body contexts; original preproc aliases and spans are retained without condition evaluation."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:50fe6538af63e1ae",
+    "source_digest": "xxh3:b838eb7147d89575",
     "version": "0.23.4"
   },
   "tree-sitter-css": {
