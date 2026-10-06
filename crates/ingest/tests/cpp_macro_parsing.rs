@@ -1236,3 +1236,70 @@ void following() { after(); }
     }
   }
 }
+
+#[test]
+fn cpp_guarded_objc_class_templates_and_binary_operands_preserve_spans() {
+  let lf = r#"#ifdef __OBJC__
+namespace Sample {
+template<class T> struct Wrapper {
+  Wrapper() { [receiver() release]; }
+  ~Wrapper() { [receiver() release]; }
+  id run() { return forward([receiver() description]); }
+  int count() { return [receiver() count] + value(); }
+  template<class U> id again(U) { return [receiver() relay: payload()]; }
+};
+}
+#endif
+void following() { after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["Wrapper", "following"] {
+      assert!(product.items.iter().any(|item| item.entry.name == name), "{name}: {:?}", product.items);
+    }
+    let wrapper = product.items.iter().find(|item| item.entry.name == "Wrapper").unwrap();
+    for name in ["Wrapper", "~Wrapper", "run", "count", "again"] {
+      let member = wrapper.members.iter().find(|member| member.entry.name == name).unwrap();
+      assert!(source[member.entry.range.byte_offset.clone()].contains(name));
+    }
+    for (name, count) in [("receiver", 5), ("forward", 1), ("value", 1), ("payload", 1), ("after", 1)] {
+      let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+      assert_eq!(calls.len(), count, "{name}: {calls:?}");
+      for call in calls {
+        let text = &source[call.start as usize..call.end as usize];
+        assert!(text.starts_with(&format!("{name}(")) && text.ends_with(')'), "{text}");
+      }
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0 && matches!(r.name.as_str(), "release" | "description" | "count" | "relay")));
+    let raw = SgLang::from_path("guarded.cc").unwrap().grep(&source);
+    assert_eq!(raw.root().dfs().filter(|n| n.kind() == "objc_message_expression").count(), 5);
+    for kind in ["namespace_definition", "template_declaration", "struct_specifier", "field_declaration_list", "binary_expression"] {
+      let node = raw.root().dfs().find(|n| n.kind() == kind).unwrap();
+      assert_eq!(&source[node.range()], node.text());
+    }
+    let binary = raw.root().dfs().find(|n| n.kind() == "binary_expression").unwrap();
+    assert_eq!(binary.field("left").unwrap().text(), "[receiver() count]");
+    assert_eq!(binary.field("right").unwrap().text(), "value()");
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new(); vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor.extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed).unwrap();
+    assert_eq!(owned, streamed);
+    let scan = extractor.extract_product_from_root("macros.cc", &raw).unwrap();
+    let mut handed = Vec::new(); vorpal_ingest::encode_product_into(&scan, &mut handed);
+    assert_eq!(owned, handed);
+  }
+  for bad in [
+    lf.replace("__OBJC__", "PLATFORM"),
+    lf.replace("#ifdef __OBJC__\n", "").replace("#endif\n", ""),
+    lf.replace("#ifdef __OBJC__", "#ifdef __OBJC__\nvoid ordinary() {}\n#else"),
+    lf.replace("description]);", "description])"),
+    lf.replace("[receiver() count]", "[receiver()]"),
+    lf.replace("payload()", "payload("),
+    lf.replace("#endif\n", ""),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      assert!(SgLang::from_path("guarded.cc").unwrap().grep(&source).root().has_error(), "{source}");
+    }
+  }
+}

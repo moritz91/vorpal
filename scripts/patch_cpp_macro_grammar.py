@@ -689,6 +689,64 @@ for conflict in [['type_specifier', 'call_expression', '_objc_call_expression'],
     if conflict not in grammar['conflicts']:
         grammar['conflicts'].append(conflict)
 
+# Carry the explicit dialect context through namespaces, templates and class
+# bodies. Copy only local rules; global C++ declarations/expressions stay intact.
+objc_named = ['class_specifier', 'struct_specifier', 'union_specifier',
+    'field_declaration_list', 'declaration', 'template_declaration',
+    'namespace_definition', 'declaration_list']
+objc_hidden = ['_class_declaration', '_class_declaration_item',
+    '_field_declaration_list_item', '_declaration_specifiers', 'type_specifier',
+    '_empty_declaration']
+objc_class_rules = {name: alias_rule('_objc_' + name, name) for name in objc_named}
+objc_class_rules.update({name: symbol('_objc_' + name.lstrip('_')) for name in objc_hidden})
+objc_class_rules['function_definition'] = alias_rule('_objc_function_definition', 'function_definition')
+for name in ['inline_method_definition', 'constructor_or_destructor_definition', 'operator_cast_definition']:
+    rules['_objc_' + name] = objc_copy(rules[name], {
+        'compound_statement': alias_rule('_objc_compound_statement', 'compound_statement')})
+    objc_class_rules[name] = symbol('_objc_' + name)
+objc_class_rules['_block_item'] = symbol('_objc_block_item')
+for name in objc_named + objc_hidden:
+    rules['_objc_' + name.lstrip('_')] = objc_copy(rules[name], objc_class_rules)
+rules['_objc_block_item'] = objc_copy(rules['_objc_block_item'], objc_class_rules)
+rules['_objc_body_item'] = objc_copy(rules['_objc_body_item'], {
+    '_empty_declaration': symbol('_objc_empty_declaration')})
+
+# Binary operators retain the ordinary precedence/fields while allowing message
+# operands locally. Calls and argument lists use the same structural expression.
+objc_local_expression = choice(symbol('expression'), objc_expression,
+    alias_rule('_objc_call_expression', 'call_expression'),
+    alias_rule('_objc_binary_expression', 'binary_expression'))
+rules['_objc_binary_expression'] = objc_copy(rules['binary_expression'], {
+    'expression': objc_local_expression})
+for name in ['expression_statement', 'return_statement', 'condition_clause', 'argument_list']:
+    rules['_objc_' + name] = objc_copy(rules[name], {'expression': objc_local_expression})
+rules['objc_message_expression'] = objc_copy(rules['objc_message_expression'], {
+    'expression': objc_local_expression})
+for conflict in [['type_specifier', 'call_expression', '_objc_call_expression', '_objc_type_specifier'],
+ ['type_specifier', '_objc_type_specifier'],
+ ['_declarator', 'type_specifier', 'expression', '_objc_type_specifier'],
+ ['type_specifier', 'expression', '_objc_type_specifier'],
+ ['_declarator', 'type_specifier', '_objc_type_specifier'],
+ ['type_specifier', 'sdk_call_modifier', '_objc_type_specifier'],
+ ['_class_declaration_item', '_objc_class_declaration_item'],
+ ['_field_declaration_list_item', '_objc_field_declaration_list_item'],
+ ['field_declaration_list', '_objc_field_declaration_list'],
+ ['binary_expression', '_objc_binary_expression'],
+ ['constructor_or_destructor_definition', '_objc_constructor_or_destructor_definition'],
+ ['operator_cast_definition', '_objc_operator_cast_definition'],
+ ['template_declaration', '_objc_template_declaration'],
+ ['inline_method_definition', '_objc_inline_method_definition'],
+ ['compound_statement', '_objc_compound_statement'],
+ ['_block_item', '_objc_body_item'],
+ ['_block_item', 'statement', '_objc_non_case_statement', '_objc_body_item'],
+ ['statement', '_objc_non_case_statement'],
+ ['statement', '_objc_statement'],
+ ['return_statement', '_objc_return_statement'],
+ ['function_definition', '_objc_function_definition'],
+ ['expression', '_objc_type_specifier']]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
 scanner.write_bytes((Path(__file__).parent / 'cpp_statement_macro_scanner.c').read_bytes())

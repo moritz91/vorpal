@@ -1102,6 +1102,10 @@
             "named": true
           },
           {
+            "type": "objc_message_expression",
+            "named": true
+          },
+          {
             "type": "preproc_defined",
             "named": true
           }
@@ -1219,6 +1223,10 @@
         "types": [
           {
             "type": "expression",
+            "named": true
+          },
+          {
+            "type": "objc_message_expression",
             "named": true
           },
           {

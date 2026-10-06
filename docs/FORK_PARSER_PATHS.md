@@ -806,74 +806,40 @@ The exact ab62947 candidate likewise verifies 1744 paths with 26 damaged files /
 retry. The unchanged local Linux workspace suite also passes. Neither candidate
 is installed.
 
-Bare Objective-C++ message expressions now have structural, local grammar rules
-only in the positive arm of an exact #ifdef __OBJC__ group. The directive head
-must end at its newline; outside this context its else/elif alternatives remain
-ordinary C++. No condition is evaluated and no mutable scanner mode is added.
-The visible objc_message_expression retains receiver, selector and argument
-fields and original spans. Existing function/statement/preprocessor kinds use
-aliases. C++ calls within receivers/arguments retain their graph edges, while
-Objective-C selectors do not become C++ runtime callees. This is bounded support
-for free-function bodies and directly supported statements, not a complete
-Objective-C++ dialect: class/template methods, message combinations within
-ordinary expressions, Objective-C strings and @try/@catch remain unsupported.
-C++/CLI remains a separate parser boundary.
+Objective-C++ message expressions have structural local grammar rules only in
+an exact positive #ifdef __OBJC__ arm. The head must end at its newline; else/elif
+outside that dialect context remain ordinary C++. No condition is evaluated,
+source masked or mutable scanner mode added. The objc_message_expression kind
+retains original receiver/selector/argument spans. Local namespaces, templates,
+class/struct/union bodies, constructors/destructors and directly supported
+function statements preserve existing named kinds through aliases. Binary
+operands retain the ordinary operator precedence/fields. C++ calls inside
+receivers and arguments retain their refs; selectors do not become C++ callees.
+This remains bounded dialect support: Objective-C strings, @finally and other
+unsupported expression/declaration forms remain errors; C++/CLI is separate.
 
-The unchanged 179-test corpus and 33 Windows/Linux parser regressions pass.
-LF/CRLF positives and malformed/outside/else/negative-guard controls retain
-owned/streaming/scan parity. Same-length guard edits and restoration pass default
-C++ tree/product cache tests in bucketed/flat layouts; stored health remains
-damaged on whole-tree reuse (its report counts only newly processed parses).
-Normal watched MCP tests cover both rebuild modes. Native Clang Objective-C++
-accepts the positive fixture and rejects a missing semicolon; MSVC rejects the
-same message syntax in ordinary C++. Native provenance, schema and Clippy pass;
-only C++ provenance changes, with ABI 14 and the ASCII lexer fast path retained.
-The patch script remains idempotent. In a read-only source/AST-hash audit of 902
-tracked C++ paths, only Catch2 changes: 135 -> 124 ERROR/MISSING nodes and
-30195 -> 30007 affected bytes, all 2317 extracted entries retained. The other
-901 source/AST hashes are identical; stb_image.h retains 27 errors / 7 affected
-bytes and all 326 entries. The installed release/tunnel are untouched.
+Local @try/@catch rules preserve complete bodies/handlers using existing
+try_statement/catch_clause aliases. Catch requires a nonempty declaration/list
+or ellipsis: Clang rejects empty/comment-only parameters. Missing bodies,
+handlers, parentheses, semicolons, endif groups and wrong/outside/else guards
+retain errors. Ordinary C++ declarations and expression rules are unchanged.
+All 35 Windows/Linux parser regressions, proof/recovery tests, configured replay,
+bucketed/flat default-tree/product cache tests and normal watched MCP tests pass.
+Owned/streaming/scan handoff agree and original call/node spans are checked.
+Native Clang Objective-C++ accepts namespace/template/class fixtures and rejects
+the missing-semicolon control. The unchanged 179-test corpus, native provenance,
+schema and Clippy (including ingest without built-in parsers) pass. Reproduction
+is idempotent; only C++ provenance changes to xxh3:f4e6e5432e3cf4b2 (ABI 14),
+with the ASCII lexer fast path preserved. No new visible kind is introduced.
 
-
-Scoped Objective-C exception statements and message arguments also retain the
-same explicit guard boundary. @try/@catch are structural copies of complete
-C++ try/catch rules, with existing try_statement/catch_clause aliases and bodies.
-Local C++ call/argument aliases permit message arguments and nested calls; no
-global expression rule or scanner state changes. Missing handlers, parentheses,
-semicolons, bodies or endif groups retain syntax errors, as do unguarded/else
-controls. Objective-C strings, @finally, class/template methods, and general
-message-containing binary expressions remain unsupported.
-All 34 Windows/Linux parser tests, proof/recovery, bucketed/flat default-cache
-and configured replay, and normal watched MCP tests pass. Receiver/argument
-calls retain exact source spans; selectors do not become C++ runtime callees.
-Owned, streaming and scan handoff agree. Native Clang Objective-C++ accepts the
-positive exception fixture and rejects its missing-semicolon control. The
-unchanged 179-test corpus, native C++ provenance, schema, Clippy and no-built-in
-ingest check pass; reproduction is idempotent. The C++ source digest is
-xxh3:cc2fcb11ad3b28da, ABI 14; other provenance entries and the ASCII fast path
-remain unchanged. A 902-path source/AST audit changes only Catch2 again:
-124 -> 118 ERROR/MISSING nodes and 30007 -> 29982 affected bytes, with unchanged
-3302 observed C++ calls and all 2317 extracted entries. The other 901 hashes
-are identical and stb_image.h retains all 326 entries.
-The exact 3f5649c external candidate verifies 1744 paths and its normal MCP
-health query reports 26 damaged files / 152388 bytes. Windows CI is green;
-Linux and encoder jobs are awaiting runners. This candidate is not installed.
-
-
-The local Objective-C catch parameter rule requires a nonempty declaration/list
-or ellipsis, retaining the existing parameter_list alias. Clang rejects an
-empty/comment-only catch, so those forms must not inherit ordinary C++'s empty
-parameter-list recovery as false-clean Objective-C syntax. LF/CRLF negatives,
-default tree/product health and normal watched MCP source edits cover this
-boundary. All 902 original source/AST hashes remain identical to bb44ecd.
-The bb44ecd external candidate verifies 1744 paths and normal MCP reports
-26 damaged files / 152363 bytes; Windows CI passes. Linux workspace Clippy and
-the complete local workspace test suite pass for that exact head. The hosted
-Linux test job later receives a runner shutdown/exit 143 after passing assertions,
-so its full CI is not green; this is an infrastructure interruption, not a
-reported assertion failure. No candidate
-is installed. The nonempty catch correction changes only C++ provenance to
-xxh3:238a5d68a564d489 (ABI 14), preserving the ASCII fast path.
+The read-only original-source/AST audit includes 902 tracked C++ paths. This
+class/template/binary extension changes only Catch2: 118 -> 114 ERROR/MISSING
+nodes and 29982 -> 29937 affected bytes, with 3302 observed C++ call expressions
+unchanged and all 2317 extracted entries retained. The other 901 source/AST hashes remain identical. The latest verified
+external candidate cb50aa8 covers 1744 paths and normal MCP reports 26 damaged
+files / 152363 bytes. Its full CI is green after infrastructure cancellations
+were rerun. The class extension has not yet been built into that candidate.
+The productive release and tunnel remain untouched.
 
 A bounded read-only native MSVC /E /d1PP experiment reports define/undef events,
 but omits push_macro/pop_macro operations and the restored macro definition.
