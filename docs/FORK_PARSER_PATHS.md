@@ -1317,3 +1317,41 @@ the complete pointer/template/local-record outline fixtures with LF/CRLF.
 Windows CI now also runs c_family_outline_rules (the release gate already does);
 Actionlint passes. The grammar, schema and provenance are unchanged since b6d53dc.
 No productive binary, index or tunnel is installed by this change.
+
+
+The exact 290e5d1 external candidate verifies 1744 files / 64040 nodes. Its
+normal MCP health is 26 damaged files / 1962 ERROR/MISSING/context diagnostics /
+123161 bytes; full CI 37644140751 is green. The productive .2 server is unchanged.
+
+Return-only conditional logical suffixes now preserve the original left value,
+complete #if/#ifdef/#ifndef groups and each logical right operand. The grammar
+requires real directive line endings and the final semicolon. No else/elif arms,
+general expressions, branch evaluation or source rewriting are introduced.
+The generated conditional_logical_expression kind and preproc operator/right
+fields are reflected in the C++ schema/provenance. Reproduction removes its own
+prior return alternative before deriving Objective-C returns, keeping that
+separate dialect boundary stable. The parser is 53770909 bytes / 21347 states;
+Cpp source digest is xxh3:501fa1831f6bac8b.
+
+Ordinary root functions may retain entering statement-macro evidence only when
+every directive belongs to a complete, clean logical suffix group. An independent
+original-span inventory must exactly match both directives and group boundaries;
+conditions must not expand macros. Unknown includes, define/undef mutations,
+malformed groups, expanding guards and namespace containers still decline proof.
+Evidence v19 / opt-in product v18 invalidate old proof products. Other function
+metadata remains opaque. No Hades ASSERT success is claimed across opaque includes.
+
+The 902-file source AST comparison changes only Catch2: 62 -> 60 ERROR/MISSING
+nodes / 780 -> 763 bytes, retaining all 24 Objective-C messages and 3312 C++ AST
+calls. Every other AST hash matches. Product comparison with exact 290e5d1 retains
+2337 items, 1626 members and all 3240 unique runtime call names/spans; full
+reference rows and outline signatures have no changes. Native MSVC accepts LF/CRLF
+fixtures with the guard defined and undefined and rejects the active malformed
+suffix. Windows/Linux parser (50), recovery (38), evidence (28/29), owned/streaming/
+scan parity, bucketed/flat replay, member-call/health, 14 native resolver checks,
+corpus, schema generation, provenance, reproduction and Clippy gates are checked.
+Six watched MCP tests include this return/macro combination with original sites
+for every guarded operand and argument call. Both newline styles and background
+rebuild settings invalidate same-length external header edits with restored
+timestamps, then restore the proven sites. No productive binary/index/tunnel is
+installed by this change.

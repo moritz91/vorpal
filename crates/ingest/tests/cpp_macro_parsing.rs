@@ -2447,3 +2447,110 @@ void following() { after(); }
     );
   }
 }
+
+#[test]
+fn conditional_return_logical_suffixes_keep_calls_and_original_guards() {
+  let lf = r#"bool base(int); bool extra(int); int compute(); bool last();
+bool run(int value) {
+ return base(value)
+#ifdef ON
+ || extra(compute())
+#endif
+#if defined(SECOND)
+ && last()
+#endif
+ ;
+}
+void following() { after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let raw = SgLang::from_path("macros.cc").unwrap().grep(&source);
+    assert!(!raw.root().has_error());
+    let node = raw
+      .root()
+      .dfs()
+      .find(|v| v.kind() == "conditional_logical_expression")
+      .unwrap();
+    assert_eq!(node.field("left").unwrap().text(), "base(value)");
+    let groups: Vec<_> = node
+      .children()
+      .filter(|n| matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef"))
+      .collect();
+    assert_eq!(groups.len(), 2);
+    assert_eq!(groups[0].field("name").unwrap().text(), "ON");
+    assert_eq!(groups[0].field("operator").unwrap().text(), "||");
+    assert_eq!(groups[0].field("right").unwrap().text(), "extra(compute())");
+    assert_eq!(
+      groups[1].field("condition").unwrap().text(),
+      "defined(SECOND)"
+    );
+    let extractor = OutlineExtractor::new().unwrap();
+    let product = extractor.extract_product("macros.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    for (name, call) in [
+      ("base", "base(value)"),
+      ("extra", "extra(compute())"),
+      ("compute", "compute()"),
+      ("last", "last()"),
+      ("after", "after()"),
+    ] {
+      let refs: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(refs.len(), 1, "{name}: {:?}", product.refs);
+      assert_eq!(&source[refs[0].start as usize..refs[0].end as usize], call);
+      let expected = product
+        .items
+        .iter()
+        .find(|i| i.entry.name == if name == "after" { "following" } else { "run" })
+        .unwrap();
+      let owner = 1
+        + product
+          .items
+          .iter()
+          .take_while(|i| i.entry.range != expected.entry.range)
+          .map(|i| 1 + i.members.len())
+          .sum::<usize>();
+      assert_eq!(refs[0].from_entity_index as usize, owner);
+    }
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && matches!(r.name.as_str(), "ON" | "SECOND" | "defined"))
+    );
+    let mut owned = Vec::new();
+    vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor
+      .extract_product_from_root("macros.cc", &raw)
+      .unwrap();
+    let mut scan = Vec::new();
+    vorpal_ingest::encode_product_into(&handed, &mut scan);
+    assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace(" ;", " "),
+    lf.replace("|| extra(compute())", "||"),
+    lf.replace("|| extra(compute())", "extra(compute())"),
+    lf.replace("#ifdef ON", "#ifdef ON junk"),
+    lf.replace("#endif", "//gone"),
+    lf.replace("base(value)", "base(value);"),
+    lf.replace("after();", "after()"),
+  ] {
+    assert!(
+      SgLang::from_path("macros.cc")
+        .unwrap()
+        .grep(&bad)
+        .root()
+        .has_error(),
+      "{bad}"
+    );
+  }
+}

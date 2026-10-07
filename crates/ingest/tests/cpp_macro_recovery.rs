@@ -1559,3 +1559,116 @@ void following() { after(); }
     assert!(product.error_nodes > 0);
   }
 }
+
+#[test]
+fn conditional_return_suffixes_preserve_proven_statement_arguments() {
+  use vorpal_core::Language;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let lf = r#"#define CHECK(v) { sink(v); }
+bool base(); bool extra(); int value();
+bool run() {
+ CHECK(value())
+ return base()
+#ifdef ON
+ || extra()
+#endif
+ ;
+}
+void following() { after(); }
+"#;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("logical.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.macro_spans.len(), 1);
+    assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+    let product = extractor.extract_product("logical.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    for name in ["value", "base", "extra", "after"] {
+      let refs: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(refs.len(), 1);
+      assert_eq!(
+        &source[refs[0].start as usize..refs[0].end as usize],
+        format!("{name}()")
+      );
+    }
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && matches!(r.name.as_str(), "CHECK" | "sink" | "ON"))
+    );
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("logical.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    use vorpal_core::tree_sitter::LanguageExt;
+    let raw = vorpal_lang_registry::SgLang::from_path("logical.cc").unwrap().grep(&source);
+    let handoff = extractor.extract_product_from_root("logical.cc", &raw).unwrap();
+    let mut scan = Vec::new();
+    encode_product_into(&handoff, &mut scan);
+    assert_eq!(owned, scan);
+
+  }
+  for bad in [
+    lf.replace("#ifdef ON", "#ifdef ON junk"),
+    lf.replace("|| extra()", "||"),
+    lf.replace(" ;", " "),
+    lf.replace("#define CHECK(v) { sink(v); }", "#define CHECK(v) sink(v)"),
+  ] {
+    assert!(
+      extractor
+        .extract_product("logical.cc", &bad)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+  }
+}
+
+#[test]
+fn conditional_return_metadata_does_not_hide_macro_mutations_or_expanding_guards() {
+  let lf = "#define CHECK(v) { sink(v); }\nbool base(); bool extra();\nbool run() {\n CHECK(value())\n return base()\n#ifdef ON\n || extra()\n#endif\n ;\n}\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    for unproven in [
+      source.replace("#ifdef ON", "#if UNKNOWN"),
+      source.replace("#ifdef ON", "#if GUARD()"),
+      source.replace("#ifdef ON", "#ifdef ON junk"),
+      source.replace(" return base()", "#undef CHECK\n return base()"),
+      source.replace(
+        " return base()",
+        "#include \"missing-proof.h\"\n return base()",
+      ),
+      source.replace(
+        " return base()",
+        "#define CHECK(v) expression(v)\n return base()",
+      ),
+      source.replace("#endif", "#else\n || other()\n#endif"),
+      source.replace("#endif", "#endif junk"),
+      source.replace("#endif", ""),
+      format!("namespace scope {{\n{source}\n}}"),
+    ] {
+      let report = audit_recovery(Path::new("logical.cc"), &unproven, &[]);
+      assert!(report.eligible_names.is_empty(), "{unproven:?}: {report:?}");
+      assert!(report.macro_spans.is_empty(), "{report:?}");
+      assert!(report.has_error, "{report:?}");
+    }
+    // Definedness/literal logical guards preserve evidence without selecting a branch.
+    for guard in ["#ifndef ON", "#if defined(ON) && !defined(OFF)", "#if 0"] {
+      let supported = source.replace("#ifdef ON", guard);
+      let report = audit_recovery(Path::new("logical.cc"), &supported, &[]);
+      assert!(!report.has_error, "{guard}: {report:?}");
+      assert_eq!(report.macro_spans.len(), 1);
+    }
+  }
+}

@@ -98,7 +98,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v18\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v19\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -441,6 +441,89 @@ fn intact_metadata_groups<D: vorpal_core::Doc>(
       Some(group.span.start)
     })
     .collect()
+}
+
+// Ordinary functions remain opaque to directive replay except for complete,
+// effect-free logical return suffixes. Match their original directive inventory
+// independently; damaged C++ outside those groups cannot hide a macro mutation.
+fn logical_return_metadata<D: vorpal_core::Doc>(
+  source: &str,
+  function: &vorpal_core::Node<'_, D>,
+) -> bool {
+  if !function
+    .dfs()
+    .any(|n| n.kind().as_ref() == "conditional_logical_expression")
+  {
+    return false;
+  }
+  let Ok(groups) = crate::cpp_directive_audit::audit_groups(source) else {
+    return false;
+  };
+  let Ok(directives) = crate::cpp_directive_audit::audit(source) else {
+    return false;
+  };
+  let mut covered = BTreeSet::new();
+  let mut found = false;
+  for node in function.dfs() {
+    if node.is_error() && node.text().contains('#') {
+      return false;
+    }
+    if !node.kind().starts_with("preproc_") {
+      continue;
+    }
+    if node.kind().as_ref() == "preproc_defined" {
+      // This node must be inside the condition of an admitted group below.
+      if !node.ancestors().any(|parent| {
+        matches!(parent.kind().as_ref(), "preproc_if" | "preproc_ifdef")
+          && parent
+            .parent()
+            .is_some_and(|p| p.kind().as_ref() == "conditional_logical_expression")
+      }) {
+        return false;
+      }
+      continue;
+    }
+    if !matches!(node.kind().as_ref(), "preproc_if" | "preproc_ifdef")
+      || node.has_error()
+      || !node
+        .parent()
+        .is_some_and(|p| p.kind().as_ref() == "conditional_logical_expression")
+      || node
+        .field("condition")
+        .is_some_and(|c| !nonexpanding_condition(&c.text()))
+    {
+      return false;
+    }
+    let Some(group) = groups.iter().find(|g| g.span == node.range()) else {
+      return false;
+    };
+    if group.branches.len() != 1 {
+      return false;
+    }
+    let in_group: Vec<_> = directives
+      .iter()
+      .filter(|d| group.span.contains(&d.span.start))
+      .collect();
+    if in_group.len() != 2
+      || in_group[0].span != group.branches[0].header
+      || in_group[1].span != group.close
+      || crate::cpp_directive_audit::keyword(source, &group.close)
+        .ok()
+        .as_deref()
+        != Some("endif")
+    {
+      return false;
+    }
+    for directive in in_group {
+      covered.insert(directive.span.start);
+    }
+    found = true;
+  }
+  found
+    && directives
+      .iter()
+      .filter(|d| function.range().contains(&d.span.start))
+      .all(|d| covered.contains(&d.span.start))
 }
 
 impl Audit {
@@ -864,8 +947,10 @@ impl Audit {
             self.invalidate_environment(environment);
           }
         }
-        "preproc_ifdef" | "preproc_if" | "conditional_function_definition"
-          if if node.kind().as_ref() == "conditional_function_definition" {
+        "preproc_ifdef" | "preproc_if" | "conditional_function_definition" | "function_definition"
+          if if node.kind().as_ref() == "function_definition" {
+            logical_return_metadata(source, &node)
+          } else if node.kind().as_ref() == "conditional_function_definition" {
             // The heads form a complete original conditional group. Ordinary
             // body recovery can be damaged before scanner proof is available,
             // but must not hide damaged directives or expanding conditions.
