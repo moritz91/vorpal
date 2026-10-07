@@ -1386,3 +1386,47 @@ callee; restored statement proof returns the actual member call and its original
 site. Argument and following calls retain their original sites throughout.
 The paired conditional-return branch draft remains external and withheld until
 its full-file extraction effects are independently validated.
+
+
+The exact 26bc03f external candidate keeps 1744 files / 64040 nodes,
+26 damaged files / 1960 ERROR/MISSING/context diagnostics / 123144 bytes,
+and 3101 near-clone pairs. Full CI 37654953140 is green.
+
+Proof-backed statement recovery now also accepts complete do/while replacements.
+A standard wrapper without its final semicolon is completed only in the ephemeral
+proof template, and every original invocation must supply its own literal
+semicolon after independently checked spacing/comments. No original source or
+banked tree is rewritten. A missing terminator blocks the entire macro name for
+the offset-free scanner. A replacement already containing its own terminator
+needs no source semicolon. Only do/while receives this completion; expression,
+while/for, partial body and function-generating replacements remain unsupported.
+
+The adjacent-else proof consumes exactly the first required do/while terminator;
+any additional source semicolon remains an empty statement that breaks else
+attachment. Expression/qualified invocations and genuinely missing terminators
+retain their original syntax/context diagnostics. Evidence v20 / opt-in product
+v19 invalidate old proof products, while default grammar/rule identities remain
+unchanged. Original argument calls and following functions survive owned,
+streaming and scan-root handoff without macro-callee/replacement edges. An eighth
+watched-MCP regression checks both newline styles and background settings: a
+same-length external header edit with restored timestamps changes the semicolon
+contract, reports the incompatible else, and restoring the header restores proof.
+
+Native libclang 18.1.1 experiments are external read-only audits, not a production
+compiler backend. Detailed preprocessing records omit the restored invocation
+after literal and wrapped pop_macro, and selected-out invocations have no record.
+Physical source ranges survive user line directives, and immutable compiler
+header buffers survive later disk edits, but these facts do not establish complete
+macro coverage. Cursor statement ranges do not provide the missing definition
+anchor. No compiler records activate recovery or replace MSVC evidence. Actual
+Hades ASSERT proof remains bounded by opaque transitive SDK includes.
+
+Windows/Linux parser (51), recovery (39), evidence (28/29), bucketed/flat
+replay, member-call/health and eight watched-MCP tests pass. Fourteen native
+resolver evaluations, native ingest/MCP Clippy and Linux workspace/no-builtins
+Clippy pass. MSVC /Zs accepts the LF/CRLF caller-terminated and definition-
+terminated fixtures and rejects missing/extra terminators and malformed loops.
+The unchanged 179-case corpus is green. The exact 26bc03f 902-file product
+comparison has no default product changes, including all item/member/reference
+rows, diagnostics and clone sketches. Grammar, schema and provenance are unchanged.
+No productive binary, index, tunnel or Hades source is modified.

@@ -15,7 +15,8 @@ use std::sync::Arc;
 use vorpal_core::tree_sitter::LanguageExt;
 use vorpal_language::SupportLang;
 
-/// A definition whose replacement is exactly one complete statement.
+/// A definition with one complete statement, or a do/while requiring the
+/// invocation's original terminating semicolon.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatementMacro {
   pub name: String,
@@ -30,6 +31,7 @@ pub struct StatementMacro {
 pub(crate) struct StatementReplacement {
   source: String,
   substitutions: Vec<(Range<usize>, usize)>,
+  pub(crate) requires_semicolon: bool,
 }
 
 impl StatementReplacement {
@@ -98,7 +100,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v19\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v20\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -1131,7 +1133,7 @@ pub(crate) fn complete_statement(replacement: &str) -> bool {
   statements.len() == 1
     && matches!(
       statements[0].kind().as_ref(),
-      "if_statement" | "try_statement" | "compound_statement"
+      "if_statement" | "try_statement" | "compound_statement" | "do_statement"
     )
 }
 
@@ -1179,10 +1181,31 @@ fn literal_macro_stack_target(argument: &str) -> Option<&str> {
 }
 
 fn statement_replacement(replacement: &str, parameters: &[String]) -> Option<StatementReplacement> {
-  if !parameters.iter().all(|p| canonical_identifier(p)) || !complete_statement(replacement) {
+  if !parameters.iter().all(|p| canonical_identifier(p)) {
     return None;
   }
-  let source = replacement.replace("\\\r\n", "").replace("\\\n", "");
+  let mut source = replacement.replace("\\\r\n", "").replace("\\\n", "");
+  let requires_semicolon = !complete_statement(&source);
+  if requires_semicolon {
+    // Standard do/while wrappers take their terminating semicolon from the
+    // invocation. Complete only the ephemeral proof template, then require the
+    // original source semicolon independently at every invocation.
+    source.push_str("\n;");
+    if !complete_statement(&source) {
+      return None;
+    }
+    let parsed = SupportLang::Cpp.grep(format!("void proof() {{ {source}\n }}"));
+    let statement = parsed
+      .root()
+      .children()
+      .find(|n| n.kind().as_ref() == "function_definition")?
+      .field("body")?
+      .children()
+      .find(|n| n.is_named() && n.kind().as_ref() != "comment")?;
+    if statement.kind().as_ref() != "do_statement" {
+      return None;
+    }
+  }
   let prefix = "void proof() { ";
   let parsed = SupportLang::Cpp.grep(format!("{prefix}{source}\n }}"));
   let root = parsed.root();
@@ -1227,6 +1250,7 @@ fn statement_replacement(replacement: &str, parameters: &[String]) -> Option<Sta
   Some(StatementReplacement {
     source,
     substitutions,
+    requires_semicolon,
   })
 }
 

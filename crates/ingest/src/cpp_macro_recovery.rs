@@ -243,6 +243,11 @@ fn parse_without_context(
       if bytes.get(next) == Some(&b'(') {
         let proven = evidence.at(name, start).and_then(|definition| {
           let end = argument_end(source, next, &protected)?;
+          if definition.replacement.requires_semicolon
+            && bytes.get(invocation_spacing(bytes, end)?) != Some(&b';')
+          {
+            return None;
+          }
           if evidence.contains_expanding_tokens(&source[next..end]) {
             return None;
           }
@@ -367,7 +372,7 @@ fn incompatible_else_spans(
       }
     }
   }
-  for invocations in sites.values() {
+  for (name, invocations) in sites {
     for (&start, &(end, open_if)) in invocations {
       let Some(statement) = statements.get(&start) else {
         continue;
@@ -375,9 +380,18 @@ fn incompatible_else_spans(
       let Some(mut next) = invocation_spacing(bytes, end) else {
         continue;
       };
+      let mut required_terminator = evidence
+        .at(name, start)
+        .is_some_and(|definition| definition.replacement.requires_semicolon);
       let mut semicolon = false;
       while bytes.get(next) == Some(&b';') {
-        semicolon = true;
+        // The first source semicolon completes an unterminated do/while
+        // replacement; only subsequent semicolons are empty statements.
+        if required_terminator {
+          required_terminator = false;
+        } else {
+          semicolon = true;
+        }
         let Some(after) = invocation_spacing(bytes, next + 1) else {
           break;
         };
@@ -394,7 +408,10 @@ fn incompatible_else_spans(
       let mut parent = statement.parent();
       let mut body_start = None;
       while let Some(node) = parent {
-        if matches!(node.kind().as_ref(), "compound_statement" | "conditional_function_body") {
+        if matches!(
+          node.kind().as_ref(),
+          "compound_statement" | "conditional_function_body"
+        ) {
           body_start = Some(node.range().start);
           break;
         }

@@ -182,6 +182,8 @@ fn only_complete_statement_replacements_are_evidence() {
 #define EXPR(x) function(x)
 #define DEFINE(x) void function_##x()
 #define LOOP(x) do { function(x); } while (false)
+#define WHILE(x) while (x) { function(x); }
+#define FOR(x) for (; x;) { function(x); }
 #define NESTED(x) { void local() { sink(x); } }
 #define METHOD(x) { struct Local { void local() { sink(x); } }; }
 #define BROKEN(x) if (x) { function(x)
@@ -198,7 +200,7 @@ void run() {}
       .iter()
       .map(|b| b.definition.name.as_str())
       .collect::<Vec<_>>(),
-    vec!["COMPLETE", "SAFE"]
+    vec!["LOOP", "COMPLETE", "SAFE"]
   );
 }
 

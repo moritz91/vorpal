@@ -1672,3 +1672,104 @@ fn conditional_return_metadata_does_not_hide_macro_mutations_or_expanding_guards
     }
   }
 }
+
+#[test]
+fn do_while_statement_wrappers_require_the_original_terminator() {
+  use vorpal_core::{Language, tree_sitter::LanguageExt};
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let lf = "#define CHECK(v) do { sink(v); } while (false)\nint value();\nvoid run(bool flag) {\n if (flag) CHECK(value()) /* ending */ ; else after();\n}\nvoid following() { later(); }\n";
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("do.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.eligible_names, ["CHECK"]);
+    assert_eq!(report.macro_spans.len(), 1);
+    assert_eq!(
+      &source[report.macro_spans[0].clone()],
+      "CHECK(value()) /* ending */ ;"
+    );
+    let product = extractor.extract_product("do.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    for name in ["value", "after", "later"] {
+      let refs: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(refs.len(), 1);
+      assert_eq!(
+        &source[refs[0].start as usize..refs[0].end as usize],
+        format!("{name}()")
+      );
+    }
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && matches!(r.name.as_str(), "CHECK" | "sink"))
+    );
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("do.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw = vorpal_lang_registry::SgLang::from_path("do.cc")
+      .unwrap()
+      .grep(&source);
+    let handed = extractor.extract_product_from_root("do.cc", &raw).unwrap();
+    let mut scanned = Vec::new();
+    encode_product_into(&handed, &mut scanned);
+    assert_eq!(owned, scanned);
+    // One unproven use still blocks the offset-free scanner for the entire name.
+    for bad in [
+      source.replace(" /* ending */ ;", " /* ending */ "),
+      source.replace("while (false)", "while ()"),
+      source.replace("while (false)", "while (false) junk"),
+      source.replace("CHECK(value())", "CHECK(value(), extra())"),
+      source.replace(
+        "void following()",
+        "#undef CHECK\nvoid unproven() { CHECK(value()) }\nvoid following()",
+      ),
+      source.replace("do { sink(v); } while (false)", "sink(v)"),
+    ] {
+      let report = audit_recovery(Path::new("do.cc"), &bad, &[]);
+      assert!(report.eligible_names.is_empty(), "{bad:?}: {report:?}");
+      assert!(report.macro_spans.is_empty(), "{bad:?}: {report:?}");
+    }
+    for malformed in [
+      source.replace(" /* ending */ ;", " /* ending */ "),
+      source.replace(" /* ending */ ;", " /* ending */ ;;"),
+    ] {
+      assert!(audit_recovery(Path::new("do.cc"), &malformed, &[]).has_error);
+    }
+    for expression in [
+      source.replace(
+        "if (flag) CHECK(value()) /* ending */ ; else after();",
+        "int n = CHECK(value());",
+      ),
+      source.replace(
+        "if (flag) CHECK(value()) /* ending */ ; else after();",
+        "receiver.CHECK(value());",
+      ),
+      source.replace(
+        "if (flag) CHECK(value()) /* ending */ ; else after();",
+        "if (CHECK(value())) after();",
+      ),
+    ] {
+      let report = audit_recovery(Path::new("do.cc"), &expression, &[]);
+      assert!(report.has_error, "{expression:?}: {report:?}");
+      assert!(!report.context_errors.is_empty(), "{report:?}");
+      assert!(report.macro_spans.is_empty(), "{report:?}");
+    }
+    // A definition containing its own terminator needs none from the invocation.
+    let self_terminated = source
+      .replace("while (false)", "while (false);")
+      .replace(" /* ending */ ;", "");
+    assert!(!audit_recovery(Path::new("do.cc"), &self_terminated, &[]).has_error);
+  }
+}
