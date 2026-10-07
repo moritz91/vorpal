@@ -98,7 +98,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v16\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v17\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -851,12 +851,25 @@ impl Audit {
             self.invalidate_environment(environment);
           }
         }
-        "preproc_ifdef" | "preproc_if"
-          if (!node.has_error() || intact_groups.contains(&node.range().start))
-            && (node.kind().as_ref() == "preproc_ifdef"
-              || node
-                .field("condition")
-                .is_some_and(|condition| nonexpanding_condition(&condition.text()))) =>
+        "preproc_ifdef" | "preproc_if" | "conditional_function_definition"
+          if if node.kind().as_ref() == "conditional_function_definition" {
+            // The heads form a complete original conditional group. Ordinary
+            // body recovery can be damaged before scanner proof is available,
+            // but must not hide damaged directives or expanding conditions.
+            node.field("prefixes").is_some_and(|group| {
+              !group.has_error()
+                && group.field("condition").is_some_and(|condition| nonexpanding_condition(&condition.text()))
+            }) && !node.dfs().any(|n| {
+              n.is_error() && n.text().contains('#')
+                || n.has_error()
+                  && matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef")
+                  && !intact_groups.contains(&n.range().start)
+            })
+          } else {
+            (!node.has_error() || intact_groups.contains(&node.range().start))
+              && (node.kind().as_ref() == "preproc_ifdef"
+                || node.field("condition").is_some_and(|condition| nonexpanding_condition(&condition.text())))
+          } =>
         {
           // Definedness and the admitted literal/logical conditions do not
           // expand operands. Inspect every possible branch for effects, without

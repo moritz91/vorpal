@@ -384,3 +384,25 @@ rule:
     pattern: $NAME
 name: $NAME
 isExported: true
+
+---
+# Each guarded head is an original definition fragment. The common body has no
+# single selected owner; ingest attributes its references to both alternatives.
+id: cpp-conditional-function-prefix
+language: Cpp
+role: item
+symbolType: function
+rule:
+  kind: conditional_function_prefix
+  has:
+    field: declarator
+    kind: function_declarator
+    has:
+      field: declarator
+      pattern: $NAME
+name: $NAME
+isExported:
+  not:
+    has:
+      kind: storage_class_specifier
+      regex: ^static$

@@ -1949,6 +1949,189 @@
     }
   },
   {
+    "type": "conditional_function_body",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "alias_declaration",
+          "named": true
+        },
+        {
+          "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_linkage_specification",
+          "named": true
+        },
+        {
+          "type": "declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "linkage_specification",
+          "named": true
+        },
+        {
+          "type": "namespace_alias_definition",
+          "named": true
+        },
+        {
+          "type": "namespace_definition",
+          "named": true
+        },
+        {
+          "type": "preproc_call",
+          "named": true
+        },
+        {
+          "type": "preproc_def",
+          "named": true
+        },
+        {
+          "type": "preproc_function_def",
+          "named": true
+        },
+        {
+          "type": "preproc_if",
+          "named": true
+        },
+        {
+          "type": "preproc_ifdef",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "statement",
+          "named": true
+        },
+        {
+          "type": "static_assert_declaration",
+          "named": true
+        },
+        {
+          "type": "template_declaration",
+          "named": true
+        },
+        {
+          "type": "template_instantiation",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "type_specifier",
+          "named": true
+        },
+        {
+          "type": "using_declaration",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "conditional_function_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "conditional_function_body",
+            "named": true
+          }
+        ]
+      },
+      "prefixes": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "preproc_if",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "conditional_function_prefix",
+    "named": true,
+    "fields": {
+      "declarator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "function_declarator",
+            "named": true
+          }
+        ]
+      },
+      "language": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_specifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "attribute_declaration",
+          "named": true
+        },
+        {
+          "type": "attribute_specifier",
+          "named": true
+        },
+        {
+          "type": "ms_declspec_modifier",
+          "named": true
+        },
+        {
+          "type": "storage_class_specifier",
+          "named": true
+        },
+        {
+          "type": "type_qualifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "conditional_if_statement",
     "named": true,
     "fields": {
@@ -2178,6 +2361,10 @@
         },
         {
           "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_function_definition",
           "named": true
         },
         {
@@ -2796,6 +2983,10 @@
         },
         {
           "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_function_definition",
           "named": true
         },
         {
@@ -5965,6 +6156,10 @@
           "named": true
         },
         {
+          "type": "conditional_function_definition",
+          "named": true
+        },
+        {
           "type": "conditional_linkage_specification",
           "named": true
         },
@@ -6121,6 +6316,10 @@
           "named": true
         },
         {
+          "type": "conditional_function_definition",
+          "named": true
+        },
+        {
           "type": "conditional_linkage_specification",
           "named": true
         },
@@ -6230,7 +6429,18 @@
   {
     "type": "preproc_else",
     "named": true,
-    "fields": {},
+    "fields": {
+      "declaration": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "conditional_function_prefix",
+            "named": true
+          }
+        ]
+      }
+    },
     "children": {
       "multiple": true,
       "required": false,
@@ -6245,6 +6455,10 @@
         },
         {
           "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_function_definition",
           "named": true
         },
         {
@@ -6449,6 +6663,16 @@
             "named": true
           }
         ]
+      },
+      "declaration": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "conditional_function_prefix",
+            "named": true
+          }
+        ]
       }
     },
     "children": {
@@ -6465,6 +6689,10 @@
         },
         {
           "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_function_definition",
           "named": true
         },
         {
@@ -6621,6 +6849,10 @@
         },
         {
           "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_function_definition",
           "named": true
         },
         {
@@ -8035,6 +8267,10 @@
         },
         {
           "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_function_definition",
           "named": true
         },
         {

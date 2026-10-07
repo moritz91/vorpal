@@ -1221,3 +1221,101 @@ fn opaque_macro_prefixes_decline_additional_else_context_diagnostics() {
   assert!(report.has_error);
   assert_eq!(report.context_errors.len(), 1, "{report:?}");
 }
+
+#[test]
+fn conditional_function_bodies_retain_proven_macro_argument_calls() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  let lf = "#define CHECK(x) { sink(x); }\n\n#if defined(WIDE)\nvoid wide() {\n#else\nvoid narrow() {\n#endif\nCHECK(value()) after();\n}\nvoid following() { final_call(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("conditional.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert!(report.context_errors.is_empty());
+    assert_eq!(report.macro_spans.len(), 1);
+    assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+    for name in ["wide", "narrow", "following"] {
+      assert!(report.functions.iter().any(|n| n == name));
+    }
+    let product = extractor
+      .extract_product("conditional.cc", &source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && matches!(r.name.as_str(), "CHECK" | "sink"))
+    );
+    for name in ["value", "after"] {
+      let calls: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(calls.len(), 2, "{:?}", product.refs);
+      for call in calls {
+        assert_eq!(
+          &source[call.start as usize..call.end as usize],
+          format!("{name}()")
+        );
+      }
+    }
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "final_call")
+        .count(),
+      1
+    );
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("conditional.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let orphan = source.replace("CHECK(value()) after();", "CHECK(value()) else after();");
+    assert!(
+      extractor
+        .extract_product("conditional.cc", &orphan)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    for uncertain in [
+      source.replace("defined(WIDE)", "FLAG"),
+      source.replace(
+        "CHECK(value()) after();",
+        "#include \"missing.h\"\nCHECK(value()) after();",
+      ),
+      source.replace(
+        "CHECK(value()) after();",
+        "#undef CHECK\nCHECK(value()) after();",
+      ),
+    ] {
+      let report = audit_recovery(Path::new("conditional.cc"), &uncertain, &[]);
+      assert!(report.eligible_names.is_empty(), "{report:?}");
+      assert!(report.has_error);
+    }
+    let unproven = source.replace("#define CHECK(x) { sink(x); }", "void CHECK(int);");
+    assert!(
+      extractor
+        .extract_product("conditional.cc", &unproven)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    assert!(
+      OutlineExtractor::new()
+        .unwrap()
+        .extract_product("conditional.cc", &source)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+  }
+}

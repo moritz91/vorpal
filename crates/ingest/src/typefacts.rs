@@ -332,6 +332,7 @@ const CPP_TF: TypeSpec = TypeSpec {
     BindSpec { kind: "parameter_declaration", origin: BindOrigin::Param, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
     BindSpec { kind: "field_declaration", origin: BindOrigin::Field, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
     BindSpec { kind: "function_definition", origin: BindOrigin::Return, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
+    BindSpec { kind: "conditional_function_prefix", origin: BindOrigin::Return, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
   ],
 };
 

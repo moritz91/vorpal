@@ -506,6 +506,13 @@ impl<'a, 'tree, L: LanguageExt> OutlineItemIter<'a, 'tree, L> {
     &mut self,
     node: Node<'tree, StrDoc<L>>,
   ) -> Option<(OutlineItem<'tree>, Option<String>)> {
+    // A complete split-definition body is a local scope even though its two
+    // definition fragments live in the preceding conditional group. Damaged
+    // bodies retain the ordinary recovery walk instead of hiding later items.
+    if node.kind().as_ref() == "conditional_function_body" && !node.has_error() {
+      self.traversal.skip_subtree();
+      return None;
+    }
     let combined = self.combined;
     let range = node.range();
     if self.floor > 0 {

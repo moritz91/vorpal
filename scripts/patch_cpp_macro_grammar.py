@@ -10,6 +10,17 @@ from pathlib import Path
 path = Path(__file__).resolve().parents[1] / 'grammars/tree-sitter-cpp/src/grammar.json'
 grammar = json.loads(path.read_text(encoding='utf-8'))
 rules = grammar['rules']
+# Rebuild conditional declaration scopes from the ordinary entries. They must
+# never leak into a function's block context on a later reproduction run.
+conditional_rule = lambda name: name.startswith(('conditional_function_', 'conditional_decl_')) or name == '_conditional_decl_item'
+for entry in ['_top_level_item', '_block_item']:
+    rules[entry]['members'] = [member for member in rules[entry]['members']
+        if not conditional_rule(member.get('name', member.get('content', {}).get('name', '')))]
+grammar['conflicts'] = [conflict for conflict in grammar['conflicts']
+    if not any(conditional_rule(name) for name in conflict)]
+for name in list(rules):
+    if conditional_rule(name): del rules[name]
+
 # Reproduction starts from the ordinary C++ entries: remove the prior managed
 # guard alternatives before deriving any dialect containers below.
 for entry in ['_top_level_item', '_block_item']:
@@ -1033,6 +1044,60 @@ for conflict in [['_top_level_statement', '_cli_top_level_item'], ['_declarator'
     conflict = [managed_names.get(name, name) for name in conflict]
     if conflict not in grammar['conflicts']:
         grammar['conflicts'].append(conflict)
+
+# Two complete alternative function heads can share the original trailing body.
+# Keep the prefix and body fragments explicit: neither pretends to be a complete
+# function_definition or a compound_statement with a nonexistent opening brace.
+rules['conditional_function_prefix'] = seq(
+    optional(seq(string('extern'), field('language', symbol('string_literal')))),
+    symbol('_declaration_specifiers'), field('declarator', symbol('function_declarator')), string('{'))
+preproc_head = rules['preproc_if']['content']['members']
+rules['conditional_function_else'] = seq(rules['preproc_else']['content']['members'][0],
+    string('\n'), field('declaration', symbol('conditional_function_prefix')))
+rules['conditional_function_if'] = seq(*preproc_head[:3],
+    field('declaration', symbol('conditional_function_prefix')),
+    field('alternative', alias_rule('conditional_function_else', 'preproc_else')), preproc_head[-1])
+rules['conditional_function_body'] = seq(repeat(symbol('_block_item')), string('}'))
+rules['conditional_function_definition'] = seq(
+    field('prefixes', alias_rule('conditional_function_if', 'preproc_if')),
+    field('body', symbol('conditional_function_body')))
+
+# Ordinary preprocessor groups share _block_item upstream. Declaration-scoped
+# copies admit the split definition without accepting it inside function bodies.
+conditional_preproc = {name: 'conditional_decl_' + name for name in
+    ['preproc_if', 'preproc_ifdef', 'preproc_else', 'preproc_elif', 'preproc_elifdef']}
+def conditional_copy(node, aliased=False):
+    if isinstance(node, list): return [conditional_copy(value, aliased) for value in node]
+    if not isinstance(node, dict): return node
+    if node.get('type') == 'ALIAS':
+        return {key: conditional_copy(value, True) if key == 'content' else value
+            for key, value in node.items()}
+    if node.get('type') == 'SYMBOL':
+        name = node['name']
+        if name == '_block_item': return symbol('_conditional_decl_item')
+        if name in conditional_preproc:
+            return symbol(conditional_preproc[name]) if aliased else alias_rule(conditional_preproc[name], name)
+        if name == 'namespace_definition': return alias_rule('conditional_decl_namespace', 'namespace_definition')
+        if name == '_explicit_objc_inverse_body_guard':
+            return symbol('conditional_decl_inverse_objc_guard')
+    return {key: conditional_copy(value, aliased) for key, value in node.items()}
+rules['conditional_decl_list'] = seq(string('{'), repeat(symbol('_conditional_decl_item')), string('}'))
+rules['conditional_decl_namespace'] = objc_copy(rules['namespace_definition'], {
+    'declaration_list': alias_rule('conditional_decl_list', 'declaration_list')})
+rules['_conditional_decl_item'] = conditional_copy(rules['_block_item'])
+rules['_conditional_decl_item']['members'].append(symbol('conditional_function_definition'))
+for name, derived in conditional_preproc.items():
+    rules[derived] = {'type': 'PREC_DYNAMIC', 'value': -1, 'content': conditional_copy(rules[name])}
+rules['conditional_decl_inverse_objc_guard'] = conditional_copy(rules['_explicit_objc_inverse_body_guard'])
+for name in ['preproc_if', 'preproc_ifdef']:
+    rules['_top_level_item']['members'].append(alias_rule(conditional_preproc[name], name))
+rules['_top_level_item']['members'].append(symbol('conditional_function_definition'))
+rules['_top_level_item']['members'].append(alias_rule('conditional_decl_namespace', 'namespace_definition'))
+for conflict in [['_conditional_decl_item', 'statement'], ['_conditional_decl_item', 'preproc_split_if_open'], ['preproc_if', 'conditional_decl_preproc_if'], ['preproc_ifdef', 'conditional_decl_preproc_ifdef'], ['preproc_else', 'conditional_decl_preproc_else'], ['preproc_elif', 'conditional_decl_preproc_elif'], ['preproc_elifdef', 'conditional_decl_preproc_elifdef'], ['_declarator', 'conditional_function_prefix'], ['_block_item', '_conditional_decl_item'], ['_block_item', 'preproc_split_if_open', '_conditional_decl_item'], ['_block_item', 'statement', '_conditional_decl_item'], ['_explicit_objc_inverse_body_guard', 'conditional_decl_inverse_objc_guard']]:
+    if conflict not in grammar['conflicts']: grammar['conflicts'].append(conflict)
+
+for conflict in [['declaration_list', 'conditional_decl_list']]:
+    if conflict not in grammar['conflicts']: grammar['conflicts'].append(conflict)
 
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'

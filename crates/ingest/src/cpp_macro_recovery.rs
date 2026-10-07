@@ -49,7 +49,7 @@ fn macro_calls(
         let mut parent = call.parent();
         while let Some(context) = parent {
           match context.kind().as_ref() {
-            "function_definition" | "lambda_expression" => return None,
+            "function_definition" | "conditional_function_body" | "lambda_expression" => return None,
             "namespace_definition"
             | "linkage_specification"
             | "class_specifier"
@@ -121,7 +121,7 @@ fn macro_calls(
           context = context.parent()?;
           if matches!(
             context.kind().as_ref(),
-            "compound_statement" | "translation_unit" | "function_definition"
+            "compound_statement" | "conditional_function_body" | "translation_unit" | "function_definition"
           ) {
             return None;
           }
@@ -394,7 +394,7 @@ fn incompatible_else_spans(
       let mut parent = statement.parent();
       let mut body_start = None;
       while let Some(node) = parent {
-        if node.kind().as_ref() == "compound_statement" {
+        if matches!(node.kind().as_ref(), "compound_statement" | "conditional_function_body") {
           body_start = Some(node.range().start);
           break;
         }
@@ -519,7 +519,7 @@ fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> Recove
     .collect();
   let functions = root
     .dfs()
-    .filter(|n| n.kind().as_ref() == "function_definition")
+    .filter(|n| matches!(n.kind().as_ref(), "function_definition" | "conditional_function_prefix"))
     .filter_map(|n| {
       let name = n.field("declarator")?.field("declarator")?;
       (name.kind().as_ref() == "identifier").then(|| name.text().into_owned())

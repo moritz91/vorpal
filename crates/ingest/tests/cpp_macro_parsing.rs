@@ -1917,3 +1917,190 @@ void following() { after(); }
     }
   }
 }
+
+#[test]
+fn cpp_conditional_heads_share_original_body_calls() {
+  let lf = r#"
+#ifdef OUTER
+namespace Native {
+#ifndef __OBJC__
+#if defined(USE_WIDE)
+extern "C" int wide(int argc, wchar_t* argv[], wchar_t*[]) {
+#else
+int narrow(int argc, char* argv[]) {
+#endif
+  struct Local { int field; };
+  return shared(touch(argc));
+}
+#else
+int alternative(int argc, char** argv) { return other(argc); }
+#endif
+void following() { after(); }
+}
+#endif
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["wide", "narrow", "alternative", "following"] {
+      assert!(
+        product.items.iter().any(|i| i.entry.name == name),
+        "missing {name}"
+      );
+    }
+    let owners: Vec<_> = product
+      .items
+      .iter()
+      .enumerate()
+      .filter(|(_, i)| matches!(i.entry.name.as_ref(), "wide" | "narrow"))
+      .map(|(index, item)| {
+        assert_eq!(item.entry.ast_kind, "conditional_function_prefix");
+        assert!(source[item.entry.range.byte_offset.clone()].ends_with('{'));
+        assert!(!source[item.entry.range.byte_offset.clone()].contains("shared"));
+        index as u32 + 1
+      })
+      .collect();
+    for (name, text) in [("shared", "shared(touch(argc))"), ("touch", "touch(argc)")] {
+      let calls: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(calls.len(), 2, "{:?}", product.refs);
+      for owner in &owners {
+        let call = calls
+          .iter()
+          .find(|r| r.from_entity_index == *owner)
+          .unwrap();
+        assert_eq!(&source[call.start as usize..call.end as usize], text);
+      }
+    }
+    for name in ["other", "after"] {
+      assert_eq!(
+        product
+          .refs
+          .iter()
+          .filter(|r| r.kind == 0 && r.name == name)
+          .count(),
+        1
+      );
+    }
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && r.name == "defined")
+    );
+    assert!(
+      !product
+        .signatures
+        .iter()
+        .any(|sketch| owners.contains(&sketch.entity_index))
+    );
+    assert!(!product.items.iter().any(|item| item.entry.name == "Local"));
+    for name in ["wide", "narrow"] {
+      assert!(
+        product
+          .returns
+          .iter()
+          .any(|(function, ty)| function == name && ty == "int")
+      );
+    }
+    let raw = SgLang::from_path("conditional.cc").unwrap().grep(&source);
+    let definition = raw
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "conditional_function_definition")
+      .unwrap();
+    let body = definition.field("body").unwrap();
+    assert_eq!(body.kind().as_ref(), "conditional_function_body");
+    assert!(body.text().trim_start().starts_with("struct Local"));
+    let group = definition.field("prefixes").unwrap();
+    assert_eq!(group.kind().as_ref(), "preproc_if");
+    assert_eq!(
+      group.field("condition").unwrap().text(),
+      "defined(USE_WIDE)"
+    );
+    assert!(
+      group
+        .field("alternative")
+        .unwrap()
+        .text()
+        .starts_with("#else")
+    );
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new();
+    vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor
+      .extract_product_from_root("macros.cc", &raw)
+      .unwrap();
+    let mut scan = Vec::new();
+    vorpal_ingest::encode_product_into(&handed, &mut scan);
+    assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace("return shared(touch(argc));", "return shared(touch(argc))"),
+    lf.replace("#endif\n  struct Local", "  struct Local"),
+    lf.replace("}\n#else\nint alternative", "#else\nint alternative"),
+    lf.replace("#else\nint narrow", "}\n#else\nint narrow"),
+    lf.replace("#else\nint narrow", "#elif defined(SECOND)\nint narrow"),
+    lf.replace("#if defined(USE_WIDE)", "#if defined(USE_WIDE) trailing"),
+    format!("void invalid() {{ {lf} }}"),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      assert!(
+        SgLang::from_path("conditional.cc")
+          .unwrap()
+          .grep(&source)
+          .root()
+          .has_error(),
+        "{source}"
+      );
+      assert!(
+        OutlineExtractor::new()
+          .unwrap()
+          .extract_product("conditional.cc", &source)
+          .unwrap()
+          .error_nodes
+          > 0,
+        "{source}"
+      );
+    }
+  }
+}
+
+#[test]
+fn conditional_function_parameters_remain_branch_local() {
+  let source = "struct Wide {}; struct Narrow {};\n#if defined(PLATFORM)\nvoid wide(Wide& value) {\n#else\nvoid narrow(Narrow& value) {\n#endif\nvalue.visit();\n}\n";
+  let product = clean_product(source);
+  let calls: Vec<_> = product
+    .refs
+    .iter()
+    .filter(|r| r.kind == 0 && r.name == "visit")
+    .collect();
+  assert_eq!(calls.len(), 2);
+  for (name, ty) in [("wide", "Wide"), ("narrow", "Narrow")] {
+    let index = product
+      .items
+      .iter()
+      .position(|i| i.entry.name == name)
+      .unwrap() as u32
+      + 1;
+    let call = calls.iter().find(|r| r.from_entity_index == index).unwrap();
+    assert_eq!(call.receiver_type.as_deref(), Some(ty));
+    assert_eq!(
+      &source[call.start as usize..call.end as usize],
+      "value.visit()"
+    );
+    let (_, params) = product
+      .entity_params
+      .iter()
+      .find(|(i, _)| *i == index)
+      .unwrap();
+    assert_eq!(params[0], ("value".to_owned(), Some(ty.to_owned())));
+  }
+}

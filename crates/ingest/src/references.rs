@@ -1791,6 +1791,7 @@ pub(crate) struct RawRequest<'t> {
 /// A walk emission awaiting the post-pass: definite references pass through in visit order;
 /// type-use candidates wait for the complete binder set (a `type_parameters` declaration may
 /// be visited after uses of its binder, so the shadow filter can only run once the walk ends).
+#[derive(Clone)]
 pub(crate) enum Pending<'t> {
   Ready(RawRef<'t>),
   TypeUse {
@@ -1812,6 +1813,21 @@ pub(crate) enum Pending<'t> {
 }
 
 impl Pending<'_> {
+  fn owner(&self) -> NodeId {
+    match self {
+      Self::Ready(r) => r.from,
+      Self::TypeUse { from, .. } | Self::ImplUse { from, .. } => *from,
+    }
+  }
+
+  fn with_owner(mut self, owner: NodeId) -> Self {
+    match &mut self {
+      Self::Ready(r) => r.from = owner,
+      Self::TypeUse { from, .. } | Self::ImplUse { from, .. } => *from = owner,
+    }
+    self
+  }
+
   /// The emitting node's byte span — walk reuse verifies every fresh row lands inside
   /// the dirty region with these.
   pub(crate) fn start(&self) -> u32 {
@@ -1925,6 +1941,7 @@ pub(crate) fn walk_reference_tree<'t>(
   // Emitter and consumer are parent/child within one subtree, so per-walk state suffices
   // even when a regional caller walks dirty subtrees one call at a time.
   let mut suppressed: HashSet<usize> = HashSet::new();
+  let mut conditional_owners: Vec<(Range<usize>, NodeId, Vec<NodeId>)> = Vec::new();
   let mut span_cursor = SpanCursor::new(def_spans);
   // Explicit ancestor stack, driven by the walk's own depth (a truncate + push per node):
   // every parent the handlers consult reads from this stack instead of `Node::parent`,
@@ -1941,6 +1958,9 @@ pub(crate) fn walk_reference_tree<'t>(
   };
   for (node, depth) in PreWithDepth::new(&scope) {
     ancestors.truncate(base + depth);
+    let first_pending = pending.len();
+    conditional_owners.retain(|(body, _, _)| node.range().start < body.end);
+
     // Near-clone signatures (v16) read every leaf token — anonymous ones included —
     // before the named-only dispatch below.
     if let Some(signer) = signer.as_deref_mut() {
@@ -1951,6 +1971,14 @@ pub(crate) fn walk_reference_tree<'t>(
         break 'dispatch;
       }
       let kind_id = node.kind_id();
+      if cpp_conditions
+        && node.kind().as_ref() == "conditional_function_definition"
+        && let Some((body, owners)) = conditional_function_owners(&node, def_spans)
+        && let Some(enclosing) = span_cursor.enclosing(body.start)
+      {
+        conditional_owners.push((body, enclosing, owners));
+      }
+
       if let Some(facts) = typefacts {
         if let Some(bind) = facts.arm(kind_id) {
           crate::typefacts::capture_at(bind, &node, bindings);
@@ -2115,8 +2143,55 @@ pub(crate) fn walk_reference_tree<'t>(
         }
       }
     }
+
+    // Duplicate the shared body's candidate rows BEFORE binder/type dedup. This
+    // preserves both alternatives, their original call sites and branch-local
+    // parameter metadata without choosing a preprocessor condition. Imports
+    // stay file-attributed; independently enclosed definitions keep their owner.
+    if pending.len() > first_pending
+      && let Some((_, enclosing, owners)) = conditional_owners.iter().find(|(body, _, _)| {
+        body.start <= node.range().start && node.range().end <= body.end
+      })
+    {
+      let emitted = pending.split_off(first_pending);
+      for reference in emitted {
+        let import = matches!(&reference, Pending::Ready(r) if r.kind == RefKind::Import);
+        if !import && reference.owner() == *enclosing {
+          for owner in owners {
+            pending.push(reference.clone().with_owner(*owner));
+          }
+        } else {
+          pending.push(reference);
+        }
+      }
+    }
     ancestors.push(node);
   }
+}
+
+/// Match the two original definition fragments to the shared body. Custom
+/// outline rules that omit either head decline attribution rather than guessing.
+fn conditional_function_owners(
+  definition: &SgNode<'_>,
+  def_spans: &[(Range<usize>, NodeId)],
+) -> Option<(Range<usize>, Vec<NodeId>)> {
+  let body = definition.field("body")?.range();
+  let prefixes = definition.field("prefixes")?;
+  let heads: Vec<_> = prefixes
+    .dfs()
+    .filter(|n| n.kind().as_ref() == "conditional_function_prefix")
+    .collect();
+  if heads.len() != 2 {
+    return None;
+  }
+  let owners: Option<Vec<_>> = heads
+    .iter()
+    .map(|head| {
+      let span = head.range();
+      def_spans.iter().find(|(range, _)| *range == span).map(|(_, id)| *id)
+    })
+    .collect();
+  Some((body, owners?))
 }
 
 /// The finalize half of [`extract_references_with_facts`]: the file-global laws — binder

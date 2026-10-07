@@ -471,7 +471,7 @@ fn macro_product_identity(base: u64, dependency: u64) -> u64 {
   let mut hash = xxhash_rust::xxh3::Xxh3::new();
   // Scanner-only changes do not alter the grammar's structural fingerprint.
   // v6 tracks literal macro-stack targets and rejects malformed undef names.
-      hash.update(b"vorpal-cpp-macro-product-v15\0");
+  hash.update(b"vorpal-cpp-macro-product-v16\0");
   hash.update(&base.to_le_bytes());
   hash.update(&dependency.to_le_bytes());
   hash.digest()
@@ -934,7 +934,12 @@ impl OutlineExtractor {
       let mut kinds: Vec<vorpal_kg::SymbolKind> = Vec::with_capacity(spans.len());
       kinds.push(vorpal_kg::SymbolKind::File);
       for item in &items {
-        kinds.push(vorpal_kg::SymbolKind::from_symbol_type(item.entry.symbol_type, item.is_import));
+        // Definition fragments do not claim a complete-body near-clone sketch.
+        kinds.push(if item.entry.ast_kind == "conditional_function_prefix" {
+          vorpal_kg::SymbolKind::File
+        } else {
+          vorpal_kg::SymbolKind::from_symbol_type(item.entry.symbol_type, item.is_import)
+        });
         for member in &item.members {
           kinds.push(vorpal_kg::SymbolKind::from_symbol_type(member.entry.symbol_type, false));
         }

@@ -87,10 +87,11 @@
       "Separate guarded Objective-C declaration/body contexts reject standalone dialect statements in files/namespaces and retain nested function-body preprocessor contexts; upstream C++ fragment rules are unchanged.",
       "Exact #ifndef __OBJC__ guards retain an ordinary C++ first arm and a complete Objective-C else arm in separate declaration/body contexts; original preproc aliases and spans are retained without condition evaluation.",
       "Proof-backed dangling-if macro scanner token and else_clause attachment, closed-statement framing preserved; original source spans and empty default context retained.",
-      "Explicit positive _MANAGED guard: handle parameter/return declarators, handle template static calls and struct specialization, existing container aliases and original spans; global C++ declarators and XOR unchanged."
+      "Explicit positive _MANAGED guard: handle parameter/return declarators, handle template static calls and struct specialization, existing container aliases and original spans; global C++ declarators and XOR unchanged.",
+      "Two complete #if/#else function heads share an explicit original trailing body in declaration scopes; preserve conditions and spans, expose header fragments and attribute body references to both alternatives without branch selection."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:ba45567784aaca01",
+    "source_digest": "xxh3:79f3409ada893d68",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

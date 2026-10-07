@@ -1148,3 +1148,43 @@ Linux Clippy and native ingest Clippy pass. Seven explicit generation conflicts
 are local to the dialect paths; the generated parser grows from 48027890 to
 50544515 bytes and from 20110 to 20671 states. This does not establish Hades ASSERT
 evidence past opaque includes, fix every C++/CLI form or install a candidate.
+
+Two complete #if / #else function heads can now share one original trailing
+body in declaration scope, including ordinary namespace/preprocessor containers
+and the ordinary arm of the exact inverse Objective-C guard. The three visible
+kinds are conditional_function_definition, conditional_function_prefix and
+conditional_function_body. Prefixes end at their actual opening brace; the body
+starts after the complete conditional group and ends at its actual closing
+brace. Neither fragment aliases a fictitious complete function or compound
+statement. Outline functions retain only their original header spans, and shared
+body references are attributed to both alternatives before binder/type dedup,
+with separate parameter types and unchanged call sites. Complete shared bodies
+keep local declarations out of the top-level outline; damaged bodies retain
+ordinary recovery traversal. Header fragments receive no complete-body clone
+sketch. Custom outlines that omit a head decline shared-body attribution.
+
+Macro proof recognizes the explicit shared-body statement context only after a
+complete, nonexpanding head condition and ordinary all-branch effect checks.
+Expanding conditions, unknown body includes, undef, damaged directives and
+unproven invocations still decline proof. Evidence identity v17 / opt-in product
+identity v16 invalidate older proof products. This adds no compiler branch
+selection, default macro-name assumption or actual Hades ASSERT evidence past
+opaque includes. Other split-head forms (#ifdef, elif, arbitrary body macros)
+remain unsupported, and local type inference can remain conservative.
+
+The 902-path original-source/AST comparison changes only Catch2: 71 -> 70
+ERROR/MISSING nodes and 29600 -> 878 damaged bytes. All 21 Objective-C messages
+and 3302 C++ AST calls survive; the other 901 AST hashes are identical. Exact
+be124d6 product comparison retains 1630 members and all 3231 unique call
+names/spans. Its main item becomes its original header fragment and wmain is
+added (2320 -> 2321 entries); shared calls retain both owners. No existing
+signature text disappears. The parser grows from 50544515 to 53144626 bytes,
+20671 -> 21181 states, with 13 scoped generation conflicts. LF/CRLF head/body
+edits and parser reuse converge with fresh parses. Native MSVC accepts both
+wide/narrow and newline variants and rejects missing-semicolon controls.
+All 45 parser, 34 recovery, 28 Windows / 29 Linux evidence tests, bucketed/flat
+replay, member-call/health, normal watched MCP, native resolver evaluations and
+outline suites pass. The unchanged corpus, actual full schema generation,
+C++-only native/Linux provenance, idempotent reproduction, Linux workspace and
+no-builtins Clippy and native ingest Clippy pass. The productive binary, index
+and tunnel are unchanged.
