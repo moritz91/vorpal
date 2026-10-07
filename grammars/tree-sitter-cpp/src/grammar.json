@@ -9330,6 +9330,35 @@
               }
             }
           ]
+        },
+        {
+          "type": "PREC_DYNAMIC",
+          "value": -1,
+          "content": {
+            "type": "PREC",
+            "value": 0,
+            "content": {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "FIELD",
+                  "name": "function",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "operator_name"
+                  }
+                },
+                {
+                  "type": "FIELD",
+                  "name": "arguments",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "argument_list"
+                  }
+                }
+              ]
+            }
+          }
         }
       ]
     },
@@ -22541,6 +22570,40 @@
               }
             }
           ]
+        },
+        {
+          "type": "PREC_DYNAMIC",
+          "value": -1,
+          "content": {
+            "type": "PREC",
+            "value": 0,
+            "content": {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "FIELD",
+                  "name": "function",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "operator_name"
+                  }
+                },
+                {
+                  "type": "FIELD",
+                  "name": "arguments",
+                  "content": {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_objc_argument_list"
+                    },
+                    "named": true,
+                    "value": "argument_list"
+                  }
+                }
+              ]
+            }
+          }
         }
       ]
     },
@@ -32245,6 +32308,15 @@
       "_field_declarator",
       "sdk_call_modifier",
       "cli_required_function"
+    ],
+    [
+      "_declarator",
+      "call_expression"
+    ],
+    [
+      "_declarator",
+      "call_expression",
+      "_objc_call_expression"
     ],
     [
       "_conditional_decl_item",

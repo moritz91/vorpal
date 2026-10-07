@@ -619,6 +619,20 @@ if conflict not in grammar['conflicts']:
     grammar['conflicts'].append(conflict)
 
 
+# Unqualified explicit operator calls are a separate low-precedence alternative.
+# Keep ordinary function declarators viable (including alternative-token corpus
+# cases); do not promote operator_name to a general expression or lexer token.
+unqualified_operator_call = {'type': 'PREC_DYNAMIC', 'value': -1, 'content':
+    {'type': 'PREC', 'value': 0, 'content': seq(
+        {'type': 'FIELD', 'name': 'function', 'content': symbol('operator_name')},
+        {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')})}}
+if unqualified_operator_call not in rules['call_expression']['members']:
+    rules['call_expression']['members'].append(unqualified_operator_call)
+for conflict in [['_declarator', 'call_expression'],
+                 ['_declarator', 'call_expression', '_objc_call_expression']]:
+    if conflict not in grammar['conflicts']:
+        grammar['conflicts'].append(conflict)
+
 # Objective-C++ message syntax is local to the positive arm of an explicit
 # #ifdef __OBJC__ group. Ordinary C++ expression rules and the external scanner
 # are unchanged; ordinary else/elif arms stay C++. A separate exact negative

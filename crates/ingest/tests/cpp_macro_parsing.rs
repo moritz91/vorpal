@@ -2104,3 +2104,139 @@ fn conditional_function_parameters_remain_branch_local() {
     assert_eq!(params[0], ("value".to_owned(), Some(ty.to_owned())));
   }
 }
+
+#[test]
+fn cpp_unqualified_operator_calls_preserve_names_owners_and_arguments() {
+  let lf = r#"
+struct Iter {
+  Iter& operator++();
+  bool operator==(const Iter&) const;
+  const Iter& other() const;
+  Iter operator++(int) { Iter old(*this); operator++(); return old; }
+  bool operator!=(const Iter&) const { return !operator==(other()); }
+};
+void ordinary();
+void following() { ordinary(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for (name, call) in [
+      ("operator++", "operator++()"),
+      ("operator==", "operator==(other())"),
+      ("other", "other()"),
+      ("ordinary", "ordinary()"),
+    ] {
+      let calls: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(calls.len(), 1, "{name}: {:?}", product.refs);
+      assert_eq!(
+        &source[calls[0].start as usize..calls[0].end as usize],
+        call
+      );
+      assert_ne!(calls[0].from_entity_index, 0);
+    }
+    assert!(product.items.iter().any(|i| i.entry.name == "following"));
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut owned = Vec::new();
+    vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw = SgLang::from_path("macros.cc").unwrap().grep(&source);
+    let handed = extractor
+      .extract_product_from_root("macros.cc", &raw)
+      .unwrap();
+    let mut scan = Vec::new();
+    vorpal_ingest::encode_product_into(&handed, &mut scan);
+    assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace("operator++(); return", "operator++() return"),
+    lf.replace("operator==(other())", "operator(other())"),
+    lf.replace("operator==(other())", "operator==(other(), ,)"),
+  ] {
+    assert!(
+      SgLang::from_path("macros.cc")
+        .unwrap()
+        .grep(&bad)
+        .root()
+        .has_error(),
+      "{bad}"
+    );
+  }
+}
+#[test]
+fn damaged_operator_signatures_do_not_invent_runtime_calls() {
+  // Unsupported partial statement macros leave this class damaged. Recovery
+  // must not turn its following typed operator definition into a runtime edge.
+  let lf = r#"namespace Outer { namespace Bench {
+struct Benchmark {
+ void run() {
+  CATCH_TRY { work(); } CATCH_CATCH_ALL { fail(); }
+ }
+ template <typename Fun, typename std::enable_if<!Detail::is_related<Fun, Benchmark>::value, int>::type = 0>
+ Benchmark& operator=(Fun func) { run(); return *this; }
+};
+}}
+void following() { after(); }
+"#;
+  for parameter in ["Fun func", "Fun callback()"] {
+    let variant = lf.replace("Fun func", parameter);
+    for source in [variant.clone(), variant.replace('\n', "\r\n")] {
+      let raw = SgLang::from_path("macros.cc").unwrap().grep(&source);
+      assert!(raw.root().has_error());
+      let call = raw
+        .root()
+        .dfs()
+        .find(|n| {
+          n.kind() == "call_expression"
+            && n
+              .field("function")
+              .is_some_and(|f| f.kind() == "operator_name")
+        })
+        .unwrap();
+      assert!(call.field("arguments").unwrap().has_error());
+      if parameter.contains("callback") {
+        assert!(call.dfs().any(|n| n.kind() == "call_expression"
+          && n.field("function").is_some_and(|f| f.text() == "callback")));
+      }
+      let extractor = OutlineExtractor::new().unwrap();
+      let product = extractor.extract_product("macros.cc", &source).unwrap();
+      assert!(
+        !product
+          .refs
+          .iter()
+          .any(|r| r.kind == 0 && matches!(r.name.as_str(), "operator=" | "callback"))
+      );
+      let after: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "after")
+        .collect();
+      assert_eq!(after.len(), 1);
+      assert_eq!(
+        &source[after[0].start as usize..after[0].end as usize],
+        "after()"
+      );
+      assert!(product.items.iter().any(|i| i.entry.name == "following"));
+      let mut owned = Vec::new();
+      vorpal_ingest::encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let handed = extractor
+        .extract_product_from_root("macros.cc", &raw)
+        .unwrap();
+      let mut scan = Vec::new();
+      vorpal_ingest::encode_product_into(&handed, &mut scan);
+      assert_eq!(owned, scan);
+    }
+  }
+}

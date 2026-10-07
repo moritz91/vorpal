@@ -2044,6 +2044,26 @@ pub(crate) fn walk_reference_tree<'t>(
           }) {
             break 'dispatch;
           }
+          // An explicit operator name cannot be a declaration-generating macro.
+          // Recovery may reinterpret a typed operator signature as a call with
+          // damaged arguments. Decline that ambiguous call and its argument-call
+          // rows; keep the original syntax errors and intact operator calls.
+          if cpp_conditions
+            && std::iter::once(&node).chain(ancestors.iter()).any(|call| {
+              call.kind().as_ref() == "call_expression"
+                && call.field("function").is_some_and(|callee| {
+                  callee.kind().as_ref() == "operator_name"
+                })
+                && call.field("arguments").is_some_and(|arguments| {
+                  arguments.has_error()
+                    && (call.node_id() == node.node_id()
+                      || arguments.range().start <= call_range.start
+                        && call_range.end <= arguments.range().end)
+                })
+            })
+          {
+            break 'dispatch;
+          }
           // A direct C++ type argument cannot be an ordinary runtime argument.
           // Suppress only this callee, retaining calls inside its value arguments.
           // Nested metadata calls must not suppress their enclosing runtime call.

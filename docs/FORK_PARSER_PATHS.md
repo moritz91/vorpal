@@ -1198,3 +1198,31 @@ Its four watched-MCP regressions pass on Windows/Linux: LF/CRLF, background
 rebuild on/off and same-length external-header edits with restored timestamps
 invalidate the proof, then restoration recovers both original sites. MCP Clippy
 passes on both platforms. No productive installation is changed.
+
+Unqualified explicit operator calls now have a separate low-precedence
+call_expression alternative with negative dynamic precedence. Operator names
+are not promoted to general expressions. Two explicit conflicts preserve
+ordinary function declarators, including the unchanged alternative-token
+corpus. Intact calls retain their original operator/argument spans and owners.
+A damaged operator argument list can instead be a recovered typed declaration;
+that ambiguous callee and nested argument-call rows decline runtime attribution,
+while the original errors remain visible. LF/CRLF regression fixtures cover
+both the typed signature and a nested parameter function, with owned/streaming/
+scan-root parity. Intact nested argument calls and following functions survive.
+
+The 902-file source/AST audit changes only Catch2: 70 -> 68 ERROR/MISSING nodes
+and 878 -> 850 damaged bytes; its 21 Objective-C messages remain. The AST has
+3312 call nodes, including one damaged signature, but that signature creates no
+runtime edge. Exact a369d55 product comparison retains 2321 item entries, 1630
+members and all 3231 previous unique call names/spans, adding nine genuine
+operator calls (3240 total). No previous reference row or signature text is
+removed. Two namespace ends recover their actual closing braces; item spans
+are therefore not all identical. The other 901 AST hashes are identical.
+The parser grows from 53144626 to 53307007 bytes / 21181 -> 21191 states; there
+are no new visible kinds. All 47 parser, 34 recovery, 28 Windows / 29 Linux
+evidence tests, bucketed/flat replay, member-call/health, four watched MCP tests
+and 14 native resolver evaluations pass. Native MSVC accepts LF/CRLF operator
+fixtures and rejects malformed arguments/missing semicolons. The unchanged
+corpus, full schema generation, C++-only native/Linux provenance, idempotence,
+Linux workspace/no-builtins Clippy and native ingest Clippy pass. No productive
+binary, index or tunnel is changed.
