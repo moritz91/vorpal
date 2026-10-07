@@ -2554,3 +2554,89 @@ void following() { after(); }
     );
   }
 }
+
+#[test]
+fn ambiguous_recovered_type_prefixes_do_not_mint_cpp_runtime_callees() {
+  let extractor = OutlineExtractor::new().unwrap();
+  for lf in [
+    "void run() { auto objects = { Scope fake(work()) }; after(); }",
+    "void run() { CHECK(work(), \"message\")\n obj.fake(value()); after(); }",
+    "void run() { auto objects = { first(), Type object(work()), second() }; after(); }",
+    "void run() { auto objects = { Scope /* kept */ fake(work()) }; after(); }",
+    "void run() { CATCH_TRY {\n#if defined(A)\n RedirectedStreams captured(work()); timer.start(); invoke();\n#else\n OutputRedirect r(value()); timer.start(); invoke();\n#endif\n } CATCH_CATCH_ALL { failed(); }\n } void following() { after(); }",
+  ] {
+    for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+      let raw = SgLang::from_path("ambiguous.cc").unwrap().grep(&source);
+      assert!(raw.root().has_error());
+      let product = extractor.extract_product("ambiguous.cc", &source).unwrap();
+      assert!(product.error_nodes > 0);
+      assert!(
+        !product
+          .refs
+          .iter()
+          .any(|r| r.kind == 0 && matches!(r.name.as_str(), "fake" | "object" | "captured" | "r")),
+        "{:?}",
+        product.refs
+      );
+      for name in ["work", "after"] {
+        let calls: Vec<_> = product
+          .refs
+          .iter()
+          .filter(|r| r.kind == 0 && r.name == name)
+          .collect();
+        assert_eq!(calls.len(), 1, "{source}: {:?}", product.refs);
+        assert_eq!(
+          &source[calls[0].start as usize..calls[0].end as usize],
+          format!("{name}()")
+        );
+      }
+      let mut owned = Vec::new();
+      vorpal_ingest::encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("ambiguous.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let handed = extractor
+        .extract_product_from_root("ambiguous.cc", &raw)
+        .unwrap();
+      let mut scan = Vec::new();
+      vorpal_ingest::encode_product_into(&handed, &mut scan);
+      assert_eq!(owned, scan);
+    }
+  }
+  // An unrelated real error must not hide ordinary/member/static/operator calls.
+  let source = "void run() { auto objects = { 1 2 }; plain(value()); ns::staticCall(value()); obj.method(value()); operator<<(value(), value()); after(); }";
+  let product = extractor.extract_product("ambiguous.cc", source).unwrap();
+  assert!(product.error_nodes > 0);
+  for name in ["plain", "staticCall", "method", "operator<<", "after"] {
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .count(),
+      1,
+      "{:?}",
+      product.refs
+    );
+  }
+  assert_eq!(
+    product
+      .refs
+      .iter()
+      .filter(|r| r.kind == 0 && r.name == "value")
+      .count(),
+    5
+  );
+  let cpp = SgLang::from_path("ambiguous.cc").unwrap();
+  let bare = vorpal_lang_registry::grammar_digest(cpp).unwrap();
+  assert_eq!(vorpal_ingest::grammar_generation_for(cpp), Some(bare));
+  assert_eq!(
+    vorpal_ingest::extraction_identity_for_path("ambiguous.cc", extractor.rules_digest()),
+    Some(vorpal_ingest::extraction_identity(
+      bare,
+      extractor.rules_digest()
+    ))
+  );
+}

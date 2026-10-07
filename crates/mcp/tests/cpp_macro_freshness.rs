@@ -512,3 +512,91 @@ fn logical_return_macro_callees_keep_guarded_sites_after_header_revalidation() {
     }
   }
 }
+
+#[test]
+fn ambiguous_macro_receiver_heads_do_not_leak_through_watched_mcp() {
+  for watch_rebuild in [false, true] {
+    for crlf in [false, true] {
+      let base = std::env::temp_dir().join(format!(
+        "vorpal-mcp-ambiguous-head-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .unwrap()
+          .as_nanos()
+      ));
+      let src = base.join("repo");
+      let headers = base.join("headers");
+      fs::create_dir_all(&src).unwrap();
+      fs::create_dir_all(&headers).unwrap();
+      let header = headers.join("proof.h");
+      let proof = "#define CHECK(v, msg) { (v); }\n";
+      fs::write(&header, proof).unwrap();
+      let source = "#include \"proof.h\"\nstruct Probe { void method(int) {} };\nint value() { return 1; }\nvoid after() {}\nvoid run() { Probe obj;\n CHECK(value(), \"message\")\n obj.method(value());\n after();\n}\n";
+      fs::write(
+        src.join("main.cc"),
+        if crlf {
+          source.replace('\n', "\r\n")
+        } else {
+          source.to_owned()
+        },
+      )
+      .unwrap();
+      let env = ExtractionEnv {
+        cpp_macro_include_roots: Some(vec![headers]),
+        ..Default::default()
+      };
+      let index = src.join(".vorpal/index");
+      vorpal_index::build_index_env(&src, &index, Default::default(), Default::default(), &env)
+        .unwrap();
+      let mut server = Server::with_profile_env_rebuild(index, Profile::Full, env, watch_rebuild);
+      let mut id = 1;
+      for damaged in [false, true, false] {
+        let report = health(&mut server, id);
+        id += 1;
+        assert!(
+          report.contains(if damaged {
+            "carry ERROR/MISSING nodes"
+          } else {
+            "parse health: clean"
+          }),
+          "{report}"
+        );
+        let response = server.handle_line(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"graph","arguments":{"relation":"callees","name":"run","format":"lean"}}}).to_string()).unwrap();
+        id += 1;
+        let response: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["result"]["isError"], false, "{response}");
+        let rows = response["result"]["structuredContent"]["records"]
+          .as_array()
+          .unwrap();
+        assert_eq!(rows.len(), if damaged { 2 } else { 3 }, "{response}");
+        assert!(rows.iter().all(|r| r["name"] != "CHECK"), "{response}");
+        for (name, line, site) in [
+          ("value", 6, "CHECK(value(), \"message\")"),
+          ("after", 8, "after();"),
+        ] {
+          let row = rows.iter().find(|r| r["name"] == name).unwrap();
+          assert_eq!(row["site_line"], line, "{response}");
+          assert_eq!(row["site"], site, "{response}");
+        }
+        if !damaged {
+          let row = rows.iter().find(|r| r["name"] == "method").unwrap();
+          assert_eq!(row["site_line"], 7, "{response}");
+          assert_eq!(row["site"], "obj.method(value());", "{response}");
+        }
+        let modified = fs::metadata(&header).unwrap().modified().unwrap();
+        let expression = "#define CHECK(v, msg)   (v)   \n";
+        assert_eq!(proof.len(), expression.len());
+        fs::write(&header, if damaged { proof } else { expression }).unwrap();
+        fs::File::options()
+          .write(true)
+          .open(&header)
+          .unwrap()
+          .set_times(fs::FileTimes::new().set_modified(modified))
+          .unwrap();
+      }
+      drop(server);
+      fs::remove_dir_all(base).unwrap();
+    }
+  }
+}

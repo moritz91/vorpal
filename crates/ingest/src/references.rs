@@ -27,6 +27,10 @@ use vorpal_lang_registry::SgLang;
 use vorpal_language::SupportLang;
 use vorpal_resolve::{RefForm, RefKind};
 
+/// Product capture policy, independent of the parser and near-clone token seed.
+/// Increment when reference semantics change without a grammar or rule change.
+pub(crate) const REFERENCE_CAPTURE_VERSION: u32 = 1;
+
 type SgNode<'t> = Node<'t, StrDoc<SgLang>>;
 /// The walk's node type, exported for the typefacts capture module (same doc, same lifetime).
 pub(crate) type SgNodeAlias<'t> = SgNode<'t>;
@@ -2044,6 +2048,11 @@ pub(crate) fn walk_reference_tree<'t>(
           }) {
             break 'dispatch;
           }
+          if cpp_conditions && node.kind().as_ref() == "call_expression"
+            && ambiguous_cpp_callee(&node)
+          {
+            break 'dispatch;
+          }
           // An explicit operator name cannot be a declaration-generating macro.
           // Recovery may reinterpret a typed operator signature as a call with
           // damaged arguments. Decline that ambiguous call and its argument-call
@@ -2268,6 +2277,62 @@ pub(crate) fn finalize_references<'t>(walk: RefWalk<'t>, out: &mut Vec<RawRef<'t
 /// `selector_expression.operand`, C/C++ `field_expression.argument`,
 /// C# `member_access_expression.expression`, Python `attribute.object`).
 const RECEIVER_FIELDS: &[&str] = &["value", "object", "operand", "argument", "expression"];
+
+// An incomplete recovered C++ head is not evidence of a runtime target.
+// Caller dispatch declines only this head, retaining original argument calls.
+fn ambiguous_cpp_callee(call: &SgNode<'_>) -> bool {
+  call.field("function").is_some_and(|callee| {
+    if callee.has_error() {
+      return true;
+    }
+    if callee.kind().as_ref() != "identifier" {
+      return false;
+    }
+    let Some(parent) = call.parent() else {
+      return false;
+    };
+    let Some(prefix) = call.prev_all().find(|n| n.kind().as_ref() != "comment") else {
+      return false;
+    };
+    let type_leaf = |n: &SgNode<'_>| {
+      matches!(
+        n.kind().as_ref(),
+        "identifier" | "type_identifier" | "namespace_identifier" | "primitive_type"
+      )
+    };
+    let loose_type = if prefix.is_error() {
+      let children: Vec<_> = prefix.children().collect();
+      children.len() == 1 && type_leaf(&children[0]) && prefix.text().trim() == children[0].text()
+    } else {
+      parent.is_error() && type_leaf(&prefix)
+    };
+    if !loose_type || prefix.range().end == call.range().start {
+      return false;
+    }
+    // Only actual comment nodes and whitespace may separate the type
+    // fragment from the callee. An actual operator between fragments
+    // rules out this declaration ambiguity; no source text is masked.
+    let text = parent.text();
+    let origin = parent.range().start;
+    let mut end = prefix.range().end;
+    for comment in parent.children().filter(|n| {
+      n.kind().as_ref() == "comment"
+        && prefix.range().end <= n.range().start
+        && n.range().end <= call.range().start
+    }) {
+      if !text[end - origin..comment.range().start - origin]
+        .bytes()
+        .all(|b| b.is_ascii_whitespace())
+      {
+        return false;
+      }
+      end = comment.range().end;
+    }
+    text[end - origin..call.range().start - origin]
+      .bytes()
+      .all(|b| b.is_ascii_whitespace())
+  })
+}
 
 /// Classify a call's syntactic form and extract its qualifier evidence (§3.3):
 /// - a static path (`Kg::load`) yields `Static` + the path's final namespace segment;

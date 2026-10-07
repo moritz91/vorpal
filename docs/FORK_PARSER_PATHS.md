@@ -1355,3 +1355,34 @@ for every guarded operand and argument call. Both newline styles and background
 rebuild settings invalidate same-length external header edits with restored
 timestamps, then restore the proven sites. No productive binary/index/tunnel is
 installed by this change.
+
+
+The exact 8f4017c external candidate verifies 1744 files / 64040 nodes, with
+26 damaged files / 1960 ERROR/MISSING/context diagnostics / 123144 bytes.
+Full CI 37648351839 is green; the productive .2 server is unchanged.
+
+C++ call extraction now declines only an ambiguous recovered callee head: a
+callee containing ERROR/MISSING nodes, or a bare name immediately after a loose
+type fragment in an ERROR context (or a single-type-leaf ERROR sibling).
+Only actual AST comment nodes and whitespace can separate the latter fragments.
+Other ordinary/static/member/operator calls inside unrelated errors remain;
+argument calls are traversed with their original spans. No error node is hidden
+and no source is rewritten. An unexpanded ASSERT followed by a member call can
+otherwise create a false member callee spanning both statements. In the 902-file
+product comparison against exact 8f4017c, 207 such ambiguous references disappear
+in 12 damaged files, including two Catch2 constructor variables misread as calls.
+Every item/member, diagnostic count/span total, near-clone sketch and retained
+reference row/multiplicity matches. This does not claim macro recovery across
+opaque Hades includes or recovery of those damaged statements.
+
+Reference capture v1 is folded into extraction_identity, including the manifest
+stamp used by whole-tree replay. Legacy products migrate once even with unchanged
+source and grammar. Grammar generation and the clone token seed stay unchanged.
+The legacy 32-byte identity contract has a migration regression. Parser tests
+(51) retain owned/streaming/scan-root parity. A seventh normal watched-MCP test
+checks both newline styles and rebuild settings: invalid same-length external
+header edits with restored timestamps keep syntax errors and suppress the fused
+callee; restored statement proof returns the actual member call and its original
+site. Argument and following calls retain their original sites throughout.
+The paired conditional-return branch draft remains external and withheld until
+its full-file extraction effects are independently validated.
