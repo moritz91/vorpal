@@ -1188,3 +1188,13 @@ outline suites pass. The unchanged corpus, actual full schema generation,
 C++-only native/Linux provenance, idempotent reproduction, Linux workspace and
 no-builtins Clippy and native ingest Clippy pass. The productive binary, index
 and tunnel are unchanged.
+
+The exact a369d55 external candidate verifies 1744 files / 64026 nodes. Normal
+MCP health reports 26 damaged files / 1970 ERROR/MISSING/context diagnostics /
+123259 bytes, compared with be124d6's 151981 bytes. An opt-in normal MCP fixture
+also resolves shared/value callees from both wide/narrow function fragments and
+returns both callers with distinct IDs and the original macro-invocation line.
+Its four watched-MCP regressions pass on Windows/Linux: LF/CRLF, background
+rebuild on/off and same-length external-header edits with restored timestamps
+invalidate the proof, then restoration recovers both original sites. MCP Clippy
+passes on both platforms. No productive installation is changed.

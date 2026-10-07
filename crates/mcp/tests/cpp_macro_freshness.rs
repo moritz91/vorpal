@@ -266,3 +266,88 @@ fn ignored_local_shadow_creation_and_removal_revalidates_running_proofs() {
   drop(server);
   fs::remove_dir_all(base).unwrap();
 }
+
+#[test]
+fn conditional_function_macro_callees_keep_both_original_sites() {
+  for watch_rebuild in [false, true] {
+    for crlf in [false, true] {
+      let base = std::env::temp_dir().join(format!(
+        "vorpal-mcp-conditional-sites-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .unwrap()
+          .as_nanos()
+      ));
+      let src = base.join("repo");
+      let headers = base.join("headers");
+      fs::create_dir_all(&src).unwrap();
+      fs::create_dir_all(&headers).unwrap();
+      let header = headers.join("proof.h");
+      let proof = "#define CHECK(v) { (v); }\n";
+      fs::write(&header, proof).unwrap();
+      let source = "#include \"proof.h\"\nint shared(int v) { return v; }\nint value() { return 1; }\n#if defined(WIDE)\nint wide(int argc) {\n#else\nint narrow(int argc) {\n#endif\n CHECK(shared(value()))\n return argc;\n}\n";
+      fs::write(
+        src.join("main.cc"),
+        if crlf {
+          source.replace('\n', "\r\n")
+        } else {
+          source.to_owned()
+        },
+      )
+      .unwrap();
+      let env = ExtractionEnv {
+        cpp_macro_include_roots: Some(vec![headers]),
+        ..Default::default()
+      };
+      let index = src.join(".vorpal/index");
+      vorpal_index::build_index_env(&src, &index, Default::default(), Default::default(), &env)
+        .unwrap();
+      let mut server = Server::with_profile_env_rebuild(index, Profile::Full, env, watch_rebuild);
+      let mut id = 1;
+      for restored in [false, true] {
+        assert!(health(&mut server, id).contains("parse health: clean"));
+        id += 1;
+        for (relation, name, expected) in [
+          ("callees", "wide", ["shared", "value"]),
+          ("callees", "narrow", ["shared", "value"]),
+          ("callers", "shared", ["wide", "narrow"]),
+        ] {
+          let response = server.handle_line(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"graph","arguments":{"relation":relation,"name":name,"format":"lean"}}}).to_string()).unwrap();
+          let response: Value = serde_json::from_str(&response).unwrap();
+          assert_eq!(response["result"]["isError"], false, "{response}");
+          let rows = response["result"]["structuredContent"]["records"]
+            .as_array()
+            .unwrap();
+          assert_eq!(rows.len(), 2, "{response}");
+          assert_ne!(rows[0]["id"], rows[1]["id"], "{response}");
+          for target in expected {
+            let row = rows.iter().find(|r| r["name"] == target).unwrap();
+            assert_eq!(row["site_line"], 9, "{response}");
+            assert_eq!(row["site"], "CHECK(shared(value()))", "{response}");
+          }
+          id += 1;
+        }
+        if !restored {
+          // Same-length external-header mutation cannot replay the prior proof,
+          // even when its timestamp is restored and no source event arrives.
+          let modified = fs::metadata(&header).unwrap().modified().unwrap();
+          let expression = proof.replace("{ (v); }", "  (v)   ");
+          assert_eq!(proof.len(), expression.len());
+          fs::write(&header, expression).unwrap();
+          fs::File::options()
+            .write(true)
+            .open(&header)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+          assert!(health(&mut server, id).contains("carry ERROR/MISSING nodes"));
+          id += 1;
+          fs::write(&header, proof).unwrap();
+        }
+      }
+      drop(server);
+      fs::remove_dir_all(base).unwrap();
+    }
+  }
+}
