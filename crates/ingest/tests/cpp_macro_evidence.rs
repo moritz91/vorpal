@@ -200,7 +200,7 @@ void run() {}
       .iter()
       .map(|b| b.definition.name.as_str())
       .collect::<Vec<_>>(),
-    vec!["LOOP", "COMPLETE", "SAFE"]
+    vec!["LOOP", "WHILE", "FOR", "COMPLETE", "SAFE"]
   );
 }
 
@@ -955,6 +955,50 @@ fn bounded_literal_conditions_preserve_all_branch_effects() {
         .at("CHECK", source.find("CHECK(value").unwrap())
         .is_none(),
       "{condition}"
+    );
+  }
+}
+
+#[test]
+fn complete_control_statement_replacements_do_not_accept_body_prefixes() {
+  for replacement in [
+    "while (v) { sink(v); }",
+    "for (; v;) { sink(v); }",
+    "for (auto item : v) { sink(item); }",
+    "switch (v) { case 1: sink(v); break; default: break; }",
+    "while (v) if (v) sink(v);",
+    "for (; v;) if (v) sink(v);",
+  ] {
+    for newline in ["\n", "\r\n"] {
+      let source = format!("#define CHECK(v) {replacement}\nvoid run() {{ CHECK(value()) }}\n")
+        .replace('\n', newline);
+      let evidence = audit(Path::new("controls.cc"), &source);
+      let definition = evidence
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .unwrap();
+      assert_eq!(definition.parameters, 1);
+      assert_eq!(
+        &source[definition.definition_span.clone()],
+        format!("#define CHECK(v) {replacement}{newline}")
+      );
+    }
+  }
+  for replacement in [
+    "while (v)",
+    "for (; v;)",
+    "for (auto item : v)",
+    "switch (v)",
+    "case 1: for (; v;)",
+    "while () {}",
+    "for (; v;) { sink(v) }",
+    "switch (v) { case 1: sink(v) }",
+    "while (v) {}; after();",
+  ] {
+    let source =
+      format!("#define CHECK(v) {replacement}\nvoid run() {{ CHECK(value()) {{ after(); }} }}\n");
+    assert!(
+      audit(Path::new("prefix.cc"), &source).bindings.is_empty(),
+      "{replacement}"
     );
   }
 }

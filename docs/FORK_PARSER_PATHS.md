@@ -1477,3 +1477,34 @@ An external dependent non-type template-parameter rule is unnecessary: productio
 already parses its isolated valid controls correctly, and adding the rule changes
 none of the 902 full-file ASTs. Those Catch2 errors follow unresolved macro prefixes;
 the duplicate template rule is withheld. Grammar/schema/provenance are unchanged.
+
+
+Complete while, for/range-for and switch statement replacements now share the
+existing proof-backed statement scanner. Their entire bodies must be present in
+the replacement; caller-supplied bodies, case/loop prefixes and missing inner
+semicolons remain unsupported. Only do/while receives an independently proven
+caller terminator. Nested dangling ifs retain their native else attachment; an
+extra source semicolon still breaks it. Replacement-only calls do not become
+runtime edges, and argument/following calls keep their original spans through
+owned, streaming and scan-root extraction. Evidence v21 / opt-in product v20
+invalidate old recovery products without changing default identities.
+
+Windows/Linux evidence (29/30), recovery (40), parser/product (53), outline (15),
+nine watched-MCP tests, bucketed/flat replay, native resolver and Clippy gates
+pass. Watched MCP catches same-length external header edits with restored
+timestamps that remove the control body, and restoring proof restores clean
+health and the original caller sites. MSVC /Zs LF/CRLF controls accept all complete
+forms and reject expression uses, extra else-breaking semicolons and genuinely
+missing call semicolons. The unchanged 179-case grammar corpus passes; all 902
+existing complete C++ products remain identical after stat/extraction identity
+normalization. Grammar, schema and provenance are unchanged.
+
+The exact ac32d65 candidate index verifies 1744 files / 64040 nodes, 26 damaged
+files / 1960 ERROR/MISSING/context diagnostics / 123144 bytes; its full CI
+37695647104 is green. The first actual ASSERT evidence boundary with native SDK
+roots is the original iostream include guard: its _STL_COMPILER_PREPROCESSOR
+condition and named SDK pragma operands are not nonexpanding/literal proofs.
+All 21 original directives were independently inventoried during a read-only
+audit. Unknown effects remain opaque; this control-statement extension neither
+repairs that boundary nor claims an actual Hades ASSERT recovery. Hades and the
+productive .2 installation remain untouched.

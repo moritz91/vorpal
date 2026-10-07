@@ -100,7 +100,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v20\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v21\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -1133,7 +1133,14 @@ pub(crate) fn complete_statement(replacement: &str) -> bool {
   statements.len() == 1
     && matches!(
       statements[0].kind().as_ref(),
-      "if_statement" | "try_statement" | "compound_statement" | "do_statement"
+      "if_statement"
+        | "try_statement"
+        | "compound_statement"
+        | "do_statement"
+        | "while_statement"
+        | "for_statement"
+        | "for_range_loop"
+        | "switch_statement"
     )
 }
 

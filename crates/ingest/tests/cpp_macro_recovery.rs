@@ -1773,3 +1773,118 @@ fn do_while_statement_wrappers_require_the_original_terminator() {
     assert!(!audit_recovery(Path::new("do.cc"), &self_terminated, &[]).has_error);
   }
 }
+
+#[test]
+fn complete_control_macros_keep_original_sites_and_else_binding() {
+  use vorpal_core::{Language, tree_sitter::LanguageExt};
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for replacement in [
+    "while (v) { sink(v); }",
+    "for (; v;) { sink(v); }",
+    "for (auto item : v) { sink(item); }",
+    "switch (v) { case 1: sink(v); break; default: break; }",
+    "while (v) if (v) sink(v);",
+    "for (; v;) if (v) sink(v);",
+  ] {
+    for newline in ["\n", "\r\n"] {
+      let source = format!("#define CHECK(v) {replacement}\nvoid run(bool flag) {{ if (flag) CHECK(value()) else after(); }}\nvoid following() {{ later(); }}\n").replace('\n', newline);
+      let report = audit_recovery(Path::new("controls.cc"), &source, &[]);
+      assert!(!report.has_error, "{replacement}: {report:?}");
+      assert_eq!(report.eligible_names, ["CHECK"]);
+      assert_eq!(report.macro_spans.len(), 1);
+      assert_eq!(
+        &source[report.macro_spans[0].clone()],
+        if replacement.contains("if (v)") {
+          "CHECK(value()) else after();"
+        } else {
+          "CHECK(value())"
+        }
+      );
+      let product = extractor.extract_product("controls.cc", &source).unwrap();
+      assert_eq!(product.error_nodes, 0, "{replacement}");
+      for name in ["value", "after", "later"] {
+        let refs: Vec<_> = product
+          .refs
+          .iter()
+          .filter(|r| r.kind == 0 && r.name == name)
+          .collect();
+        assert_eq!(refs.len(), 1, "{replacement}: {name}");
+        assert_eq!(
+          &source[refs[0].start as usize..refs[0].end as usize],
+          format!("{name}()")
+        );
+      }
+      assert!(
+        !product
+          .refs
+          .iter()
+          .any(|r| r.kind == 0 && matches!(r.name.as_str(), "CHECK" | "sink"))
+      );
+      let mut owned = Vec::new();
+      encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("controls.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let raw = vorpal_lang_registry::SgLang::from_path("controls.cc")
+        .unwrap()
+        .grep(&source);
+      let mut scanned = Vec::new();
+      encode_product_into(
+        &extractor
+          .extract_product_from_root("controls.cc", &raw)
+          .unwrap(),
+        &mut scanned,
+      );
+      assert_eq!(owned, scanned);
+      for bad in [
+        source.replace("CHECK(value()) else", "CHECK(value()); else"),
+        source.replace(
+          "if (flag) CHECK(value()) else after();",
+          "int n = CHECK(value());",
+        ),
+        source.replace(
+          "if (flag) CHECK(value()) else after();",
+          "receiver.CHECK(value());",
+        ),
+      ] {
+        assert!(
+          audit_recovery(Path::new("controls.cc"), &bad, &[]).has_error,
+          "{replacement}: {bad}"
+        );
+      }
+      let orphan = source.replace("if (flag) CHECK(value())", "CHECK(value())");
+      let open_if = replacement.contains("if (v)");
+      assert_eq!(
+        !audit_recovery(Path::new("controls.cc"), &orphan, &[]).has_error,
+        open_if,
+        "{replacement}"
+      );
+      let wrong_arity = source.replace("CHECK(value())", "CHECK(value(), extra())");
+      assert!(
+        audit_recovery(Path::new("controls.cc"), &wrong_arity, &[])
+          .macro_spans
+          .is_empty()
+      );
+      let missing = source.replace("later();", "later()");
+      assert!(audit_recovery(Path::new("controls.cc"), &missing, &[]).has_error);
+    }
+  }
+  for replacement in [
+    "while (v)",
+    "for (; v;)",
+    "switch (v)",
+    "for (auto item : v)",
+  ] {
+    let source =
+      format!("#define CHECK(v) {replacement}\nvoid run() {{ CHECK(value()) {{ after(); }} }}\n");
+    let report = audit_recovery(Path::new("prefix.cc"), &source, &[]);
+    assert!(report.eligible_names.is_empty());
+    assert!(report.macro_spans.is_empty());
+  }
+}
