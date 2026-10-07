@@ -98,7 +98,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v17\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v18\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -374,7 +374,20 @@ fn intact_metadata_groups<D: vorpal_core::Doc>(
         } else {
           ""
         };
-        let suffix = if matches!(
+        // The exact inverse Objective-C guard requires an else arm in the
+        // dialect grammar. Supply an empty independent proof arm, preserving
+        // the original directive/name; the complete original inventory and
+        // matching signatures below still prove every actual branch.
+        let inverse_objc = keyword == "ifndef"
+          && actual.get(&directive.span.start).is_some_and(|signature| {
+            signature.kind == "preproc_ifdef"
+              && signature.fields.iter().any(|(field, _, text)| {
+                field == "name" && text == "__OBJC__"
+              })
+          });
+        let suffix = if inverse_objc {
+          "#else\n#endif\n"
+        } else if matches!(
           keyword.as_str(),
           "if" | "ifdef" | "ifndef" | "else" | "elif" | "elifdef" | "elifndef"
         ) {

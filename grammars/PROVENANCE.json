@@ -89,10 +89,11 @@
       "Proof-backed dangling-if macro scanner token and else_clause attachment, closed-statement framing preserved; original source spans and empty default context retained.",
       "Explicit positive _MANAGED guard: handle parameter/return declarators, handle template static calls and struct specialization, existing container aliases and original spans; global C++ declarators and XOR unchanged.",
       "Two complete #if/#else function heads share an explicit original trailing body in declaration scopes; preserve conditions and spans, expose header fragments and attribute body references to both alternatives without branch selection.",
-      "Unqualified explicit operator calls retain operator_name and argument_list with low static and negative dynamic precedence; keep ordinary declarators viable and do not promote operator names to general expressions."
+      "Unqualified explicit operator calls retain operator_name and argument_list with low static and negative dynamic precedence; keep ordinary declarators viable and do not promote operator names to general expressions.",
+      "Declaration-scoped inverse __OBJC__ guards admit primitive-return function definitions with mandatory function declarators and existing Objective-C compound-body aliases; reject general declaration specifiers and namespace bodies."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:6a131872c73e1e83",
+    "source_digest": "xxh3:0de15e8dfc584841",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

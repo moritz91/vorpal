@@ -1103,6 +1103,27 @@ rules['_conditional_decl_item']['members'].append(symbol('conditional_function_d
 for name, derived in conditional_preproc.items():
     rules[derived] = {'type': 'PREC_DYNAMIC', 'value': -1, 'content': conditional_copy(rules[name])}
 rules['conditional_decl_inverse_objc_guard'] = conditional_copy(rules['_explicit_objc_inverse_body_guard'])
+# Declaration-scoped inverse guards need Objective-C function bodies after the
+# ordinary split-head arm. Require a primitive return and an actual function
+# declarator; general declaration specifiers could treat namespace as a type.
+rules['conditional_decl_objc_function'] = json.loads(json.dumps(rules['_objc_function_definition']))
+objc_head = rules['conditional_decl_objc_function']['members']
+for i, member in enumerate(objc_head):
+    if member == symbol('_declaration_specifiers'):
+        objc_head[i] = field('type', symbol('primitive_type'))
+    elif member.get('type') == 'FIELD' and member.get('name') == 'declarator':
+        member['content'] = symbol('function_declarator')
+rules['conditional_decl_objc_function_else'] = json.loads(json.dumps(rules['_objc_inverse_top_else']))
+rules['conditional_decl_objc_function_else']['content']['members'][2] = {'type': 'REPEAT1', 'content':
+    alias_rule('conditional_decl_objc_function', 'function_definition')}
+rules['conditional_decl_inverse_objc_guard'] = objc_copy(
+    rules['conditional_decl_inverse_objc_guard'], {
+        '_objc_inverse_body_else': symbol('conditional_decl_objc_function_else')})
+for conflict in [
+        ['type_specifier', 'call_expression', '_objc_call_expression', 'conditional_decl_objc_function'],
+        ['type_specifier', 'conditional_decl_objc_function'],
+        ['_declarator', 'expression', 'sdk_call_modifier'], ['expression', 'sdk_call_modifier']]:
+    if conflict not in grammar['conflicts']: grammar['conflicts'].append(conflict)
 for name in ['preproc_if', 'preproc_ifdef']:
     rules['_top_level_item']['members'].append(alias_rule(conditional_preproc[name], name))
 rules['_top_level_item']['members'].append(symbol('conditional_function_definition'))

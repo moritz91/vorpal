@@ -1319,3 +1319,109 @@ fn conditional_function_bodies_retain_proven_macro_argument_calls() {
     );
   }
 }
+
+#[test]
+fn conditional_objc_function_macro_proof_retains_all_original_owners() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let lf = r#"#define CHECK(x) { sink(x); }
+#ifdef OUTER
+#ifndef __OBJC__
+#if defined(WIDE)
+int wide(int v){
+#else
+int narrow(int v){
+#endif
+CHECK(next(v)) return v;
+}
+#else
+int objc(int v){
+#if !defined(ARC)
+Pool *p=[[Pool alloc] init];
+#endif
+#if !defined(ARC)
+[p drain];
+#endif
+CHECK(next(v)) return v;
+}
+#endif
+#endif
+void following() { after(); }
+"#;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("conditional.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.macro_spans.len(), 2);
+    for span in &report.macro_spans {
+      assert_eq!(&source[span.clone()], "CHECK(next(v))");
+    }
+    let product = extractor
+      .extract_product("conditional.cc", &source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    let calls: Vec<_> = product
+      .refs
+      .iter()
+      .filter(|r| r.kind == 0 && r.name == "next")
+      .collect();
+    assert_eq!(calls.len(), 3);
+    for name in ["wide", "narrow", "objc"] {
+      let owner = product
+        .items
+        .iter()
+        .position(|i| i.entry.name == name)
+        .unwrap() as u32
+        + 1;
+      let call = calls.iter().find(|r| r.from_entity_index == owner).unwrap();
+      assert_eq!(&source[call.start as usize..call.end as usize], "next(v)");
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0
+      && matches!(
+        r.name.as_str(),
+        "CHECK" | "sink" | "alloc" | "init" | "drain"
+      )));
+    assert!(product.items.iter().any(|i| i.entry.name == "following"));
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("conditional.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    for uncertain in [
+      source.replace("!defined(ARC)", "!ARC"),
+      source.replace("#ifndef __OBJC__", "#ifndef __OBJC__ extra"),
+      source
+        .replace("#endif\n#endif\n", "#endif\n")
+        .replace("#endif\r\n#endif\r\n", "#endif\r\n"),
+      source.replace(
+        "CHECK(next(v)) return v;",
+        "#undef CHECK\nCHECK(next(v)) return v;",
+      ),
+      source.replace(
+        "CHECK(next(v)) return v;",
+        "#include \"missing.h\"\nCHECK(next(v)) return v;",
+      ),
+    ] {
+      let report = audit_recovery(Path::new("conditional.cc"), &uncertain, &[]);
+      assert!(report.eligible_names.is_empty(), "{report:?}");
+      assert!(report.has_error);
+    }
+    for unproved in [
+      source.replace("#define CHECK(x) { sink(x); }", "void CHECK(int);"),
+      source.clone(),
+    ] {
+      assert!(
+        OutlineExtractor::new()
+          .unwrap()
+          .extract_product("conditional.cc", &unproved)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+  }
+}

@@ -31734,7 +31734,7 @@
             "type": "ALIAS",
             "content": {
               "type": "SYMBOL",
-              "name": "_objc_inverse_body_else"
+              "name": "conditional_decl_objc_function_else"
             },
             "named": true,
             "value": "preproc_else"
@@ -31750,6 +31750,116 @@
           "value": "#endif"
         }
       ]
+    },
+    "conditional_decl_objc_function": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "ms_call_modifier"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "FIELD",
+          "name": "type",
+          "content": {
+            "type": "SYMBOL",
+            "name": "primitive_type"
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "ms_call_modifier"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "sdk_call_modifier"
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "FIELD",
+          "name": "declarator",
+          "content": {
+            "type": "SYMBOL",
+            "name": "function_declarator"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "body",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "ALIAS",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "_objc_compound_statement"
+                },
+                "named": true,
+                "value": "compound_statement"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "try_statement"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "conditional_decl_objc_function_else": {
+      "type": "PREC",
+      "value": 0,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "ALIAS",
+            "content": {
+              "type": "PATTERN",
+              "value": "#[ \t]*else"
+            },
+            "named": false,
+            "value": "#else"
+          },
+          {
+            "type": "STRING",
+            "value": "\n"
+          },
+          {
+            "type": "REPEAT1",
+            "content": {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "conditional_decl_objc_function"
+              },
+              "named": true,
+              "value": "function_definition"
+            }
+          }
+        ]
+      }
     }
   },
   "extras": [
@@ -32317,6 +32427,25 @@
       "_declarator",
       "call_expression",
       "_objc_call_expression"
+    ],
+    [
+      "_declarator",
+      "expression",
+      "sdk_call_modifier"
+    ],
+    [
+      "type_specifier",
+      "call_expression",
+      "_objc_call_expression",
+      "conditional_decl_objc_function"
+    ],
+    [
+      "type_specifier",
+      "conditional_decl_objc_function"
+    ],
+    [
+      "expression",
+      "sdk_call_modifier"
     ],
     [
       "_conditional_decl_item",

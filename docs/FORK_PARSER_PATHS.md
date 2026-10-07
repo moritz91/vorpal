@@ -1226,3 +1226,42 @@ fixtures and rejects malformed arguments/missing semicolons. The unchanged
 corpus, full schema generation, C++-only native/Linux provenance, idempotence,
 Linux workspace/no-builtins Clippy and native ingest Clippy pass. No productive
 binary, index or tunnel is changed.
+
+The exact 0e32e33 external candidate verifies 1744 files / 64026 nodes; normal
+MCP reports 26 damaged files / 1968 ERROR/MISSING/context diagnostics / 123231
+bytes. Full CI 37584424866 is green. The productive release remains unchanged.
+
+Declaration-scoped inverse __OBJC__ guards now admit primitive-return function
+definitions in the complete else arm, with a mandatory function declarator and
+existing function_definition/compound_statement aliases. Nested Objective-C
+preprocessor bodies retain message metadata and original spans. A general
+specifiers prototype incorrectly accepted namespace bodies and is withheld;
+namespace-as-type, malformed bodies/guards and unsupported custom returns
+retain errors. There are no new visible kinds. Four explicit generation
+conflicts preserve the existing declaration/expression alternatives.
+
+The independent metadata proof for the exact inverse guard supplies an empty
+else arm only in its ephemeral syntax fixture: the original directive/name
+and the entire original guard inventory must still match, and every actual
+branch undergoes ordinary effect checks. No input or banked tree is rewritten,
+no branch is selected and no global metadata check is loosened. Evidence v18 /
+opt-in product v17 invalidate old proof products. A LF/CRLF recovery regression
+retains both shared C++ owners plus the Objective-C owner and exact argument
+calls without CHECK/sink/message-selector runtime edges. Unknown/expanding
+conditions, missing includes, undef, extra guard tokens and missing closing
+groups decline proof. Default extraction still leaves unproven calls damaged.
+This does not establish Hades ASSERT evidence beyond opaque SDK includes.
+
+The 902-file production AST audit changes only Catch2: 68 -> 64 ERROR/MISSING
+nodes and 850 -> 804 damaged bytes, retaining 3312 C++ AST calls and recognizing
+21 -> 24 Objective-C messages. The other 901 AST hashes are identical. Product
+comparison retains 2321 entries / 1630 members and every existing call/name/span;
+there are no reference changes beyond the preceding nine genuine operator
+calls. The generated parser grows from 53307007 to 53397795 bytes / 21191 ->
+21221 states. All 48 parser, 35 recovery, 28 Windows / 29 Linux evidence tests,
+bucketed/flat replay, member-call/health, watched MCP and 14 native resolver
+evaluations pass. Linux Clang accepts both nested Objective-C guard variants
+and rejects syntax controls; native MSVC accepts both ordinary C++ alternatives
+and LF/CRLF forms. Unchanged corpus, full schema generation, C++-only native/
+Linux provenance, idempotence and Clippy gates pass. No productive binary or
+tunnel is changed.

@@ -2240,3 +2240,117 @@ void following() { after(); }
     }
   }
 }
+
+#[test]
+fn conditional_function_objc_alternative_preserves_body_and_metadata() {
+  let lf = r#"#ifdef OUTER
+#ifndef __OBJC__
+#if defined(WIDE)
+int wide(int v){
+#else
+int narrow(int v){
+#endif
+return next(v);
+}
+#else
+int objc(int v){
+#if !ARC
+Pool *p=[[Pool alloc] init];
+#endif
+#if !ARC
+[p drain];
+#endif
+return next(v);
+}
+#endif
+#endif
+void following() { after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let raw = SgLang::from_path("macros.cc").unwrap().grep(&source);
+    assert!(!raw.root().has_error());
+    let messages: Vec<_> = raw
+      .root()
+      .dfs()
+      .filter(|n| n.kind() == "objc_message_expression")
+      .collect();
+    assert_eq!(messages.len(), 3);
+    for message in messages {
+      assert_eq!(&source[message.range()], message.text());
+    }
+    let extractor = OutlineExtractor::new().unwrap();
+    let product = extractor.extract_product("macros.cc", &source).unwrap();
+    let calls: Vec<_> = product
+      .refs
+      .iter()
+      .filter(|r| r.kind == 0 && r.name == "next")
+      .collect();
+    assert_eq!(calls.len(), 3);
+    for name in ["wide", "narrow", "objc"] {
+      let owner = product
+        .items
+        .iter()
+        .position(|i| i.entry.name == name)
+        .unwrap() as u32
+        + 1;
+      let call = calls.iter().find(|r| r.from_entity_index == owner).unwrap();
+      assert_eq!(&source[call.start as usize..call.end as usize], "next(v)");
+    }
+    let objc = raw
+      .root()
+      .dfs()
+      .find(|n| {
+        n.kind() == "function_definition"
+          && n
+            .field("declarator")
+            .is_some_and(|n| n.text().starts_with("objc("))
+      })
+      .unwrap();
+    assert_eq!(objc.field("body").unwrap().kind(), "compound_statement");
+    assert!(
+      objc
+        .field("body")
+        .unwrap()
+        .dfs()
+        .any(|n| n.kind() == "preproc_if")
+    );
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && matches!(r.name.as_str(), "alloc" | "init" | "drain"))
+    );
+    assert!(product.items.iter().any(|i| i.entry.name == "following"));
+    let mut owned = Vec::new();
+    vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor
+      .extract_product_from_root("macros.cc", &raw)
+      .unwrap();
+    let mut scan = Vec::new();
+    vorpal_ingest::encode_product_into(&handed, &mut scan);
+    assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace("[p drain];", "[p drain]"),
+    lf.replace("#endif\nreturn next(v);", "return next(v);"),
+    lf.replace("int objc(int v)", "namespace ns"),
+    lf.replace("int objc(int v)", "namespace objc(int v)"),
+    lf.replace("__OBJC__", "OTHER_DIALECT"),
+    lf.replace("int objc(int v)", "Custom objc(int v)"),
+    lf.replace("return next(v);\n}\n#endif", "return next(v);\n#endif"),
+  ] {
+    assert!(
+      SgLang::from_path("macros.cc")
+        .unwrap()
+        .grep(&bad)
+        .root()
+        .has_error(),
+      "{bad}"
+    );
+  }
+}
