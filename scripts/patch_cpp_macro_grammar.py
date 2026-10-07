@@ -38,6 +38,18 @@ def seq(*members): return {'type': 'SEQ', 'members': list(members)}
 def repeat(content): return {'type': 'REPEAT', 'content': content}
 def optional(content): return choice(content, {'type': 'BLANK'})
 
+# C++ permits inline before friend inside a class. Keep the entire friend
+# declaration intact rather than treating the keyword as a return type. Reuse
+# the original alternatives and unwrap our previous copy on reproduction.
+friend = rules['friend_declaration']
+if friend.get('type') == 'CHOICE' and any(
+        member.get('type') == 'SEQ' and member.get('members', [None])[0] ==
+        {'type': 'STRING', 'value': 'inline'} for member in friend['members']):
+    friend = friend['members'][0]
+rules['friend_declaration'] = choice(friend, seq({'type': 'STRING', 'value': 'inline'}, friend))
+conflict = ['storage_class_specifier', 'friend_declaration']
+if conflict not in grammar['conflicts']: grammar['conflicts'].append(conflict)
+
 # A leading qualifier makes this unambiguously a type argument.
 # Bare identifiers keep the existing expression parse (no type/value guessing).
 pointer_or_reference = optional(choice(symbol('abstract_pointer_declarator'), symbol('abstract_reference_declarator')))

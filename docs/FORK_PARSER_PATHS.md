@@ -1265,3 +1265,25 @@ and rejects syntax controls; native MSVC accepts both ordinary C++ alternatives
 and LF/CRLF forms. Unchanged corpus, full schema generation, C++-only native/
 Linux provenance, idempotence and Clippy gates pass. No productive binary or
 tunnel is changed.
+The exact 39c8f5e external candidate verifies 1744 files / 64026 nodes;
+normal MCP health reports 26 damaged files / 1964 ERROR/MISSING/context
+diagnostics / 123185 bytes. Full current-head CI 37587681437 is green.
+
+Inline preceding friend now wraps the original friend declaration alternatives,
+with one storage-class/friend conflict. The keyword remains declaration syntax,
+not a fictitious return type. All existing visible kinds are unchanged. The
+902-file production AST audit changes only Catch2: 64 -> 62 ERROR/MISSING nodes
+and 804 -> 780 bytes, with all 24 messages / 3312 C++ AST calls retained; the
+other 901 hashes match. The exact 0e32e33 product comparison retains 2321 items,
+1630 members and all 3240 call names/spans, removing only two bogus Type refs
+named friend. Named friend prototypes still expose the pre-existing member
+classification limitation; free-function outline attribution is a separate
+follow-up. This grammar repair does not claim to resolve that limitation.
+The parser grows from 53397795 to 53596112 bytes / 21221 -> 21329 states.
+All 49 parser, 35 recovery, 28 Windows / 29 Linux evidence tests, bucketed/flat
+replay, member-call/health, four watched MCP tests and 14 native resolver
+checks pass. Native MSVC accepts LF/CRLF inline-friend definitions/declarations
+and rejects missing semicolons, malformed parameters, extra prefixes and
+missing braces. Unchanged corpus, full schema generation, C++-only native/Linux
+provenance, idempotent reproduction and Clippy pass. No productive binary,
+index, tunnel or Hades source is changed.
