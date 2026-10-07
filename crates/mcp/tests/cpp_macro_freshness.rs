@@ -351,3 +351,84 @@ fn conditional_function_macro_callees_keep_both_original_sites() {
     }
   }
 }
+
+#[test]
+fn friend_macro_callees_are_owned_by_free_functions_after_header_revalidation() {
+  for watch_rebuild in [false, true] {
+    for crlf in [false, true] {
+      let base = std::env::temp_dir().join(format!(
+        "vorpal-mcp-friend-sites-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .unwrap()
+          .as_nanos()
+      ));
+      let src = base.join("repo");
+      let headers = base.join("headers");
+      fs::create_dir_all(&src).unwrap();
+      fs::create_dir_all(&headers).unwrap();
+      let header = headers.join("proof.h");
+      let proof = "#define CHECK(v) { (v); }\n";
+      fs::write(&header, proof).unwrap();
+      let source = "#include \"proof.h\"\nint target() { return 1; }\nstruct Column {\n inline friend void run() { CHECK(target()) }\n friend void inspect(Column&);\n int size() const { return 1; }\n};\n";
+      fs::write(
+        src.join("main.cc"),
+        if crlf {
+          source.replace('\n', "\r\n")
+        } else {
+          source.to_owned()
+        },
+      )
+      .unwrap();
+      let env = ExtractionEnv {
+        cpp_macro_include_roots: Some(vec![headers]),
+        ..Default::default()
+      };
+      let index = src.join(".vorpal/index");
+      vorpal_index::build_index_env(&src, &index, Default::default(), Default::default(), &env)
+        .unwrap();
+      let mut server = Server::with_profile_env_rebuild(index, Profile::Full, env, watch_rebuild);
+      let mut id = 1;
+      for restored in [false, true] {
+        assert!(health(&mut server, id).contains("parse health: clean"));
+        id += 1;
+        for (relation, name, expected) in
+          [("callees", "run", "target"), ("callers", "target", "run")]
+        {
+          let response = server.handle_line(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"graph","arguments":{"relation":relation,"name":name,"format":"lean"}}}).to_string()).unwrap();
+          id += 1;
+          let response: Value = serde_json::from_str(&response).unwrap();
+          assert_eq!(response["result"]["isError"], false, "{response}");
+          let records = response["result"]["structuredContent"]["records"]
+            .as_array()
+            .unwrap();
+          assert_eq!(records.len(), 1, "{response}");
+          assert_eq!(records[0]["name"], expected, "{response}");
+          assert_eq!(
+            records[0]["site"],
+            "inline friend void run() { CHECK(target()) }"
+          );
+          assert_eq!(records[0]["site_line"], 4);
+        }
+        if !restored {
+          let modified = fs::metadata(&header).unwrap().modified().unwrap();
+          let expression = "#define CHECK(v)   (v)   \n";
+          assert_eq!(expression.len(), proof.len());
+          fs::write(&header, expression).unwrap();
+          fs::File::options()
+            .write(true)
+            .open(&header)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+          assert!(health(&mut server, id).contains("carry ERROR/MISSING nodes"));
+          id += 1;
+          fs::write(&header, proof).unwrap();
+        }
+      }
+      drop(server);
+      fs::remove_dir_all(base).unwrap();
+    }
+  }
+}

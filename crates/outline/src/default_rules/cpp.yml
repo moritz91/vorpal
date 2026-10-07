@@ -22,6 +22,9 @@ symbolType: function
 # preserving qualified spellings like `Widget::method`.
 rule:
   kind: function_definition
+  not:
+    inside:
+      kind: friend_declaration
   has:
     field: declarator
     any:
@@ -126,6 +129,10 @@ rule:
     - kind: field_declaration
     - kind: declaration
     - kind: function_definition
+  not:
+    inside:
+      kind: friend_declaration
+      stopBy: end
   all:
     # Member templates use ordinary identifiers and declaration/function nodes.
     # A return type distinguishes these methods from constructor/destructor forms.
@@ -166,9 +173,13 @@ rule:
     - kind: declaration
     - kind: function_definition
   not:
-    has:
-      field: type
-      pattern: $TYPE
+    any:
+      - has:
+          field: type
+          pattern: $TYPE
+      - inside:
+          kind: friend_declaration
+          stopBy: end
   has:
     field: declarator
     kind: function_declarator
@@ -200,24 +211,28 @@ rule:
           stopBy: end
           pattern: $NAME
   not:
-    has:
-      field: declarator
-      any:
-        - kind: function_declarator
-          has:
-            field: declarator
-            any:
-              - kind: field_identifier
-              - kind: identifier
-        - has:
-            kind: function_declarator
-            stopBy:
-              kind: parameter_list
-            has:
-              field: declarator
-              any:
-                - kind: field_identifier
-                - kind: identifier
+    any:
+      - inside:
+          kind: friend_declaration
+          stopBy: end
+      - has:
+          field: declarator
+          any:
+            - kind: function_declarator
+              has:
+                field: declarator
+                any:
+                  - kind: field_identifier
+                  - kind: identifier
+            - has:
+                kind: function_declarator
+                stopBy:
+                  kind: parameter_list
+                has:
+                  field: declarator
+                  any:
+                    - kind: field_identifier
+                    - kind: identifier
 name: $NAME
 isPublic: cpp-access
 ---
@@ -229,6 +244,10 @@ parentRuleIds: [cpp-class, cpp-struct, cpp-union]
 symbolType: class
 rule:
   kind: class_specifier
+  not:
+    inside:
+      kind: friend_declaration
+      stopBy: end
   has:
     field: name
     pattern: $NAME
@@ -243,6 +262,10 @@ parentRuleIds: [cpp-class, cpp-struct, cpp-union]
 symbolType: struct
 rule:
   kind: struct_specifier
+  not:
+    inside:
+      kind: friend_declaration
+      stopBy: end
   has:
     field: name
     pattern: $NAME
@@ -406,3 +429,33 @@ isExported:
     has:
       kind: storage_class_specifier
       regex: ^static$
+
+---
+# Friend definitions belong to namespace scope, not to the granting class.
+# A separate nested pass reaches them through pruned class items; immediate
+# parent matching avoids claiming local methods inside a friend body. Bare
+# prototypes remain declarations, as for other namespace-scope functions.
+id: cpp-friend-function
+language: Cpp
+role: item
+symbolType: function
+nested: true
+rule:
+  kind: function_definition
+  inside:
+    kind: friend_declaration
+  has:
+    field: declarator
+    any:
+      - kind: function_declarator
+        has:
+          field: declarator
+          pattern: $NAME
+      - has:
+          kind: function_declarator
+          stopBy: end
+          has:
+            field: declarator
+            pattern: $NAME
+name: $NAME
+isExported: true

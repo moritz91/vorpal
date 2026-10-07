@@ -468,3 +468,45 @@ protected:
 "#,
   );
 }
+
+#[test]
+fn cpp_friend_definitions_are_functions_and_prototypes_are_not_members() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  let lf = r#"
+struct Stream {};
+struct Other { Other(); };
+class Column {
+  friend void inspect(Column&);
+  friend Other::Other();
+  friend class Peer;
+  inline friend Stream& operator<<(Stream& os, Column const& col) { work(); return os; }
+  inline friend int visit(Column const& col) { return work(); }
+  friend int* pointer(Column& col) { return nullptr; }
+  template<typename T> friend T echo(T value) { return value; }
+  friend void local() { struct Local { void nested() { work(); } }; work(); }
+public:
+  int size() const { return count(); }
+};
+int ordinary() { return work(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    common::assert_outline_snapshot(
+      SupportLang::Cpp,
+      RULES,
+      &source,
+      r#"
+- Struct item exported Stream
+- Struct item exported Other
+  - Constructor public Other
+- Class item exported Column
+  - Method public size
+- Function item exported ordinary
+- Function item exported operator<<
+- Function item exported visit
+- Function item exported pointer
+- Function item exported echo
+- Function item exported local
+"#,
+    );
+  }
+}

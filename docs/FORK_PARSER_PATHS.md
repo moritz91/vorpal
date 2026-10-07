@@ -1287,3 +1287,33 @@ and rejects missing semicolons, malformed parameters, extra prefixes and
 missing braces. Unchanged corpus, full schema generation, C++-only native/Linux
 provenance, idempotent reproduction and Clippy pass. No productive binary,
 index, tunnel or Hades source is changed.
+
+Friend definitions now have namespace-function outline entries reached by the
+existing nested-item pass, with immediate friend-parent matching. Ordinary
+function rules exclude these direct friend children to prevent duplicates;
+member rules exclude friend subtrees. Bare friend prototypes remain declarations,
+not fictitious class methods/constructors. Local records/methods inside friend
+bodies do not leak into the granting class. Pointer-return and template friends,
+friend constructor declarations, ordinary methods, LF/CRLF spans and nested
+local records have outline regressions. The bundled rule digest invalidates old
+products. C++ now needs the existing full-tree nested-item pass, so its default
+walk-snapshot fast path declines reuse; ordinary parse-tree caching remains
+available and configured recovered trees retain their existing cache bypass.
+
+The 902-file product audit changes only Catch2: 2321 -> 2337 items and 1630 ->
+1626 members. Sixteen actual friend definitions are recovered and four bogus
+member prototypes removed. All original item names/spans, runtime call names,
+sites and multiplicities survive; 21 call sites move to their proper free-function
+owners. Parser health is unchanged by these outline rules. A production recovery
+fixture retains exact macro argument sites and friend owners through owned,
+streaming and scan-root extraction, without macro-callee/replacement calls.
+Five watched MCP tests pass on Windows/Linux; the friend case tests both newline
+styles and background rebuild settings, same-length header changes with restored
+timestamps and restored proofs, with original displayed sites and both edge
+navigation directions. Full outline suites, 49 parser / 36 recovery tests,
+evidence, bucketed/flat replay, member-call/health, 14 native resolver checks,
+Linux workspace/no-builtins and native ingest/MCP Clippy pass. Native MSVC accepts
+the complete pointer/template/local-record outline fixtures with LF/CRLF.
+Windows CI now also runs c_family_outline_rules (the release gate already does);
+Actionlint passes. The grammar, schema and provenance are unchanged since b6d53dc.
+No productive binary, index or tunnel is installed by this change.

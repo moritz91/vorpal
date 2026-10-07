@@ -62,6 +62,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal --test cpp_macro_config
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p vorpal-outline --test c_family_outline_rules
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   # The encoder's x86 GEMM rungs (crates/ann/src/encoder/{gemm_x86,gemm_i8}.rs) can
   # only be MEASURED on x86 hardware: the development machine is Apple silicon, where

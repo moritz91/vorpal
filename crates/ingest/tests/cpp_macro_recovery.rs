@@ -1425,3 +1425,137 @@ void following() { after(); }
     }
   }
 }
+
+#[test]
+fn friend_definitions_own_proven_macro_arguments_without_becoming_members() {
+  use vorpal_core::{Language, tree_sitter::LanguageExt};
+  use vorpal_ingest::OutlineExtractor;
+  use vorpal_lang_registry::SgLang;
+  let lf = r#"
+#define CHECK(x) { sink(x); }
+struct Stream {};
+int work();
+int count();
+struct Column {
+  inline friend Stream& operator<<(Stream& os, Column const& col) { CHECK(work()) return os; }
+  inline friend void inspect(Column&);
+  int size() const { return count(); }
+};
+void following() { after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let raw = SgLang::from_path("macros.cc").unwrap().grep(&source);
+    assert!(raw.root().has_error());
+    let friends: Vec<_> = raw
+      .root()
+      .dfs()
+      .filter(|n| n.kind() == "friend_declaration")
+      .collect();
+    assert_eq!(friends.len(), 2);
+    for node in friends {
+      assert!(node.text().starts_with("inline friend"));
+      assert_eq!(&source[node.range()], node.text());
+    }
+    let operator = raw
+      .root()
+      .dfs()
+      .find(|n| {
+        n.kind() == "function_definition"
+          && n
+            .field("declarator")
+            .is_some_and(|d| d.text().contains("operator<<"))
+      })
+      .unwrap();
+    assert_eq!(operator.field("type").unwrap().text(), "Stream");
+    assert_eq!(operator.field("body").unwrap().kind(), "compound_statement");
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_recovery(&[])
+      .unwrap();
+    let product = extractor.extract_product("macros.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.name == "friend" || r.name == "CHECK" || r.name == "sink")
+    );
+    for name in ["work", "count", "after"] {
+      let calls: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(calls.len(), 1);
+      assert_eq!(
+        &source[calls[0].start as usize..calls[0].end as usize],
+        format!("{name}()")
+      );
+    }
+    let column = product
+      .items
+      .iter()
+      .find(|i| i.entry.name == "Column")
+      .unwrap();
+    assert!(column.members.iter().any(|m| m.entry.name == "size"));
+    assert!(
+      !column
+        .members
+        .iter()
+        .any(|m| m.entry.name == "operator<<" || m.entry.name == "inspect")
+    );
+    assert!(product.items.iter().any(|i| i.entry.name == "following"));
+    let friend = product
+      .items
+      .iter()
+      .find(|i| i.entry.name == "operator<<")
+      .unwrap();
+    assert!(friend.members.is_empty());
+    let owner = product
+      .items
+      .iter()
+      .position(|i| i.entry.name == "operator<<")
+      .unwrap();
+    let expected = 1
+      + product.items[..owner]
+        .iter()
+        .map(|i| 1 + i.members.len())
+        .sum::<usize>();
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .find(|r| r.kind == 0 && r.name == "work")
+        .unwrap()
+        .from_entity_index as usize,
+      expected
+    );
+    assert!(!product.items.iter().any(|i| i.entry.name == "inspect"));
+    let mut owned = Vec::new();
+    vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor
+      .extract_product_from_root("macros.cc", &raw)
+      .unwrap();
+    let mut scan = Vec::new();
+    vorpal_ingest::encode_product_into(&handed, &mut scan);
+    assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace("#define CHECK(x) { sink(x); }", "#define CHECK(x) sink(x)"),
+    lf.replace("CHECK(work())", "CHECK(work(), other())"),
+    lf.replace("return os;", "return os"),
+  ] {
+    let product = vorpal_ingest::OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_recovery(&[])
+      .unwrap()
+      .extract_product("macros.cc", &bad)
+      .unwrap();
+    assert!(product.error_nodes > 0);
+  }
+}
