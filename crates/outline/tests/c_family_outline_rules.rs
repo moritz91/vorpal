@@ -510,3 +510,87 @@ int ordinary() { return work(); }
     );
   }
 }
+
+#[test]
+fn cpp_constructor_names_must_match_their_enclosing_type() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  let lf = "#define DECLARE_STORAGE(Type) int* storage();\nstruct Holder {\n Holder();\n ~Holder();\n int* getter() { return value(); }\n DECLARE_STORAGE(Item);\n};\nHolder::Holder() { work(); }\nHolder::~Holder() { cleanup(); }\nvoid following() { after(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    common::assert_outline_snapshot(
+      SupportLang::Cpp,
+      RULES,
+      &source,
+      r#"
+- Macro item exported DECLARE_STORAGE
+- Struct item exported Holder
+  - Constructor public Holder
+  - Constructor public ~Holder
+  - Method public getter
+- Function item exported Holder::Holder
+- Function item exported Holder::~Holder
+- Function item exported following
+"#,
+    );
+  }
+  // A known type name is not a constructor of a different enclosing class.
+  common::assert_outline_snapshot(
+    SupportLang::Cpp,
+    RULES,
+    "struct Other {}; struct Holder { Other(); Holder(); ~Holder(); };",
+    "- Struct item exported Other\n- Struct item exported Holder\n  - Constructor public Holder\n  - Constructor public ~Holder\n",
+  );
+}
+
+#[test]
+fn cpp_specialized_and_nested_constructors_keep_the_injected_class_name() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  let lf = "template<class T> struct Box { Box(); ~Box(); };\ntemplate<class T> struct Box<T*> { Box() { work(); } ~Box(); };\ntemplate<> struct Box<void> { template<class T> Box(T value) { work(); } ~Box(); };\nstruct Outer { Outer(); struct Inner { Inner(); ~Inner(); Outer(); }; };\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    common::assert_outline_snapshot(
+      SupportLang::Cpp,
+      RULES,
+      &source,
+      r#"
+- Struct item exported Box
+  - Constructor public Box
+  - Constructor public ~Box
+- Struct item exported Box<T*>
+  - Constructor public Box
+  - Constructor public ~Box
+- Struct item exported Box<void>
+  - Constructor public Box
+  - Constructor public ~Box
+- Struct item exported Outer
+  - Constructor public Outer
+  - Struct private Inner
+"#,
+    );
+  }
+}
+
+#[test]
+fn cpp_constructor_matcher_stops_at_the_nearest_class() {
+  use vorpal_language::LanguageExt;
+  use vorpal_outline::extractor::{MemberExtractor, SerializableOutlineRule, parse_outline_rules};
+  use vorpal_outline::options::OutlineEntryDetail;
+  let rules =
+    parse_outline_rules::<SupportLang>(include_str!("../src/default_rules/cpp.yml")).unwrap();
+  let rule = rules
+    .into_iter()
+    .find(|r| r.common().id == "cpp-member-constructor")
+    .unwrap();
+  let SerializableOutlineRule::Member(rule) = rule else {
+    panic!("member rule")
+  };
+  let matcher =
+    MemberExtractor::try_from(rule, &Default::default(), OutlineEntryDetail::Signature).unwrap();
+  let source = "struct Outer { Outer(); struct Inner { Inner(); Outer(); }; };";
+  let parsed = SupportLang::Cpp.grep(source);
+  let matches: Vec<_> = parsed
+    .root()
+    .dfs()
+    .filter_map(|node| matcher.match_node(&node))
+    .map(|node| node.get_node().text().into_owned())
+    .collect();
+  assert_eq!(matches, ["Outer();", "Inner();"]);
+}

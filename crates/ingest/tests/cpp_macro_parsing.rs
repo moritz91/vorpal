@@ -2640,3 +2640,135 @@ fn ambiguous_recovered_type_prefixes_do_not_mint_cpp_runtime_callees() {
     ))
   );
 }
+
+#[test]
+fn cpp_declaration_macros_are_not_foreign_constructors() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_language::{LanguageExt, SupportLang};
+  let extractor = OutlineExtractor::new().unwrap();
+  // Rule identity must reject products extracted with the legacy constructor rule.
+  let rules = include_str!("../../outline/src/default_rules/cpp.yml");
+  let start = rules
+    .find("      # Bare constructor names must agree")
+    .unwrap();
+  let end = start + rules[start..].find("\nname: $NAME").unwrap();
+  let legacy_rules = format!("{}{}", &rules[..start], &rules[end + 1..]);
+  let legacy = OutlineExtractor::from_rules(&legacy_rules).unwrap();
+  let current = OutlineExtractor::from_rules(rules).unwrap();
+  assert_ne!(
+    legacy.extraction_identity_for_path("declarations.cpp"),
+    current.extraction_identity_for_path("declarations.cpp")
+  );
+  let legacy_product = legacy
+    .extract_product(
+      "declarations.cpp",
+      "struct Holder { DECLARE_STORAGE(Item); };",
+    )
+    .unwrap();
+  assert_eq!(
+    legacy_product.items[0].members[0].entry.name,
+    "DECLARE_STORAGE"
+  );
+  let lf = "#define DECLARE_STORAGE(Type) int* storage();\nstruct Holder {\n Holder();\n ~Holder();\n int* getter() { return value(); }\n DECLARE_STORAGE(Item);\n};\nHolder::Holder() { work(); }\nHolder::~Holder() { cleanup(); }\nvoid following() { after(); }\nvoid broken() { missing() }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = extractor
+      .extract_product("declarations.cpp", &source)
+      .unwrap();
+    let holder = product
+      .items
+      .iter()
+      .find(|item| item.entry.name == "Holder")
+      .unwrap();
+    assert_eq!(
+      holder
+        .members
+        .iter()
+        .map(|member| member.entry.name.as_ref())
+        .collect::<Vec<_>>(),
+      ["Holder", "~Holder", "getter"]
+    );
+    for name in ["Holder::Holder", "Holder::~Holder", "following"] {
+      assert!(product.items.iter().any(|item| item.entry.name == name));
+    }
+    for name in ["value", "work", "cleanup", "after"] {
+      let calls: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|reference| reference.kind == 0 && reference.name == name)
+        .collect();
+      assert_eq!(calls.len(), 1);
+      for call in calls {
+        assert_eq!(
+          &source[call.start as usize..call.end as usize],
+          format!("{name}()")
+        );
+      }
+    }
+    assert!(
+      product
+        .refs
+        .iter()
+        .filter(|reference| reference.kind == 0)
+        .all(|reference| reference.name != "DECLARE_STORAGE")
+    );
+    let parsed = vorpal_lang_registry::SgLang::Builtin(SupportLang::Cpp).grep(&source);
+    assert!(parsed.root().has_error());
+    assert!(product.error_nodes > 0);
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("declarations.cpp", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let from_root = extractor
+      .extract_product_from_root("declarations.cpp", &parsed)
+      .unwrap();
+    let mut scanned = Vec::new();
+    encode_product_into(&from_root, &mut scanned);
+    assert_eq!(owned, scanned);
+  }
+}
+
+#[test]
+fn cpp_specialized_constructor_products_preserve_original_calls() {
+  let extractor = vorpal_ingest::OutlineExtractor::new().unwrap();
+  let lf = "template<class T> struct Box { Box() { first(); } };\ntemplate<class T> struct Box<T*> { Box() { second(); } };\ntemplate<> struct Box<void> { template<class T> Box(T value) { third(); } };\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = extractor
+      .extract_product("constructors.cpp", &source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    for (owner, call) in [
+      ("Box", "first"),
+      ("Box<T*>", "second"),
+      ("Box<void>", "third"),
+    ] {
+      let item = product
+        .items
+        .iter()
+        .find(|i| i.entry.name == owner)
+        .unwrap();
+      assert_eq!(item.members.len(), 1);
+      assert_eq!(item.members[0].entry.name, "Box");
+      let refs: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == call)
+        .collect();
+      assert_eq!(refs.len(), 1);
+      assert_eq!(
+        &source[refs[0].start as usize..refs[0].end as usize],
+        format!("{call}()")
+      );
+      assert_ne!(refs[0].from_entity_index, 0);
+    }
+    let mut owned = Vec::new();
+    vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("constructors.cpp", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+  }
+}

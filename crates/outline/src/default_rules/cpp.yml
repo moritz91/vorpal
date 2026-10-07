@@ -186,6 +186,28 @@ rule:
     has:
       field: declarator
       pattern: $NAME
+      # Bare constructor names must agree with their nearest enclosing type.
+      # Otherwise declaration macros such as DECLARE_STORAGE(T) become bogus
+      # constructors. Qualified and destructor declarators retain their shapes.
+      any:
+        - not:
+            kind: identifier
+        - inside:
+            kind: field_declaration_list
+            stopBy:
+              any:
+                - kind: class_specifier
+                - kind: struct_specifier
+                - kind: union_specifier
+            inside:
+              has:
+                field: name
+                any:
+                  - pattern: $NAME
+                  - kind: template_type
+                    has:
+                      field: name
+                      pattern: $NAME
 name: $NAME
 isPublic: cpp-access
 ---

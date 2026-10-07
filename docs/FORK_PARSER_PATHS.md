@@ -1430,3 +1430,36 @@ The unchanged 179-case corpus is green. The exact 26bc03f 902-file product
 comparison has no default product changes, including all item/member/reference
 rows, diagnostics and clone sketches. Grammar, schema and provenance are unchanged.
 No productive binary, index, tunnel or Hades source is modified.
+
+
+Bare member constructor names now require their nearest enclosing class/struct/
+union name. Explicit and partial specializations compare the template's name
+without its argument list, retaining the injected class name. Destructor and
+qualified declarator shapes remain unchanged. A declaration macro such as
+DECLARE_STORAGE(T) therefore cannot become a foreign constructor. Matching stops
+at the nearest owner, so an outer class cannot validate an inner foreign head.
+This is an outline correction, not additional macro recovery or error suppression.
+The bundled rule digest invalidates products extracted with the older rule.
+
+Windows/Linux outline (14), parser/product (53), recovery (39), evidence (28/29),
+bucketed/flat replay, member-call/health and eight watched-MCP regressions pass.
+Fourteen native resolver checks, native ingest and Linux workspace/no-builtins
+Clippy pass. MSVC /Zs LF/CRLF controls retain ordinary, qualified and specialized
+constructors and reject a foreign constructor and missing call semicolon. All
+902 current C++ products are byte-identical to exact 690343f after normalizing
+stat/extraction identity fields: no definitions, reference owners, diagnostics,
+parameter/return facts, requests or clone sketches change. Grammar, schema and
+provenance are unchanged. Broader removal of unresolved free function heads is
+withheld: their bodies need anonymous scope barriers before local classes and
+receiver types can safely survive without a synthetic function owner.
+
+A read-only native LLVM 19.1.7 audit of binary_serialization_tests.cc resolves all
+27 original ASSERT/TEST invocations with zero compiler errors under adapted MSVC
+flags. This is not production proof or equivalence with MSVC. TEST generates a
+function using token paste and remains unsupported. Detailed preprocessing records
+still omit restored uses after literal/wrapped pop_macro; a wrapped __has_include
+query also hides the underlying missing-file observation. Complete invocation and
+macro-stack coverage, native compiler configuration identity and immutable found/
+missing/shadow/query dependency observations are required before a compiler backend
+could activate recovery. Neither the temporary compiler nor these records changes
+normal MCP behavior. Hades and the productive .2 installation remain untouched.
