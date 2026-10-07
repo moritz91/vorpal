@@ -208,6 +208,19 @@ rule:
                     has:
                       field: name
                       pattern: $NAME
+                  - kind: qualified_identifier
+                    has:
+                      kind: type_identifier
+                      pattern: $NAME
+                      stopBy:
+                        kind: template_argument_list
+                      not:
+                        inside:
+                          field: name
+                          kind: template_type
+                          inside:
+                            field: scope
+                            kind: qualified_identifier
 name: $NAME
 isPublic: cpp-access
 ---

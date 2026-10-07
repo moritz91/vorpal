@@ -594,3 +594,29 @@ fn cpp_constructor_matcher_stops_at_the_nearest_class() {
     .collect();
   assert_eq!(matches, ["Outer();", "Inner();"]);
 }
+
+#[test]
+fn cpp_qualified_class_definitions_keep_only_the_terminal_constructor_name() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  let lf = "struct Outer { struct Inner; };\nstruct Outer::Inner { Inner(); ~Inner(); Outer(); };\nnamespace ns { template<class T> struct Box { struct Nested; }; }\ntemplate<class T> struct ns::Box<T>::Nested { Nested(); ~Nested(); Box(); T(); };\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    common::assert_outline_snapshot(
+      SupportLang::Cpp,
+      RULES,
+      &source,
+      r#"
+- Struct item exported Outer
+  - Struct private Inner
+- Struct item exported Outer::Inner
+  - Constructor public Inner
+  - Constructor public ~Inner
+- Module item exported ns
+- Struct item exported Box
+  - Struct private Nested
+- Struct item exported ns::Box<T>::Nested
+  - Constructor public Nested
+  - Constructor public ~Nested
+"#,
+    );
+  }
+}

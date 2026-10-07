@@ -2733,7 +2733,7 @@ fn cpp_declaration_macros_are_not_foreign_constructors() {
 #[test]
 fn cpp_specialized_constructor_products_preserve_original_calls() {
   let extractor = vorpal_ingest::OutlineExtractor::new().unwrap();
-  let lf = "template<class T> struct Box { Box() { first(); } };\ntemplate<class T> struct Box<T*> { Box() { second(); } };\ntemplate<> struct Box<void> { template<class T> Box(T value) { third(); } };\n";
+  let lf = "template<class T> struct Box { Box() { first(); } };\ntemplate<class T> struct Box<T*> { Box() { second(); } };\ntemplate<> struct Box<void> { template<class T> Box(T value) { third(); } };\nstruct Outer { struct Inner; };\nstruct Outer::Inner { Inner() { fourth(); } };\nnamespace ns { template<class T> struct Scope { struct Nested; }; }\ntemplate<class T> struct ns::Scope<T>::Nested { Nested() { fifth(); } };\n";
   for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
     let product = extractor
       .extract_product("constructors.cpp", &source)
@@ -2743,6 +2743,8 @@ fn cpp_specialized_constructor_products_preserve_original_calls() {
       ("Box", "first"),
       ("Box<T*>", "second"),
       ("Box<void>", "third"),
+      ("Outer::Inner", "fourth"),
+      ("ns::Scope<T>::Nested", "fifth"),
     ] {
       let item = product
         .items
@@ -2750,7 +2752,16 @@ fn cpp_specialized_constructor_products_preserve_original_calls() {
         .find(|i| i.entry.name == owner)
         .unwrap();
       assert_eq!(item.members.len(), 1);
-      assert_eq!(item.members[0].entry.name, "Box");
+      assert_eq!(
+        item.members[0].entry.name,
+        if owner == "Outer::Inner" {
+          "Inner"
+        } else if owner.contains("Nested") {
+          "Nested"
+        } else {
+          "Box"
+        }
+      );
       let refs: Vec<_> = product
         .refs
         .iter()
@@ -2761,7 +2772,14 @@ fn cpp_specialized_constructor_products_preserve_original_calls() {
         &source[refs[0].start as usize..refs[0].end as usize],
         format!("{call}()")
       );
-      assert_ne!(refs[0].from_entity_index, 0);
+      let owner_index = 2
+        + product
+          .items
+          .iter()
+          .take_while(|i| i.entry.name != owner)
+          .map(|i| 1 + i.members.len())
+          .sum::<usize>();
+      assert_eq!(refs[0].from_entity_index as usize, owner_index);
     }
     let mut owned = Vec::new();
     vorpal_ingest::encode_product_into(&product, &mut owned);

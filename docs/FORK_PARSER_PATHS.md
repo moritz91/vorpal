@@ -1463,3 +1463,17 @@ macro-stack coverage, native compiler configuration identity and immutable found
 missing/shadow/query dependency observations are required before a compiler backend
 could activate recovery. Neither the temporary compiler nor these records changes
 normal MCP behavior. Hades and the productive .2 installation remain untouched.
+
+
+Qualified class definitions retain the terminal injected constructor name:
+Outer::Inner compares Inner, and ns::Box<T>::Nested compares Nested. Searching
+qualified names stops before template arguments and excludes template names used
+as qualification prefixes, so Box/T cannot validate a foreign constructor of
+Nested. Windows/Linux outline (15), parser/product (53), watched MCP, replay,
+Clippy and native MSVC LF/CRLF controls pass. Constructor-body calls retain their
+exact member owners and original spans. The renewed 902-file complete-product
+comparison remains byte-identical after stat/extraction identity normalization.
+An external dependent non-type template-parameter rule is unnecessary: production
+already parses its isolated valid controls correctly, and adding the rule changes
+none of the 902 full-file ASTs. Those Catch2 errors follow unresolved macro prefixes;
+the duplicate template rule is withheld. Grammar/schema/provenance are unchanged.
