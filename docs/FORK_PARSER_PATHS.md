@@ -1582,3 +1582,10 @@ recovery. Grammar/schema/provenance and all conservative proof boundaries remain
 unchanged. The separate exact 236d860 full CI is green; its verified normal MCP
 candidate reports 1744 files / 61631 nodes / 26 damaged files / 1960 diagnostics /
 123144 damaged bytes / 2848 clone pairs. The productive .2 runtime is untouched.
+
+Watched MCP refresh consumes the initial dirty marker even before the first graph
+exists. A successful first request therefore leaves quiet requests on freshness
+validation instead of rebuilding again with zero captured paths. Events arriving
+during a build still re-arm the marker. Windows/Linux regressions cover default
+and opt-in recovery with both layout and external indexes, repeated quiet queries
+and an explicitly re-armed dirty marker. No runtime installation changes.

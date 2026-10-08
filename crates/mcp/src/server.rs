@@ -1414,7 +1414,12 @@ impl Server {
       return Ok(());
     };
     let mut backstop = false;
-    if self.kg.is_some() && !watch.take_dirty() {
+    // Consume startup dirt even before a graph is loaded. Short-circuiting this
+    // through kg.is_some() leaves the initial flag armed after the first build,
+    // so the next quiet opt-in query needlessly runs the entire pipeline again.
+    // Events arriving during that build still re-arm the atomic flag normally.
+    let dirty = watch.take_dirty();
+    if self.kg.is_some() && !dirty {
       // Liveness backstop: a clean flag is necessary-condition evidence ONLY while the
       // OS channel is actually delivering — and FSEvents can defer delivery beyond any
       // deadline with no error and no overflow flag (event-trace-proven on a loaded
@@ -4018,6 +4023,68 @@ mod pending_call_site_tests {
 #[cfg(test)]
 mod explicit_source_tests {
   use super::*;
+
+  #[test]
+  fn first_watched_query_consumes_startup_dirt_without_rebuilding_quiet_queries() {
+    for recovery in [false, true] {
+      for external in [false, true] {
+        let root = std::env::temp_dir().join(format!(
+          "vorpal-startup-dirt-{}-{}",
+          std::process::id(),
+          std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+        ));
+        let src = root.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+          src.join("calls.cc"),
+          "void run() { target(); }\nvoid target() {}\n",
+        )
+        .unwrap();
+        let index = if external {
+          root.join("index")
+        } else {
+          src.join(".vorpal/index")
+        };
+        let env = ExtractionEnv {
+          cpp_macro_include_roots: recovery.then(Vec::new),
+          ..Default::default()
+        };
+        vorpal_index::build_index_env(&src, &index, Default::default(), Default::default(), &env)
+          .unwrap();
+        let mut server =
+          Server::with_profile_env_rebuild_source(index, Profile::Full, env, false, Some(src));
+        assert!(server.watch.as_ref().unwrap().peek_dirty());
+        server
+          .run_tool("health", &json!({}))
+          .unwrap_or_else(|e| panic!("{}", e.message));
+        assert!(
+          !server.watch.as_ref().unwrap().peek_dirty(),
+          "the first refresh must consume the startup gap"
+        );
+        let builds = server.hinted_rebuilds;
+        for _ in 0..2 {
+          server
+            .run_tool("health", &json!({}))
+            .unwrap_or_else(|e| panic!("{}", e.message));
+          assert_eq!(
+            server.hinted_rebuilds, builds,
+            "quiet queries must not launch a second pipeline"
+          );
+        }
+        // Subsequent changes still re-arm the same freshness path.
+        server.watch.as_ref().unwrap().mark_dirty();
+        server
+          .run_tool("health", &json!({}))
+          .unwrap_or_else(|e| panic!("{}", e.message));
+        assert!(!server.watch.as_ref().unwrap().peek_dirty());
+        drop(server);
+        let _ = std::fs::remove_dir_all(root);
+      }
+    }
+  }
 
   #[test]
   fn missing_explicit_root_never_falls_back_to_another_layout_root() {
