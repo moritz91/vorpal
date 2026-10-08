@@ -1600,3 +1600,37 @@ Identical repeat observations do not invalidate an otherwise consistent snapshot
 Five deterministic unit controls cover content/redirect/missing changes, concurrent
 publication and refresh, incomplete epochs and revision exhaustion. Windows/Linux
 normal MCP/header-replay/CLI regression suites and Clippy gates pass.
+
+Native DLL prototypes with literal language linkage now use a bounded declaration
+alternative: extern string literal, __declspec, primitive return, reserved native
+calling convention and directly named function. Existing linkage_specification,
+declaration and function_declarator aliases preserve the original structure.
+No recursive declarator or general SDK modifier extension is enabled.
+Declaration-scoped preprocessor copies now prefer their declaration context;
+penalizing every nested group could turn a later local error into a whole-file
+ERROR after an otherwise valid DLL prototype was repaired.
+
+Three LF/CRLF regressions preserve native modifiers, include guards, split heads,
+namespace/function owners and exact runtime call sites. Replacement text creates
+no calls, functions or clone sketches. Missing terminators/parameters and genuinely
+unclosed guards retain syntax errors after the valid prototype. All 60 parser
+regressions pass on Windows/Linux, alongside evidence/recovery, outline, replay,
+MCP/CLI, fourteen resolver checks and native/Linux Clippy. The unchanged 179-case
+corpus, schema and both provenance checks pass. Native MSVC accepts positive
+LF/CRLF normal/wide/Objective-C controls and the full original Catch2 runner header;
+missing-semicolon and incomplete-guard controls are rejected.
+
+The complete-product audit of all 902 original C++ files against verified v54
+changes only Catch2 after normalizing file stamps, extraction identity and the
+sketch bytes seeded by the grammar generation. Catch2 diagnostics fall from 60 /
+763 bytes to 56 / 580 bytes, with no root ERROR. Three false function items are
+removed; two real functions, two namespaces and two macros are restored. Two
+replacement-only calls disappear; two real calls retain original spans with their
+correct owners. One false macro clone sketch disappears; retained sketch owners
+and shingle sizes remain identical. The outer include guard becomes one root
+child again. The native DebugBreak void return fact is restored; other return
+facts, retained entries/members/parameters, representative error spans, requests
+and swallow diagnostics remain unchanged. The remaining 901 products are
+byte-identical after the stated normalization. Only the C++ provenance digest
+changes; schema and visible node kinds remain unchanged. Actual Hades ASSERT
+proofs remain blocked by opaque SDK includes. The productive .2 runtime is intact.

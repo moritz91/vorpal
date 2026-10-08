@@ -3072,3 +3072,208 @@ fn anonymous_cpp_type_uses_preserve_file_and_body_domains() {
     assert_eq!(bytes, scan);
   }
 }
+
+#[test]
+fn cpp_native_linkage_prototypes_preserve_nested_heads_and_call_sites() {
+  let lf = r#"#ifndef OUTER
+#define OUTER
+extern "C" __declspec(dllimport) void __stdcall DebugBreak();
+extern "C" __declspec(dllimport) int __stdcall IsDebuggerPresent();
+#define TRAP() DebugBreak()
+#ifndef DEBUG_SKIP
+#ifdef TRAP
+#endif
+#endif
+#ifndef __OBJC__
+#if defined(WIDE)
+extern "C" int wide(int argc, wchar_t* argv[]) {
+#else
+int narrow(int argc, char* argv[]) {
+#endif
+  return touch(argc);
+}
+#else
+int objc_entry() { return alternative(); }
+#endif
+void following() { DebugBreak(); observe(IsDebuggerPresent()); }
+#endif
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    for name in ["wide", "narrow", "objc_entry", "following"] {
+      assert!(
+        product.items.iter().any(|item| item.entry.name == name),
+        "{name}"
+      );
+    }
+    for (name, spelling, count) in [
+      ("DebugBreak", "DebugBreak()", 1),
+      ("IsDebuggerPresent", "IsDebuggerPresent()", 1),
+      ("observe", "observe(IsDebuggerPresent())", 1),
+      ("touch", "touch(argc)", 2),
+      ("alternative", "alternative()", 1),
+    ] {
+      let calls: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(calls.len(), count, "{name}");
+      for call in calls {
+        assert_eq!(&source[call.start as usize..call.end as usize], spelling);
+      }
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0
+      && ["TRAP", "__declspec", "dllimport", "__stdcall"].contains(&r.name.as_str())));
+    let raw = SgLang::from_path("linkage.cc").unwrap().grep(&source);
+    assert_eq!(
+      raw
+        .root()
+        .dfs()
+        .filter(|n| n.kind() == "ms_declspec_modifier")
+        .count(),
+      2
+    );
+    assert_eq!(
+      raw
+        .root()
+        .dfs()
+        .filter(|n| n.kind() == "ms_call_modifier")
+        .count(),
+      2
+    );
+    assert_eq!(
+      raw
+        .root()
+        .dfs()
+        .filter(|n| n.kind() == "linkage_specification" && n.text().contains("__declspec"))
+        .count(),
+      2
+    );
+  }
+  for bad in [
+    "extern \"C\" __declspec(dllimport) int __stdcall broken()",
+    "extern \"C\" __declspec(dllimport) int __stdcall broken(int value;",
+    "void following() { DebugBreak() }",
+  ] {
+    assert!(
+      SgLang::from_path("linkage.cc")
+        .unwrap()
+        .grep(bad)
+        .root()
+        .has_error(),
+      "{bad}"
+    );
+  }
+}
+
+#[test]
+fn cpp_native_linkage_keeps_incomplete_guard_errors_after_the_prototype() {
+  let lf = r#"extern "C" __declspec(dllimport) void __stdcall DebugBreak();
+#define TRAP() DebugBreak()
+#ifndef DEBUG_SKIP
+#ifdef TRAP
+#endif
+#ifndef __OBJC__
+#if defined(WIDE)
+extern "C" int wide(int argc, wchar_t* argv[]) {
+#else
+int narrow(int argc, char* argv[]) {
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let raw = SgLang::from_path("linkage.cc").unwrap().grep(&source);
+    assert!(raw.root().has_error());
+    assert_eq!(raw.root().kind(), "translation_unit");
+    let product = OutlineExtractor::new()
+      .unwrap()
+      .extract_product("linkage.cc", &source)
+      .unwrap();
+    assert!(product.error_nodes > 0);
+    let damaged = source.find("#ifndef DEBUG_SKIP").unwrap();
+    assert!(product.error_spans.iter().all(|span| (span.0 as usize) >= damaged));
+    assert_eq!(
+      raw
+        .root()
+        .dfs()
+        .filter(|n| n.kind() == "ms_declspec_modifier")
+        .count(),
+      1
+    );
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && ["DebugBreak", "TRAP"].contains(&r.name.as_str()))
+    );
+  }
+}
+
+#[test]
+fn cpp_native_linkage_cannot_swallow_macros_namespaces_or_function_owners() {
+  let lf = r#"#ifndef OUTER
+#define OUTER
+#if defined(PLATFORM_A)
+extern "C" __declspec(dllimport) void __stdcall DebugBreak();
+#define TRAP() DebugBreak()
+#ifndef BREAK_NOW
+#ifdef TRAP
+#define BREAK_NOW() []{ if (Native::isDebuggerActive()) { TRAP(); } }()
+#endif
+#endif
+#endif
+#if defined(PLATFORM_A)
+extern "C" __declspec(dllimport) int __stdcall IsDebuggerPresent();
+namespace Native {
+  bool isDebuggerActive() { return IsDebuggerPresent() != 0; }
+}
+#elif defined(PLATFORM_B)
+extern "C" __declspec(dllimport) int __stdcall IsDebuggerPresent();
+namespace Native {
+  bool isDebuggerActive() { return IsDebuggerPresent() != 0; }
+}
+#endif
+#endif
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = clean_product(&source);
+    assert_eq!(product.cuts, vec![(0, false)]);
+    assert!(!product.items.iter().any(|i| {
+      i.entry.symbol_type == vorpal_outline::model::SymbolType::Function
+        && ["DebugBreak", "IsDebuggerPresent", "TRAP", "BREAK_NOW"].contains(&i.entry.name.as_ref())
+    }));
+    for name in ["TRAP", "BREAK_NOW"] {
+      assert!(
+        product.items.iter().any(|i| i.entry.name == name
+          && i.entry.symbol_type == vorpal_outline::model::SymbolType::Macro)
+      );
+    }
+    assert_eq!(
+      product
+        .items
+        .iter()
+        .filter(|i| i.entry.name == "Native"
+          && i.entry.symbol_type == vorpal_outline::model::SymbolType::Module)
+        .count(),
+      2
+    );
+    let owners: Vec<_> = product
+      .items
+      .iter()
+      .enumerate()
+      .filter(|(_, i)| i.entry.name == "isDebuggerActive")
+      .map(|(idx, _)| idx as u32 + 1)
+      .collect();
+    assert_eq!(owners.len(), 2);
+    let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0).collect();
+    assert_eq!(calls.len(), 2);
+    for owner in owners {
+      let call = calls.iter().find(|r| r.from_entity_index == owner).unwrap();
+      assert_eq!(call.name, "IsDebuggerPresent");
+      assert_eq!(
+        &source[call.start as usize..call.end as usize],
+        "IsDebuggerPresent()"
+      );
+    }
+    assert!(product.signatures.is_empty());
+  }
+}

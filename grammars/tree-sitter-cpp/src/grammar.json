@@ -169,6 +169,15 @@
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
+            "name": "_native_dll_linkage"
+          },
+          "named": true,
+          "value": "linkage_specification"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
             "name": "explicit_cli_if_guard"
           },
           "named": true,
@@ -369,6 +378,15 @@
           },
           "named": true,
           "value": "preproc_ifdef"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_native_dll_linkage"
+          },
+          "named": true,
+          "value": "linkage_specification"
         },
         {
           "type": "ALIAS",
@@ -21706,6 +21724,15 @@
           },
           "named": true,
           "value": "declaration"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_native_dll_linkage"
+          },
+          "named": true,
+          "value": "linkage_specification"
         }
       ]
     },
@@ -22347,6 +22374,15 @@
           },
           "named": true,
           "value": "declaration"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_native_dll_linkage"
+          },
+          "named": true,
+          "value": "linkage_specification"
         },
         {
           "type": "SYMBOL",
@@ -28040,6 +28076,15 @@
           "value": "declaration"
         },
         {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_native_dll_linkage"
+          },
+          "named": true,
+          "value": "linkage_specification"
+        },
+        {
           "type": "SYMBOL",
           "name": "objc_protocol_declaration"
         }
@@ -29108,6 +29153,82 @@
         }
       ]
     },
+    "_native_linkage_dll_declaration": {
+      "type": "PREC_DYNAMIC",
+      "value": 1,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "ms_declspec_modifier"
+          },
+          {
+            "type": "FIELD",
+            "name": "type",
+            "content": {
+              "type": "SYMBOL",
+              "name": "primitive_type"
+            }
+          },
+          {
+            "type": "SYMBOL",
+            "name": "ms_call_modifier"
+          },
+          {
+            "type": "FIELD",
+            "name": "declarator",
+            "content": {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_sdk_pointer_function"
+              },
+              "named": true,
+              "value": "function_declarator"
+            }
+          },
+          {
+            "type": "STRING",
+            "value": ";"
+          }
+        ]
+      }
+    },
+    "_native_dll_linkage": {
+      "type": "PREC",
+      "value": 1,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "extern"
+          },
+          {
+            "type": "FIELD",
+            "name": "value",
+            "content": {
+              "type": "SYMBOL",
+              "name": "string_literal"
+            }
+          },
+          {
+            "type": "FIELD",
+            "name": "body",
+            "content": {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_native_linkage_dll_declaration"
+              },
+              "named": true,
+              "value": "declaration"
+            }
+          }
+        ]
+      }
+    },
     "_cli_top_level_item": {
       "type": "CHOICE",
       "members": [
@@ -29281,6 +29402,15 @@
           },
           "named": true,
           "value": "preproc_ifdef"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_native_dll_linkage"
+          },
+          "named": true,
+          "value": "linkage_specification"
         },
         {
           "type": "ALIAS",
@@ -29480,6 +29610,15 @@
           },
           "named": true,
           "value": "preproc_ifdef"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_native_dll_linkage"
+          },
+          "named": true,
+          "value": "linkage_specification"
         },
         {
           "type": "ALIAS",
@@ -31372,6 +31511,15 @@
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
+            "name": "_native_dll_linkage"
+          },
+          "named": true,
+          "value": "linkage_specification"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
             "name": "explicit_cli_if_guard"
           },
           "named": true,
@@ -31394,7 +31542,7 @@
     },
     "conditional_decl_preproc_if": {
       "type": "PREC_DYNAMIC",
-      "value": -1,
+      "value": 1,
       "content": {
         "type": "PREC",
         "value": 0,
@@ -31488,7 +31636,7 @@
     },
     "conditional_decl_preproc_ifdef": {
       "type": "PREC_DYNAMIC",
-      "value": -1,
+      "value": 1,
       "content": {
         "type": "PREC",
         "value": 0,
@@ -31592,7 +31740,7 @@
     },
     "conditional_decl_preproc_else": {
       "type": "PREC_DYNAMIC",
-      "value": -1,
+      "value": 1,
       "content": {
         "type": "PREC",
         "value": 0,
@@ -31621,7 +31769,7 @@
     },
     "conditional_decl_preproc_elif": {
       "type": "PREC_DYNAMIC",
-      "value": -1,
+      "value": 1,
       "content": {
         "type": "PREC",
         "value": 0,
@@ -31706,7 +31854,7 @@
     },
     "conditional_decl_preproc_elifdef": {
       "type": "PREC_DYNAMIC",
-      "value": -1,
+      "value": 1,
       "content": {
         "type": "PREC",
         "value": 0,
@@ -32713,6 +32861,10 @@
     [
       "storage_class_specifier",
       "friend_declaration"
+    ],
+    [
+      "_declaration_modifiers",
+      "_native_linkage_dll_declaration"
     ],
     [
       "type_specifier",

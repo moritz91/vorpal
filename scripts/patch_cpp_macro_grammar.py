@@ -511,7 +511,28 @@ native_dll = alias_rule('_native_dll_declaration', 'declaration')
 for name in ['_top_level_item', '_block_item']:
     if native_dll not in rules[name]['members']:
         rules[name]['members'].append(native_dll)
+# A literal language linkage can precede a native DLL prototype. Keep this
+# whole declaration alternative shallow: no recursive declarator/function
+# extension and no general calling-convention declaration modifier.
+rules['_native_linkage_dll_declaration'] = {'type': 'PREC_DYNAMIC', 'value': 1, 'content': seq(
+    symbol('ms_declspec_modifier'),
+    {'type': 'FIELD', 'name': 'type', 'content': symbol('primitive_type')},
+    symbol('ms_call_modifier'),
+    {'type': 'FIELD', 'name': 'declarator', 'content':
+        alias_rule('_sdk_pointer_function', 'function_declarator')},
+    {'type': 'STRING', 'value': ';'})}
+rules['_native_dll_linkage'] = {'type': 'PREC', 'value': 1, 'content': seq(
+    {'type': 'STRING', 'value': 'extern'},
+    {'type': 'FIELD', 'name': 'value', 'content': symbol('string_literal')},
+    {'type': 'FIELD', 'name': 'body', 'content':
+        alias_rule('_native_linkage_dll_declaration', 'declaration')})}
+for name in ['_top_level_item', '_block_item']:
+    native_linkage = alias_rule('_native_dll_linkage', 'linkage_specification')
+    # Normalize its position before deriving the dialect/container copies.
+    rules[name]['members'] = [member for member in rules[name]['members'] if member != native_linkage]
+    rules[name]['members'].append(native_linkage)
 for conflict in [
+    ['_declaration_modifiers', '_native_linkage_dll_declaration'],
     ['_declaration_modifiers', '_native_dll_declaration'],
     ['parameter_list', '_instantiation_parameter_list'],
     ['parameter_declaration', '_instantiation_parameter_declaration'],
@@ -1124,7 +1145,10 @@ rules['conditional_decl_namespace'] = objc_copy(rules['namespace_definition'], {
 rules['_conditional_decl_item'] = conditional_copy(rules['_block_item'])
 rules['_conditional_decl_item']['members'].append(symbol('conditional_function_definition'))
 for name, derived in conditional_preproc.items():
-    rules[derived] = {'type': 'PREC_DYNAMIC', 'value': -1, 'content': conditional_copy(rules[name])}
+    # Prefer the declaration-scoped parse in a declaration context. Penalizing
+    # every nested copied group can select an ordinary-block recovery path and
+    # widen a later local syntax error into an ERROR covering the outer guard.
+    rules[derived] = {'type': 'PREC_DYNAMIC', 'value': 1, 'content': conditional_copy(rules[name])}
 rules['conditional_decl_inverse_objc_guard'] = conditional_copy(rules['_explicit_objc_inverse_body_guard'])
 # Declaration-scoped inverse guards need Objective-C function bodies after the
 # ordinary split-head arm. Require a primitive return and an actual function
