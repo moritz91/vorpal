@@ -31,6 +31,58 @@ pub(crate) struct ContextDiagnostics {
   pub macro_calls: Vec<Range<usize>>,
 }
 
+// Index the first original span covering each byte interval. DFS can produce
+// overlapping definition/literal spans: retain its original precedence and
+// original end offset instead of merging flags or changing a scan's jump.
+struct ProtectedSpans {
+  spans: Vec<(Range<usize>, bool)>,
+  boundaries: Vec<(usize, Option<usize>)>,
+}
+
+impl ProtectedSpans {
+  fn new(spans: Vec<(Range<usize>, bool)>) -> Self {
+    let mut events = Vec::with_capacity(spans.len() * 2);
+    for (index, (span, _)) in spans.iter().enumerate() {
+      if span.start < span.end {
+        events.push((span.start, index, true));
+        events.push((span.end, index, false));
+      }
+    }
+    events.sort_unstable();
+    let mut active = BTreeSet::new();
+    let mut boundaries = Vec::new();
+    let mut cursor = 0;
+    while cursor < events.len() {
+      let offset = events[cursor].0;
+      while cursor < events.len() && events[cursor].0 == offset {
+        let (_, index, entering) = events[cursor];
+        if entering {
+          active.insert(index);
+        } else {
+          active.remove(&index);
+        }
+        cursor += 1;
+      }
+      let first = active.first().copied();
+      if boundaries
+        .last()
+        .is_none_or(|&(_, previous)| previous != first)
+      {
+        boundaries.push((offset, first));
+      }
+    }
+    Self { spans, boundaries }
+  }
+
+  fn covering(&self, offset: usize) -> Option<&(Range<usize>, bool)> {
+    let boundary = self
+      .boundaries
+      .partition_point(|&(start, _)| start <= offset);
+    let index = self.boundaries.get(boundary.checked_sub(1)?)?.1?;
+    self.spans.get(index)
+  }
+}
+
 // Diagnose only a bounded, independently parsed replacement/context proof.
 // Surrounding macro tokens can change the syntactic slot, so they decline the
 // diagnostic. These ephemeral fixtures never replace the input or cached tree.
@@ -215,6 +267,7 @@ fn parse_without_context(
       .then(|| (n.range(), kind.as_ref() != "comment"))
     })
     .collect();
+  let protected = ProtectedSpans::new(protected);
   let known: BTreeSet<_> = evidence
     .bindings
     .iter()
@@ -226,7 +279,7 @@ fn parse_without_context(
   let bytes = source.as_bytes();
   let mut i = 0;
   while i < bytes.len() {
-    if let Some((range, _)) = protected.iter().find(|(range, _)| range.contains(&i)) {
+    if let Some((range, _)) = protected.covering(i) {
       i = range.end;
       continue;
     }
@@ -559,14 +612,14 @@ fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> Recove
   }
 }
 
-fn arity(source: &str, range: Range<usize>, protected: &[(Range<usize>, bool)]) -> usize {
+fn arity(source: &str, range: Range<usize>, protected: &ProtectedSpans) -> usize {
   let bytes = source.as_bytes();
   let mut i = range.start + 1;
   let mut nesting = 0;
   let mut commas = 0;
   let mut value = false;
   while i + 1 < range.end {
-    if let Some((span, literal)) = protected.iter().find(|(span, _)| span.contains(&i)) {
+    if let Some((span, literal)) = protected.covering(i) {
       value |= *literal;
       i = span.end;
       continue;
@@ -592,11 +645,11 @@ fn arity(source: &str, range: Range<usize>, protected: &[(Range<usize>, bool)]) 
   if value { commas + 1 } else { 0 }
 }
 
-fn argument_end(source: &str, start: usize, protected: &[(Range<usize>, bool)]) -> Option<usize> {
+fn argument_end(source: &str, start: usize, protected: &ProtectedSpans) -> Option<usize> {
   let mut i = start;
   let mut nesting = 0;
   while i < source.len() {
-    if let Some((span, _)) = protected.iter().find(|(span, _)| span.contains(&i)) {
+    if let Some((span, _)) = protected.covering(i) {
       i = span.end;
       continue;
     }
@@ -638,6 +691,7 @@ fn validated_arguments(arguments: &str, parameters: usize) -> Option<Vec<String>
       .then(|| (n.range(), kind.as_ref() != "comment"))
     })
     .collect();
+  let protected = ProtectedSpans::new(protected);
   let range = arguments.range();
   let count = arity(&source, range.clone(), &protected);
   if count == 0 {
@@ -657,7 +711,7 @@ fn validated_arguments(arguments: &str, parameters: usize) -> Option<Vec<String>
   let mut i = start;
   let mut nesting = 0;
   while i + 1 < range.end {
-    if let Some((span, _)) = protected.iter().find(|(span, _)| span.contains(&i)) {
+    if let Some((span, _)) = protected.covering(i) {
       i = span.end;
       continue;
     }
@@ -674,4 +728,43 @@ fn validated_arguments(arguments: &str, parameters: usize) -> Option<Vec<String>
   }
   result.push(source[start..range.end - 1].to_owned());
   (result.len() == count).then_some(result)
+}
+
+#[cfg(test)]
+mod protected_span_tests {
+  use super::*;
+
+  #[test]
+  fn indexed_protected_spans_preserve_linear_priority_end_and_literal_flags() {
+    let mut spans = vec![
+      (7..32, false),
+      (4..14, true),
+      (7..20, true),
+      (32..40, true),
+      (11..11, false),
+      (0..0, true),
+    ];
+    for i in (0..1024).rev() {
+      let start = (i * 37) % 2048;
+      spans.push((start..start + (i % 47), i % 3 == 0));
+    }
+    let indexed = ProtectedSpans::new(spans.clone());
+    for offset in 0..=2100 {
+      assert_eq!(
+        indexed.covering(offset),
+        spans.iter().find(|(span, _)| span.contains(&offset)),
+        "offset {offset}"
+      );
+    }
+    assert!(ProtectedSpans::new(Vec::new()).covering(0).is_none());
+    assert_eq!(
+      ProtectedSpans::new(vec![(usize::MAX - 1..usize::MAX, true)]).covering(usize::MAX - 1),
+      Some(&(usize::MAX - 1..usize::MAX, true))
+    );
+    assert!(
+      ProtectedSpans::new(vec![(usize::MAX - 1..usize::MAX, true)])
+        .covering(usize::MAX)
+        .is_none()
+    );
+  }
 }

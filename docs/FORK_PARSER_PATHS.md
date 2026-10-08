@@ -1660,3 +1660,30 @@ namespace to the restored function. Every other complete item/member, reference,
 parameter, return fact, cut, representative error span, request, swallow and retained
 sketch owner/shingle count is unchanged. The remaining 901 products are identical
 after normalization. This does not widen opaque SDK macro proof or modify Hades.
+
+The exact 8d8975b full CI (37789029641) is green on all three jobs. Its separately
+pinned external --verify candidate and two normal source-aware MCP health requests
+report 61630 nodes, 26 of 1744 damaged files, 1952 diagnostics, 122952 damaged bytes
+and 2846 clone pairs. Both health responses/generations agree; the trace contains
+one full pipeline. Initial/quiet debug query times are 201.707 s / 4.334 s under
+the concurrent audit load, not release latency guarantees. Productive .2 remains
+untouched.
+
+Proof-backed recovery now indexes protected spans for the original invocation
+scan and the independent argument-boundary/arity/splitting scans. A sweep records
+the first original covering span at each boundary, preserving DFS precedence,
+the original end offset and the literal/comment flag even across overlaps. Lookup
+uses binary search; no proof decision, source, dependency, identity, scanner or
+serialized product changes. A linear oracle covers unsorted/nested/duplicate,
+empty/adjacent spans, mixed flags and usize endpoint boundaries on Windows/Linux.
+
+Pinned before/after release probes exercise 8192 literals/comments outside a
+macro invocation and inside one argument, with both LF/CRLF. All complete audit
+reports and encoded products remain byte-identical across both pairs of runs.
+The repeated paired audit measurements are 1076/1124 -> 415/310 ms outside and
+827/1012 -> 126/139 ms inside (LF/CRLF); timings are audit observations rather than
+MCP latency promises. Windows/Linux parser/evidence/recovery/freshness, index
+replay/member-call/health/fourteen resolver checks, normal MCP/CLI and native/Linux
+workspace/default/no-builtins Clippy gates pass. The grammar, schema and provenance
+remain unchanged by this recovery-only optimization. Opaque native SDK boundaries
+still decline actual Hades ASSERT proof.
