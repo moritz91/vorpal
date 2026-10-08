@@ -16,6 +16,84 @@ use vorpal_language::SupportLang;
 
 use crate::cpp_macro_evidence::{Binding, Evidence, StatementMacro, statement_replacement};
 
+/// A spelling comparison for a report adapter, not a compiler/cache proof.
+/// Native MSVC preprocessing can retain CRLF in a raw literal's spelling while
+/// LLVM's spelling contains LF; native runtime controls agree on the value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenAgreement {
+  Exact,
+  RawLiteralLineEndings,
+  Different,
+}
+
+/// Compare independently lexed preprocessing tokens. Only CRLF inside a complete
+/// raw string literal may differ. Prefix, delimiter, punctuation, ordinary string
+/// escapes and all other token bytes/order must agree. Original buffers/anchors
+/// are untouched. A caller must still handle native directives and dependencies;
+/// lines beginning with '#' inside a raw literal are payload, not directives.
+pub fn compare_token_spellings(native: &[&str], observed: &[&str]) -> TokenAgreement {
+  if native.len() != observed.len() {
+    return TokenAgreement::Different;
+  }
+  let mut result = TokenAgreement::Exact;
+  for (&a, &b) in native.iter().zip(observed) {
+    if a == b {
+      continue;
+    }
+    let (Some((a_head, a_payload, a_end)), Some((b_head, b_payload, b_end))) =
+      (raw_literal_parts(a), raw_literal_parts(b))
+    else {
+      return TokenAgreement::Different;
+    };
+    if a_head != b_head || a_end != b_end || !raw_newlines(a_payload).eq(raw_newlines(b_payload)) {
+      return TokenAgreement::Different;
+    }
+    result = TokenAgreement::RawLiteralLineEndings;
+  }
+  result
+}
+
+fn raw_literal_parts(token: &str) -> Option<(&str, &str, &str)> {
+  let prefix = ["u8R\"", "uR\"", "UR\"", "LR\"", "R\""]
+    .into_iter()
+    .find(|prefix| token.starts_with(prefix))?;
+  let opening = token[prefix.len()..].find('(')? + prefix.len();
+  let delimiter = &token[prefix.len()..opening];
+  if delimiter.len() > 16
+    || !delimiter
+      .bytes()
+      .all(|b| (b'!'..=b'~').contains(&b) && !b"()\\".contains(&b))
+  {
+    return None;
+  }
+  let closing_len = delimiter.len() + 2;
+  let payload_end = token.len().checked_sub(closing_len)?;
+  let closing = token.get(payload_end..)?;
+  if !closing.starts_with(')')
+    || !closing.ends_with('"')
+    || &closing[1..closing_len - 1] != delimiter
+  {
+    return None;
+  }
+  let payload = token.get(opening + 1..payload_end)?;
+  if payload.contains(closing) {
+    return None;
+  }
+  Some((&token[..opening + 1], payload, closing))
+}
+
+fn raw_newlines(payload: &str) -> impl Iterator<Item = u8> + '_ {
+  let mut bytes = payload.bytes().peekable();
+  std::iter::from_fn(move || {
+    let byte = bytes.next()?;
+    if byte == b'\r' && bytes.peek() == Some(&b'\n') {
+      bytes.next()
+    } else {
+      Some(byte)
+    }
+  })
+}
+
 /// Original-source diagnostics/spans only. There is deliberately no dependency
 /// or extraction identity: a finished compiler run is not a cache contract.
 #[derive(Debug)]

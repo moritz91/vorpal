@@ -3,11 +3,73 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use vorpal_ingest::cpp_macro_compiler_audit::{
-  Declined, DefinitionAnchor, DefinitionBuffer, Expansion, Observation, audit,
+  Declined, DefinitionAnchor, DefinitionBuffer, Expansion, Observation, TokenAgreement, audit,
+  compare_token_spellings,
 };
 use vorpal_ingest::cpp_macro_recovery::audit_recovery;
 
 const HEADER: &str = "#define CHECK(x) if (!(x)) { throw Failure(x); }\n";
+
+#[test]
+fn native_raw_literal_line_endings_compare_without_rewriting_source_or_directives() {
+  for prefix in ["R", "u8R", "uR", "UR", "LR"] {
+    for delimiter in ["", "tag", "abcdefghijklmnop"] {
+      let native = format!(
+        "{prefix}\"{delimiter}(Grüße 日本語\r\n#pragma external_header(push)\r\n#line 1 \"other.h\"\r\n#count == 2){delimiter}\""
+      );
+      let observed = native.replace("\r\n", "\n");
+      let original = native.clone();
+      assert_eq!(
+        compare_token_spellings(&["const", &native, ";"], &["const", &observed, ";"]),
+        TokenAgreement::RawLiteralLineEndings
+      );
+      assert_eq!(native, original);
+      assert_eq!(
+        compare_token_spellings(&[&native], &[&native]),
+        TokenAgreement::Exact
+      );
+    }
+  }
+  assert_eq!(
+    compare_token_spellings(&["#", "pragma", "external_header", "(", "push", ")"], &[]),
+    TokenAgreement::Different,
+    "real directive tokens cannot disappear as raw-literal line endings"
+  );
+}
+
+#[test]
+fn token_comparison_retains_semantic_and_malformed_literal_differences() {
+  for (native, observed) in [
+    ("\"a\\r\\nb\"", "\"a\\nb\""),
+    ("R\"(a\rb)\"", "R\"(a\nb)\""),
+    ("R\"(a\r\nb)\"", "u8R\"(a\nb)\""),
+    ("R\"one(a\r\nb)one\"", "R\"two(a\nb)two\""),
+    ("R\"(a\r\nb)\"_tag", "R\"(a\nb)\"_tag"),
+    (
+      "R\"abcdefghijklmnopq(a\r\nb)abcdefghijklmnopq\"",
+      "R\"abcdefghijklmnopq(a\nb)abcdefghijklmnopq\"",
+    ),
+    ("R\"bad tag(a\r\nb)bad tag\"", "R\"bad tag(a\nb)bad tag\""),
+    ("R\"(a)\"\r\nb)\"", "R\"(a)\"\nb)\""),
+    ("R\"(a\r\nb)", "R\"(a\nb)"),
+    ("R\"(a\r\nb)\"", "R\"(different\nb)\""),
+    ("first\r\nsecond", "first\nsecond"),
+    ("1", "2"),
+  ] {
+    assert_eq!(
+      compare_token_spellings(&[native], &[observed]),
+      TokenAgreement::Different
+    );
+  }
+  assert_eq!(
+    compare_token_spellings(&["first", "+", "second"], &["second", "+", "first"]),
+    TokenAgreement::Different
+  );
+  assert_eq!(
+    compare_token_spellings(&["first", "+", "second"], &["first", "+second"]),
+    TokenAgreement::Different
+  );
+}
 
 fn expansion<'a>(source: &str, invocation: &str, header: &str, name: &'a str) -> Expansion<'a> {
   let start = source.find(invocation).unwrap();

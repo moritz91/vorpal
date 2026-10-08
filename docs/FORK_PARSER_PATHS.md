@@ -1929,3 +1929,24 @@ unchanged corpus cases and provenance checks pass. Grammar/schema/provenance are
 unchanged by this production extension. Compiler observation inputs still return
 only reports: SDK compiler selection, native preprocessing and dependency
 validation remain required before any SDK-backed production recovery.
+
+The report adapter can compare independently lexed compiler token spellings with
+an explicit `TokenAgreement`: exact, raw-literal line endings only, or different.
+Only CRLF inside a complete raw string payload may match LF. Prefix/delimiter,
+ordinary string escapes, lone CR, punctuation, token order and native directives
+remain significant. Buffers and byte anchors are never normalized. Directive
+inventories must use token boundaries: a line starting with `#pragma`, `#line` or
+a Lua `#count` inside a raw literal is payload, not a preprocessing directive.
+
+Native MSVC and clang-cl runtime controls for original LF/CRLF fixtures produce
+identical literal bytes. All 207 differing spellings in the captured application
+and Lua tests are raw-literal newlines (3 and 204 respectively). The repository
+comparison and independent recovery adapter agree on Windows/Linux: the
+application report retains 154 ASSERT statements and its remaining errors;
+Lua still declines because two actual native external-header directives remain.
+Five observations remain incomplete, seven reports remain parse-clean and no
+SDK-backed production proof is activated. Sixteen compiler-audit controls pass
+on both platforms, including semantic/malformed-literal mismatch cases. Native
+ingest and Linux default/no-builtins workspace Clippy pass. Production proof
+identities, grammar, provenance, schema, source files and installed `.2` are
+unchanged by this report-only comparison.
