@@ -1957,3 +1957,116 @@ fn complete_control_macros_keep_original_sites_and_else_binding() {
     assert!(report.macro_spans.is_empty());
   }
 }
+
+#[test]
+fn conditional_return_values_preserve_proof_and_all_original_call_sites() {
+  use vorpal_core::{Language, tree_sitter::LanguageExt};
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let lf = "#define CHECK(v) { sink(v); }\nbool base(); bool left(); bool right(); int value();\nbool run() {\n CHECK(value())\n return\n#ifdef PREFIX\n base() &&\n#endif\n#if defined(CHOICE)\n left()\n#else\n right()\n#endif\n ;\n}\nvoid following() { CHECK(value()) after(); }\n";
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for newline in ["\n", "\r\n"] {
+    for prefix in [true, false] {
+      for guard in [
+        "#if defined(CHOICE)",
+        "#ifdef CHOICE",
+        "#ifndef CHOICE",
+        "#if 0",
+      ] {
+        let source = lf.replace("#if defined(CHOICE)", guard);
+        let source = if prefix {
+          source
+        } else {
+          source.replace("#ifdef PREFIX\n base() &&\n#endif\n", "")
+        };
+        let source = source.replace('\n', newline);
+        let report = audit_recovery(Path::new("values.cc"), &source, &[]);
+        assert!(!report.has_error, "{guard} {prefix}: {report:?}");
+        assert_eq!(report.eligible_names, ["CHECK"]);
+        assert_eq!(report.macro_spans.len(), 2);
+        for span in &report.macro_spans {
+          assert_eq!(&source[span.clone()], "CHECK(value())");
+        }
+        let product = extractor.extract_product("values.cc", &source).unwrap();
+        assert_eq!(product.error_nodes, 0);
+        for (name, count) in [
+          ("value", 2),
+          ("left", 1),
+          ("right", 1),
+          ("after", 1),
+          ("base", usize::from(prefix)),
+        ] {
+          let calls: Vec<_> = product
+            .refs
+            .iter()
+            .filter(|r| r.kind == 0 && r.name == name)
+            .collect();
+          assert_eq!(calls.len(), count, "{name}");
+          for call in calls {
+            assert_eq!(
+              &source[call.start as usize..call.end as usize],
+              format!("{name}()")
+            );
+          }
+        }
+        assert!(
+          !product.refs.iter().any(
+            |r| r.kind == 0 && ["CHECK", "sink", "CHOICE", "PREFIX"].contains(&r.name.as_str())
+          )
+        );
+        let mut owned = Vec::new();
+        encode_product_into(&product, &mut owned);
+        let mut streamed = Vec::new();
+        extractor
+          .extract_product_encoded("values.cc", &source, 0, 0, &mut streamed)
+          .unwrap();
+        assert_eq!(owned, streamed);
+        let raw = vorpal_lang_registry::SgLang::from_path("values.cc")
+          .unwrap()
+          .grep(&source);
+        let handoff = extractor
+          .extract_product_from_root("values.cc", &raw)
+          .unwrap();
+        let mut scan = Vec::new();
+        encode_product_into(&handoff, &mut scan);
+        assert_eq!(owned, scan);
+      }
+    }
+    let missing_semicolon = lf.replace("#endif\n ;", "#endif\n ").replace('\n', newline);
+    let missing = audit_recovery(Path::new("values.cc"), &missing_semicolon, &[]);
+    assert!(
+      missing.has_error,
+      "a complete guard inventory cannot hide a missing return terminator"
+    );
+    assert_eq!(missing.macro_spans.len(), 2);
+    assert!(
+      extractor
+        .extract_product("values.cc", &missing_semicolon)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    for bad in [
+      lf.replace("#ifdef PREFIX", "#if UNKNOWN"),
+      lf.replace("#if defined(CHOICE)", "#if GUARD()"),
+      lf.replace("#else", "#elif defined(OTHER)"),
+      lf.replace("#else", "#else junk"),
+      lf.replace("#endif\n ;", "#endif junk\n ;"),
+      lf.replace("#endif\n ;", " ;"),
+      lf.replace("#else", "#else\n#else"),
+      lf.replace("#else", "#else\n#undef CHECK"),
+      lf.replace("#else", "#else\n#define CHECK(v) other(v)"),
+      lf.replace("#else", "#else\n#include \"absent-proof.h\""),
+      lf.replace("#else", "#else\n#pragma pop_macro(\"CHECK\")"),
+      lf.replace("#else", "#else\n#pragma warning(push, LEVEL)"),
+    ] {
+      let bad = bad.replace('\n', newline);
+      let report = audit_recovery(Path::new("values.cc"), &bad, &[]);
+      assert!(report.eligible_names.is_empty(), "{bad:?}: {report:?}");
+      assert!(report.macro_spans.is_empty(), "{report:?}");
+      assert!(report.has_error, "{report:?}");
+    }
+  }
+}

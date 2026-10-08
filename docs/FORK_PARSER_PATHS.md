@@ -1687,3 +1687,44 @@ replay/member-call/health/fourteen resolver checks, normal MCP/CLI and native/Li
 workspace/default/no-builtins Clippy gates pass. The grammar, schema and provenance
 remain unchanged by this recovery-only optimization. Opaque native SDK boundaries
 still decline actual Hades ASSERT proof.
+
+
+Conditional return value groups now retain entering statement-macro proofs across
+ordinary functions. The proof recognizes the existing return-only prefix/value
+kind as well as logical suffixes. Each admitted group must match the independent
+original directive inventory exactly, including every header, optional else and
+final endif. Only nonexpanding conditions qualify; neither branch is selected.
+Extra/missing directives, expanding guards, macro mutations, includes and named
+pragmas still decline proof. Missing ordinary return semicolons retain diagnostics
+even when unaffected macro statements can be proven.
+
+Evidence v22 / opt-in product v21 invalidate earlier declined products. The frozen
+v21-evidence/v20-product replay fixture reparses old macro errors, then warm packed
+products replay and match a scratch generation. Owned, streaming and scan-root
+products agree, preserving both branch calls and macro-argument original spans.
+No macro-callee or replacement-only runtime edges appear. A fourteenth watched
+MCP regression verifies both newline styles/background settings and original
+callee sites after same-size external-header edits with restored timestamps.
+Windows/Linux 61 parser, 42 recovery, 29/30 evidence, 15 replay, member-call/health,
+14 resolver, MCP/CLI and Clippy gates pass; Linux default/no-builtins workspace
+Clippy and the unchanged 179-case corpus/provenance checks pass. Native MSVC accepts
+all eight prefix/choice/newline combinations and rejects missing return terminators
+and empty selected operands. Grammar, schema and provenance are unchanged. This
+bounded repair does not establish Hades ASSERT proof across opaque SDK includes.
+
+
+The exact protected-span optimization 2d10760 passes all three CI jobs in run
+37791336237. A renewed native LLVM 19 token-location check confirms that restored
+macro uses have neither a preprocessing cursor nor a token annotation supplying
+the missing definition anchor. This is explained by LLVM 19's
+[PreprocessingRecord implementation](https://github.com/llvm/llvm-project/blob/llvmorg-19.1.7/clang/lib/Lex/PreprocessingRecord.cpp):
+undef removes the definition mapping; expansion records require that mapping,
+and nested expansions are intentionally omitted. A future compiler observer needs
+actual expansion callbacks and complete filesystem/query observations, rather
+than inferring those missing records from statement shapes. No compiler backend
+or productive runtime is activated by this investigation.
+
+The configured recovery comparison against verified v56 retains all 902 original
+C++ products byte-for-byte after only source stat and extraction-identity fields
+are normalized. Clone sketches also match without normalization. The existing
+Hades definitions, references, owners, facts and full diagnostics do not change.

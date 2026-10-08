@@ -956,3 +956,84 @@ fn enrolled_external_index_uses_registry_source_for_macro_freshness() {
   drop(server);
   fs::remove_dir_all(base).unwrap();
 }
+
+#[test]
+fn conditional_return_values_keep_both_branches_after_header_revalidation() {
+  for watch_rebuild in [false, true] {
+    for crlf in [false, true] {
+      let base = std::env::temp_dir().join(format!(
+        "vorpal-mcp-conditional-value-sites-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .unwrap()
+          .as_nanos()
+      ));
+      let src = base.join("repo");
+      let headers = base.join("headers");
+      fs::create_dir_all(&src).unwrap();
+      fs::create_dir_all(&headers).unwrap();
+      let header = headers.join("proof.h");
+      let proof = "#define CHECK(v) { (v); }\n";
+      fs::write(&header, proof).unwrap();
+      let source = "#include \"proof.h\"\nbool base() { return true; }\nbool extra() { return false; }\nbool alternate() { return true; }\nint value() { return 1; }\nbool run() {\n CHECK(value())\n return\n#ifdef PREFIX\n base() &&\n#endif\n#if defined(ON)\n extra()\n#else\n alternate()\n#endif\n ;\n}\n";
+      fs::write(
+        src.join("main.cc"),
+        if crlf {
+          source.replace('\n', "\r\n")
+        } else {
+          source.to_owned()
+        },
+      )
+      .unwrap();
+      let env = ExtractionEnv {
+        cpp_macro_include_roots: Some(vec![headers]),
+        ..Default::default()
+      };
+      let index = src.join(".vorpal/index");
+      vorpal_index::build_index_env(&src, &index, Default::default(), Default::default(), &env)
+        .unwrap();
+      let mut server = Server::with_profile_env_rebuild(index, Profile::Full, env, watch_rebuild);
+      let mut id = 1;
+      for restored in [false, true] {
+        assert!(health(&mut server, id).contains("parse health: clean"));
+        id += 1;
+        let response = server.handle_line(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"graph","arguments":{"relation":"callees","name":"run","format":"lean"}}}).to_string()).unwrap();
+        id += 1;
+        let response: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["result"]["isError"], false, "{response}");
+        let records = response["result"]["structuredContent"]["records"]
+          .as_array()
+          .unwrap();
+        assert_eq!(records.len(), 4, "{response}");
+        for (name, line, site) in [
+          ("value", 7, "CHECK(value())"),
+          ("base", 10, "base() &&"),
+          ("extra", 13, "extra()"),
+          ("alternate", 15, "alternate()"),
+        ] {
+          let row = records.iter().find(|r| r["name"] == name).unwrap();
+          assert_eq!(row["site_line"], line, "{response}");
+          assert_eq!(row["site"], site, "{response}");
+        }
+        if !restored {
+          let modified = fs::metadata(&header).unwrap().modified().unwrap();
+          let expression = "#define CHECK(v)   (v)   \n";
+          assert_eq!(expression.len(), proof.len());
+          fs::write(&header, expression).unwrap();
+          fs::File::options()
+            .write(true)
+            .open(&header)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+          assert!(health(&mut server, id).contains("carry ERROR/MISSING nodes"));
+          id += 1;
+          fs::write(&header, proof).unwrap();
+        }
+      }
+      drop(server);
+      fs::remove_dir_all(base).unwrap();
+    }
+  }
+}

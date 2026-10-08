@@ -100,7 +100,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v21\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v22\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -446,15 +446,21 @@ fn intact_metadata_groups<D: vorpal_core::Doc>(
 }
 
 // Ordinary functions remain opaque to directive replay except for complete,
-// effect-free logical return suffixes. Match their original directive inventory
+// effect-free conditional returns. Match their original directive inventory
 // independently; damaged C++ outside those groups cannot hide a macro mutation.
-fn logical_return_metadata<D: vorpal_core::Doc>(
+fn conditional_return_metadata<D: vorpal_core::Doc>(
   source: &str,
   function: &vorpal_core::Node<'_, D>,
 ) -> bool {
+  let is_return_expression = |kind: &str| {
+    matches!(
+      kind,
+      "conditional_logical_expression" | "conditional_return_expression"
+    )
+  };
   if !function
     .dfs()
-    .any(|n| n.kind().as_ref() == "conditional_logical_expression")
+    .any(|n| is_return_expression(n.kind().as_ref()))
   {
     return false;
   }
@@ -479,8 +485,23 @@ fn logical_return_metadata<D: vorpal_core::Doc>(
         matches!(parent.kind().as_ref(), "preproc_if" | "preproc_ifdef")
           && parent
             .parent()
-            .is_some_and(|p| p.kind().as_ref() == "conditional_logical_expression")
+            .is_some_and(|p| is_return_expression(p.kind().as_ref()))
       }) {
+        return false;
+      }
+      continue;
+    }
+    if node.kind().as_ref() == "preproc_else" {
+      // Only the mandatory value alternative of a complete return group is
+      // admitted. Its exact original header is checked with the group below.
+      if node.has_error()
+        || !node.parent().is_some_and(|group| {
+          matches!(group.kind().as_ref(), "preproc_if" | "preproc_ifdef")
+            && group
+              .parent()
+              .is_some_and(|p| p.kind().as_ref() == "conditional_return_expression")
+        })
+      {
         return false;
       }
       continue;
@@ -489,7 +510,7 @@ fn logical_return_metadata<D: vorpal_core::Doc>(
       || node.has_error()
       || !node
         .parent()
-        .is_some_and(|p| p.kind().as_ref() == "conditional_logical_expression")
+        .is_some_and(|p| is_return_expression(p.kind().as_ref()))
       || node
         .field("condition")
         .is_some_and(|c| !nonexpanding_condition(&c.text()))
@@ -499,16 +520,32 @@ fn logical_return_metadata<D: vorpal_core::Doc>(
     let Some(group) = groups.iter().find(|g| g.span == node.range()) else {
       return false;
     };
-    if group.branches.len() != 1 {
+    let alternative = node.field("alternative");
+    let expected_branches = if alternative.is_some() { 2 } else { 1 };
+    if group.branches.len() != expected_branches {
       return false;
+    }
+    if let Some(alternative) = alternative {
+      if alternative.kind().as_ref() != "preproc_else"
+        || alternative.range().start != group.branches[1].header.start
+        || crate::cpp_directive_audit::keyword(source, &group.branches[1].header)
+          .ok()
+          .as_deref()
+          != Some("else")
+      {
+        return false;
+      }
     }
     let in_group: Vec<_> = directives
       .iter()
       .filter(|d| group.span.contains(&d.span.start))
       .collect();
-    if in_group.len() != 2
-      || in_group[0].span != group.branches[0].header
-      || in_group[1].span != group.close
+    if in_group.len() != expected_branches + 1
+      || !in_group
+        .iter()
+        .zip(&group.branches)
+        .all(|(directive, branch)| directive.span == branch.header)
+      || in_group[expected_branches].span != group.close
       || crate::cpp_directive_audit::keyword(source, &group.close)
         .ok()
         .as_deref()
@@ -950,7 +987,7 @@ impl Audit {
         }
         "preproc_ifdef" | "preproc_if" | "conditional_function_definition" | "function_definition"
           if if node.kind().as_ref() == "function_definition" {
-            logical_return_metadata(source, &node)
+            conditional_return_metadata(source, &node)
           } else if node.kind().as_ref() == "conditional_function_definition" {
             // The heads form a complete original conditional group. Ordinary
             // body recovery can be damaged before scanner proof is available,
