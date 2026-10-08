@@ -1589,3 +1589,14 @@ validation instead of rebuilding again with zero captured paths. Events arriving
 during a build still re-arm the marker. Windows/Linux regressions cover default
 and opt-in recovery with both layout and external indexes, repeated quiet queries
 and an explicitly re-armed dirty marker. No runtime installation changes.
+
+Quiet MCP proof-freshness checks snapshot the consulted input fingerprints, then
+read them in parallel without retaining the observations mutex across Rayon work.
+Each check still validates contents, missing candidates and redirected paths; no
+proof or cross-query filesystem cache is added. A monotonic observation revision
+rejects results spanning refresh epochs, new inputs or conflicting observations,
+even if a new epoch restores the same input map. Revision exhaustion fails closed.
+Identical repeat observations do not invalidate an otherwise consistent snapshot.
+Five deterministic unit controls cover content/redirect/missing changes, concurrent
+publication and refresh, incomplete epochs and revision exhaustion. Windows/Linux
+normal MCP/header-replay/CLI regression suites and Clippy gates pass.
