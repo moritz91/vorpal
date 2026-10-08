@@ -18,6 +18,26 @@ const char *tree_sitter_cpp_set_statement_macros(const char *names) {
     statement_macros = names;
     return previous;
 }
+typedef struct {
+    uint32_t offset;
+    const char *name;
+    bool open_if;
+} StatementMacroSite;
+typedef struct {
+    const StatementMacroSite *sites;
+    size_t length;
+    uint32_t (*byte_offset)(const void *lexer);
+} StatementMacroSites;
+#if defined(_MSC_VER)
+static __declspec(thread) const StatementMacroSites *statement_sites;
+#else
+static __thread const StatementMacroSites *statement_sites;
+#endif
+const StatementMacroSites *tree_sitter_cpp_set_statement_macro_sites(const StatementMacroSites *sites) {
+    const StatementMacroSites *previous = statement_sites;
+    statement_sites = sites;
+    return previous;
+}
 static bool statement_space(int32_t c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
 }
@@ -61,8 +81,21 @@ static bool statement_spacing(TSLexer *lexer) {
     }
 }
 static bool scan_statement_macro(TSLexer *lexer, const bool *valid_symbols) {
-    if (!statement_macros) return false;
+    if (!statement_macros && !statement_sites) return false;
     while (statement_space(lexer->lookahead)) lexer->advance(lexer, true);
+    const StatementMacroSite *site = NULL;
+    if (statement_sites) {
+        if (!statement_sites->byte_offset) return false;
+        uint32_t offset = statement_sites->byte_offset(lexer);
+        size_t low = 0, high = statement_sites->length;
+        while (low < high) {
+            size_t middle = low + (high - low) / 2;
+            if (statement_sites->sites[middle].offset < offset) low = middle + 1;
+            else high = middle;
+        }
+        if (low == statement_sites->length || statement_sites->sites[low].offset != offset) return false;
+        site = &statement_sites->sites[low];
+    }
     char name[128];
     unsigned length = 0;
     while ((lexer->lookahead >= 'a' && lexer->lookahead <= 'z') ||
@@ -75,6 +108,13 @@ static bool scan_statement_macro(TSLexer *lexer, const bool *valid_symbols) {
     if (!length) return false;
     lexer->mark_end(lexer);
     if (!statement_spacing(lexer) || lexer->lookahead != '(') return false;
+    if (site) {
+        if (strlen(site->name) != length || memcmp(site->name, name, length)) return false;
+        enum TokenType kind = site->open_if ? PROVEN_OPEN_IF_MACRO : PROVEN_STATEMENT_MACRO;
+        if (!valid_symbols[kind]) return false;
+        lexer->result_symbol = kind;
+        return true;
+    }
     for (const char *entry = statement_macros; *entry;) {
         bool open_if = *entry == '?';
         const char *name_entry = entry + (open_if ? 1 : 0);

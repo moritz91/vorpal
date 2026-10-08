@@ -92,10 +92,11 @@
       "Unqualified explicit operator calls retain operator_name and argument_list with low static and negative dynamic precedence; keep ordinary declarators viable and do not promote operator names to general expressions.",
       "Declaration-scoped inverse __OBJC__ guards admit primitive-return function definitions with mandatory function declarators and existing Objective-C compound-body aliases; reject general declaration specifiers and namespace bodies.",
       "Permit an inline prefix on the original friend declaration with one explicit storage-class conflict; retain original function/declaration kinds and spans without keyword-as-type recovery.",
-      "Return-only conditional logical suffix groups retain the original left value, directive conditions and logical right operands, requiring complete directive lines and a final semicolon; no general expression expansion or branch selection."
+      "Return-only conditional logical suffix groups retain the original left value, directive conditions and logical right operands, requiring complete directive lines and a final semicolon; no general expression expansion or branch selection.",
+      "Scoped exact invocation-site scanner context with a byte-offset capability supplied by the vendored runtime; TSLexer ABI and serialized scanner state are unchanged; standalone CLI requires no runtime symbol."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:e533a9771fe8e34b",
+    "source_digest": "xxh3:79d6bafc4f407b05",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

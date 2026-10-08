@@ -1879,3 +1879,30 @@ name, and six observations are incomplete or differ from native preprocessing.
 These are report-only results, not production graphs or normal SDK recovery.
 The twelve controls and ingest Clippy pass on both platforms. All three full CI
 jobs for 121c8ad are green (37821305016). Production identities/runtime are unchanged.
+
+Compiler reports now scope proof to exact original invocation byte positions,
+including the syntax class at each site. The vendored runtime supplies a private
+byte-offset capability through a borrowed callback; only that runtime reads its
+own Lexer layout. TSLexer ABI, generated parser, visible kinds and serialized
+scanner state remain unchanged. Empty/name-wide/site contexts replace and restore
+both TLS pointers together through nesting, unwinding and parser reuse. Original
+UTF-8/BOM/CRLF/comment spans and absolute included-range offsets are tested.
+Standalone upstream CLI compilation has no dependency on the private symbol.
+
+Independent statement sites survive another unsupported, unobserved or invalid
+same-name occurrence. Invalid arguments, ordinary missing semicolons and
+incompatible expression contexts retain original diagnostics; mixed closed/open
+if replacements retain the else binding for their respective positions. Report
+invocation spans exclude the source semicolon/else clause belonging to the full
+statement node. This precise mode is limited to the compiler report: normal
+extraction retains the existing metadata/name-wide proof and production identities.
+
+Four scanner controls and fourteen compiler-report controls pass on Windows/Linux,
+as do the unchanged production parser/evidence/recovery/replay and resolver checks,
+Clippy, provenance and all 179 corpus cases in the stock CLI and Rust harness.
+Only the C++ provenance entry changes; no schema kinds are introduced. The two
+full sixteen-source reports agree, now recovering 103 independent ASSERT sites in
+input_manager_tests.cc while preserving its remaining errors; the previous seven
+clean reports and log/UI results remain. SDK-backed production compiler selection,
+native preprocessing and dependency validation are still required. No report is
+turned into a production tree, product or normal MCP SDK recovery proof.

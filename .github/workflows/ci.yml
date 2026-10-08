@@ -58,7 +58,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-mcp --test cpp_macro_freshness
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p vorpal-language --test grammar_provenance
+          cargo test --locked -p vorpal-language --test grammar_provenance --test cpp_statement_macro_sites
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal --test cpp_macro_config
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

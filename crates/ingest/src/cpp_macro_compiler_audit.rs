@@ -262,7 +262,7 @@ fn audit_without_context(
     return Err(Declined::InvalidExpansion);
   }
   let (report, member_calls) = crate::cpp_macro_recovery::audit_compiler_evidence(source, evidence);
-  // The offset-free scanner must recover exactly captured original invocations,
+  // The site-scoped scanner must recover exactly captured original invocations,
   // not another occurrence hidden inside an overlong or malformed record range.
   if report.macro_spans.iter().any(|span| {
     ranges

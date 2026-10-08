@@ -24,6 +24,12 @@
     );                                       \
   }
 
+// Vorpal-private capability, supplied explicitly to a scoped external scanner.
+// TSLexer remains unchanged. Only this runtime reads its own Lexer layout.
+uint32_t ts_vorpal_lexer_byte_offset(const void *lexer) {
+  return ((const Lexer *)lexer)->current_position.bytes;
+}
+
 static const int32_t BYTE_ORDER_MARK = 0xFEFF;
 
 static const TSRange DEFAULT_RANGE = {

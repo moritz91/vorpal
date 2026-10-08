@@ -172,7 +172,7 @@ fn missing_ordinary_semicolons_and_argument_failures_are_not_hidden() {
 }
 
 #[test]
-fn one_unobserved_use_disables_the_whole_offset_free_name() {
+fn one_unobserved_use_remains_raw_without_disabling_an_independent_site() {
   for source in [
     "void run() { CHECK(first()) CHECK(second()) }",
     "void run() { CHECK(first()) }\n#undef CHECK\nvoid later() { CHECK(second()) }",
@@ -194,8 +194,8 @@ fn one_unobserved_use_disables_the_whole_offset_free_name() {
       volatile_inputs: false,
     };
     let report = audit(observation.path, source, &observation).unwrap();
-    assert!(report.eligible_names.is_empty());
-    assert!(report.macro_spans.is_empty());
+    assert_eq!(report.eligible_names, ["CHECK"]);
+    assert_eq!(report.macro_spans, [expansions[0].invocation.clone()]);
     assert!(report.has_error);
   }
 }
@@ -574,4 +574,101 @@ fn unsupported_variadic_anchors_keep_independent_proof_and_ordinary_same_name_ca
     .find(|(name, _)| name == "value")
     .unwrap();
   assert_eq!(&source[span.clone()], "value()");
+}
+
+#[test]
+fn independent_sites_keep_mixed_replacement_classes_and_decline_only_invalid_arguments() {
+  let source = "void run() { CHECK(first()) if (flag) CHECK(second()) else after(); CHECK() }";
+  let closed = "#define CHECK(x) { sink(x); }\n";
+  let definitions = [
+    DefinitionBuffer {
+      path: Path::new("closed.h"),
+      source: closed,
+    },
+    DefinitionBuffer {
+      path: Path::new("open.h"),
+      source: HEADER,
+    },
+  ];
+  let mut expansions = [
+    expansion(source, "CHECK(first())", closed, "CHECK"),
+    expansion(source, "CHECK(second())", HEADER, "CHECK"),
+    expansion(source, "CHECK()", HEADER, "CHECK"),
+  ];
+  expansions[1].definition.as_mut().unwrap().buffer = 1;
+  expansions[2].definition.as_mut().unwrap().buffer = 1;
+  let names = BTreeSet::from(["CHECK".to_owned()]);
+  let observation = Observation {
+    path: Path::new("sample.cc"),
+    source,
+    definitions: &definitions,
+    expansions: &expansions,
+    expanded_names: &names,
+    complete: true,
+    volatile_inputs: false,
+  };
+  let report = audit(observation.path, source, &observation).unwrap();
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  assert_eq!(
+    report.macro_spans,
+    [
+      expansions[0].invocation.clone(),
+      expansions[1].invocation.clone()
+    ]
+  );
+  assert!(
+    report.has_error,
+    "invalid empty argument still produces a real error"
+  );
+  for name in ["first", "second", "after"] {
+    let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+    assert_eq!(&source[span.clone()], format!("{name}()"));
+  }
+  assert!(
+    audit_recovery(observation.path, source, &[])
+      .macro_spans
+      .is_empty()
+  );
+}
+
+#[test]
+fn invalid_expression_context_retains_diagnostics_and_independent_statement_sites() {
+  let source = "void run() { CHECK(first()); int bad = CHECK(second()); CHECK(last()) CHECK(1,) }";
+  let header = "#define CHECK(x) { sink(x); }\n";
+  let definitions = [DefinitionBuffer {
+    path: Path::new("proof.h"),
+    source: header,
+  }];
+  let expansions = [
+    "CHECK(first())",
+    "CHECK(second())",
+    "CHECK(last())",
+    "CHECK(1,)",
+  ]
+  .map(|invocation| expansion(source, invocation, header, "CHECK"));
+  let names = BTreeSet::from(["CHECK".to_owned()]);
+  let observation = Observation {
+    path: Path::new("sample.cc"),
+    source,
+    definitions: &definitions,
+    expansions: &expansions,
+    expanded_names: &names,
+    complete: true,
+    volatile_inputs: false,
+  };
+  let report = audit(observation.path, source, &observation).unwrap();
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  assert_eq!(
+    report.macro_spans,
+    [
+      expansions[0].invocation.clone(),
+      expansions[2].invocation.clone()
+    ]
+  );
+  assert!(report.has_error);
+  assert_eq!(report.context_errors, [expansions[1].invocation.clone()]);
+  for name in ["first", "second", "last"] {
+    let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+    assert_eq!(&source[span.clone()], format!("{name}()"));
+  }
 }
