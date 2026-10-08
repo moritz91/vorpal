@@ -217,3 +217,129 @@ fn normal_mcp_health_reports_missing_only_tokens_on_warm_products() {
     assert!(report.contains("missing.cc"), "{report}");
   }
 }
+#[test]
+fn explicit_mcp_source_keeps_external_index_headers_fresh_without_index_calls() {
+  use std::io::{BufRead, BufReader};
+  use std::time::Duration;
+  struct Running(std::process::Child);
+  impl Drop for Running {
+    fn drop(&mut self) {
+      let _ = self.0.kill();
+      let _ = self.0.wait();
+    }
+  }
+  for default_index in [false, true] {
+    let temp = fixture_dir();
+    let src = temp.path().join("source tree");
+    let settings = temp.path().join("settings");
+    let headers = settings.join("headers");
+    fs::create_dir(&src).unwrap();
+    fs::create_dir_all(&headers).unwrap();
+    let config = settings.join("vorpalconfig.yml");
+    fs::write(&config, "ruleDirs: []\ncppMacroIncludeRoots: [headers]\n").unwrap();
+    fs::write(
+      src.join("main.cc"),
+      "#include <proof.h>\nvoid run() { CHECK(target()) }\nvoid target() {}\n",
+    )
+    .unwrap();
+    let header = headers.join("proof.h");
+    let valid = "#define CHECK(x) { consume(x); }\n";
+    fs::write(&header, valid).unwrap();
+    let out = if default_index {
+      src.join(".vorpal/index")
+    } else {
+      temp.path().join("external-index")
+    };
+    index(&src, &out, &config);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_vorpal"));
+    command
+      .current_dir(temp.path())
+      .args(["mcp", "--src"])
+      .arg(&src)
+      .args(["--no-watch-rebuild", "--config"])
+      .arg(&config);
+    if !default_index {
+      command.arg("--index").arg(&out);
+    }
+    let mut child = Running(
+      command
+        .env("VORPAL_NO_AUTOWARM", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(fs::File::create(temp.path().join("mcp.log")).unwrap())
+        .spawn()
+        .unwrap(),
+    );
+    let mut input = child.0.stdin.take().unwrap();
+    let output = child.0.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+      for line in BufReader::new(output).lines() {
+        let Ok(line) = line else {
+          break;
+        };
+        if let Ok(reply) = serde_json::from_str::<Value>(&line) {
+          if tx.send(reply).is_err() {
+            break;
+          }
+        }
+      }
+    });
+    for (id, replacement, expected) in [
+      (1, valid, "parse health: clean"),
+      (
+        2,
+        "#define CHECK(x) consume(x)\n",
+        "carry ERROR/MISSING nodes",
+      ),
+      (3, valid, "parse health: clean"),
+    ] {
+      let stamp = fs::metadata(&header).unwrap().modified().unwrap();
+      fs::write(&header, replacement).unwrap();
+      fs::File::options()
+        .write(true)
+        .open(&header)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(stamp))
+        .unwrap();
+      writeln!(input,"{}",json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"health","arguments":{}}})).unwrap();
+      input.flush().unwrap();
+      let response = rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("running MCP health response");
+      assert_eq!(response["id"], id, "{response}");
+      assert_eq!(response["result"]["isError"], false, "{response}");
+      assert!(health(response).contains(expected));
+    }
+    drop(input);
+    assert!(child.0.wait().unwrap().success());
+    reader.join().unwrap();
+  }
+}
+
+#[test]
+fn explicit_mcp_source_rejects_missing_roots_and_project_mode_conflicts() {
+  let temp = fixture_dir();
+  let file = temp.path().join("file");
+  fs::write(&file, "source root must be a directory").unwrap();
+  for src in [file, temp.path().join("missing")] {
+    let output = Command::new(env!("CARGO_BIN_EXE_vorpal"))
+      .current_dir(temp.path())
+      .args(["mcp", "--src"])
+      .arg(src)
+      .stdin(Stdio::null())
+      .output()
+      .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("MCP source"));
+  }
+  let output = Command::new(env!("CARGO_BIN_EXE_vorpal"))
+    .current_dir(temp.path())
+    .args(["mcp", "--projects", "--src"])
+    .arg(temp.path())
+    .stdin(Stdio::null())
+    .output()
+    .unwrap();
+  assert!(!output.status.success());
+  assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be used with"));
+}

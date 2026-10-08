@@ -32,7 +32,7 @@ use crate::protocol::{Handler, RpcError, decorate_tools, default_record_format};
 /// `<src>` (§7.5): queries revalidate lazily whenever the watch reports possible changes, so
 /// the steady-state freshness check is one atomic load — no walk, no stats — while answers
 /// stay as fresh as an explicit re-index. Custom index locations (no derivable source root)
-/// keep the explicit-`index`-tool behavior unchanged.
+/// keep the explicit-`index`-tool behavior unless a launcher supplies their source root.
 /// Which tool subset this daemon serves. Slimmer surfaces mean fewer tokens of tool schema
 /// per agent turn and a smaller blast radius for read-only deployments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -105,6 +105,8 @@ pub struct Server {
   /// an answer from the pinned graph that produced its ids.
   kg_dir: Option<PathBuf>,
   watch: Option<SourceWatch>,
+  /// Canonical source root supplied by the launcher/registry or default layout.
+  source_root: Option<PathBuf>,
   /// Result sets of the structural tools, kept for paging (see `page_key`).
   structural_pages: PageCache<crate::tools::StructuralHit>,
   rule_pages: PageCache<crate::tools::RuleHit>,
@@ -548,10 +550,27 @@ impl Server {
   pub fn with_profile_env_rebuild(
     index_dir: PathBuf,
     profile: Profile,
-    mut env: ExtractionEnv,
+    env: ExtractionEnv,
     watch_rebuild: bool,
   ) -> Self {
-    let watch = watch_root(&index_dir).and_then(|src| SourceWatch::start(&src));
+    Self::with_profile_env_rebuild_source(index_dir, profile, env, watch_rebuild, None)
+  }
+
+  /// Serve an external index against a source root authorized by the launcher or
+  /// enrolled registry. Missing/unusable explicit roots remain unwatched; they
+  /// never fall back to a different tree inferred from the index directory.
+  pub fn with_profile_env_rebuild_source(
+    index_dir: PathBuf,
+    profile: Profile,
+    mut env: ExtractionEnv,
+    watch_rebuild: bool,
+    source_root: Option<PathBuf>,
+  ) -> Self {
+    let source_root = source_root
+      .or_else(|| watch_root(&index_dir))
+      .and_then(|src| src.canonicalize().ok())
+      .filter(|src| src.is_dir());
+    let watch = source_root.as_deref().and_then(SourceWatch::start);
     if watch.is_some() && env.cpp_macro_include_roots.is_some() {
       env.cpp_macro_freshness = Some(Arc::new(
         vorpal_ingest::cpp_macro_freshness::MacroFreshness::default(),
@@ -622,6 +641,7 @@ impl Server {
       last_sweep_cost: None,
       live_ann_discard_task: false,
       watch,
+      source_root,
       structural_pages: PageCache::default(),
       rule_pages: PageCache::default(),
       scope: None,
@@ -3212,7 +3232,7 @@ impl Server {
       .watch
       .as_ref()
       .map(|watch| watch.src().to_path_buf())
-      .or_else(|| watch_root(&self.index_dir))?;
+      .or_else(|| self.source_root.clone())?;
     Some(std::fs::canonicalize(&root).unwrap_or(root))
   }
 
@@ -3991,5 +4011,45 @@ mod pending_call_site_tests {
       // Pinning may still have a background scope-table reader.
       let _ = std::fs::remove_dir_all(root);
     }
+  }
+}
+
+
+#[cfg(test)]
+mod explicit_source_tests {
+  use super::*;
+
+  #[test]
+  fn missing_explicit_root_never_falls_back_to_another_layout_root() {
+    let root = std::env::temp_dir().join(format!(
+      "vorpal-explicit-root-{}-{}",
+      std::process::id(),
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let index = root.join(".vorpal/index");
+    assert!(watch_root(&index).is_some());
+    let server = Server::with_profile_env_rebuild_source(
+      index,
+      Profile::Full,
+      ExtractionEnv::default(),
+      false,
+      Some(root.join("missing")),
+    );
+    assert!(server.watch.is_none());
+    assert!(server.source_root().is_none());
+    let rootless = Server::with_profile_env_rebuild_source(
+      root.join("external-index"),
+      Profile::Full,
+      ExtractionEnv::default(),
+      false,
+      None,
+    );
+    assert!(rootless.watch.is_none());
+    assert!(rootless.source_root().is_none());
+    std::fs::remove_dir_all(root).unwrap();
   }
 }

@@ -370,6 +370,10 @@ pub struct SearchArg {
 
 #[derive(Args)]
 pub struct McpArg {
+  /// Source tree to watch when serving an external index. Configuration still
+  /// comes from --config or the launch directory. Never inferred from index data.
+  #[clap(long, conflicts_with = "projects")]
+  src: Option<PathBuf>,
   /// Index directory the daemon serves (default: `./.vorpal/index`).
   #[clap(long)]
   index: Option<PathBuf>,
@@ -1583,7 +1587,28 @@ pub fn run_mcp(arg: McpArg, project: Result<ProjectConfig>) -> Result<ExitCode> 
   // begins; the daemon itself can never load code. Its rebuilds run under the same
   // extraction environment `vorpal index` uses.
   let env = extraction_env_from_project(project.ok().as_ref())?;
-  vorpal_mcp::serve_stdio_opts(index_dir(arg.index), profile, env, !arg.no_watch_rebuild)?;
+  let source_root = arg
+    .src
+    .map(|src| -> Result<PathBuf> {
+      let root = src
+        .canonicalize()
+        .with_context(|| format!("MCP source {} is not accessible", src.display()))?;
+      if !root.is_dir() {
+        return Err(anyhow!("MCP source {} is not a directory", src.display()));
+      }
+      Ok(root)
+    })
+    .transpose()?;
+  let out = arg
+    .index
+    .or_else(|| source_root.as_ref().map(|src| src.join(".vorpal/index")));
+  vorpal_mcp::serve_stdio_source_opts(
+    index_dir(out),
+    profile,
+    env,
+    !arg.no_watch_rebuild,
+    source_root,
+  )?;
   Ok(ExitCode::SUCCESS)
 }
 

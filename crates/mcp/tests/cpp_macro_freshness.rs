@@ -29,15 +29,22 @@ fn assert_else_callees(server: &mut Server, id: u64) {
 
 #[test]
 fn running_server_revalidates_external_macro_headers_without_source_events() {
-  external_header_freshness(false);
+  external_header_freshness(false, false);
 }
 
 #[test]
 fn background_enabled_server_revalidates_external_macro_headers() {
-  external_header_freshness(true);
+  external_header_freshness(true, false);
 }
 
-fn external_header_freshness(watch_rebuild: bool) {
+#[test]
+fn external_index_revalidates_external_macro_headers_with_explicit_source() {
+  for watch_rebuild in [false, true] {
+    external_header_freshness(watch_rebuild, true);
+  }
+}
+
+fn external_header_freshness(watch_rebuild: bool, external_index: bool) {
   let base: PathBuf = std::env::temp_dir().join(format!(
     "vorpal-mcp-macro-fresh-{}-{}",
     std::process::id(),
@@ -62,10 +69,20 @@ fn external_header_freshness(watch_rebuild: bool) {
     cpp_macro_include_roots: Some(vec![headers]),
     ..Default::default()
   };
-  let index = src.join(".vorpal/index");
+  let index = if external_index {
+    base.join("external-index")
+  } else {
+    src.join(".vorpal/index")
+  };
   vorpal_index::build_index_env(&src, &index, Default::default(), Default::default(), &env)
     .unwrap();
-  let mut server = Server::with_profile_env_rebuild(index, Profile::Full, env, watch_rebuild);
+  let mut server = Server::with_profile_env_rebuild_source(
+    index,
+    Profile::Full,
+    env,
+    watch_rebuild,
+    external_index.then(|| src.clone()),
+  );
   assert!(health(&mut server, 1).contains("parse health: clean"));
   // Drain the startup gap before changing only an unwatched external input.
   assert!(health(&mut server, 6).contains("parse health: clean"));
@@ -768,6 +785,15 @@ fn complete_control_macros_revalidate_external_headers_in_normal_mcp() {
 
 #[test]
 fn normal_mcp_rebuilds_keep_generated_heads_anonymous_and_real_functions_named() {
+  anonymous_body_freshness(false);
+}
+
+#[test]
+fn external_index_rebuilds_keep_original_source_sites_with_explicit_source() {
+  anonymous_body_freshness(true);
+}
+
+fn anonymous_body_freshness(external_index: bool) {
   for watch_rebuild in [false, true] {
     for crlf in [false, true] {
       for recovery in [false, true] {
@@ -790,18 +816,23 @@ fn normal_mcp_rebuilds_keep_generated_heads_anonymous_and_real_functions_named()
           cpp_macro_include_roots: recovery.then(Vec::new),
           ..Default::default()
         };
-        let index = src.join(".vorpal/index");
+        let index = if external_index {
+          base.join("external-index")
+        } else {
+          src.join(".vorpal/index")
+        };
         let build = |out: &std::path::Path| {
           vorpal_index::build_index_env(&src, out, Default::default(), Default::default(), &env)
             .unwrap()
         };
         assert_eq!(build(&index).indexed, 1);
         assert_eq!(build(&index).indexed, 0);
-        let mut server = Server::with_profile_env_rebuild(
+        let mut server = Server::with_profile_env_rebuild_source(
           index.clone(),
           Profile::Full,
           env.clone(),
           watch_rebuild,
+          external_index.then(|| src.clone()),
         );
         let mut id = 1;
         for named in [false, true, false] {
@@ -865,4 +896,63 @@ fn normal_mcp_rebuilds_keep_generated_heads_anonymous_and_real_functions_named()
       }
     }
   }
+}
+
+#[test]
+fn enrolled_external_index_uses_registry_source_for_macro_freshness() {
+  let base = std::env::temp_dir().join(format!(
+    "vorpal-enrolled-external-{}-{}",
+    std::process::id(),
+    std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .unwrap()
+      .as_nanos()
+  ));
+  let src = base.join("repo");
+  let headers = base.join("headers");
+  fs::create_dir_all(&src).unwrap();
+  fs::create_dir_all(&headers).unwrap();
+  fs::write(
+    src.join("calls.cc"),
+    "#include <proof.h>\nvoid run() { CHECK(target()) }\nvoid target() {}\n",
+  )
+  .unwrap();
+  let header = headers.join("proof.h");
+  let valid = "#define CHECK(x) { consume(x); }\n";
+  fs::write(&header, valid).unwrap();
+  let index = base.join("external-index");
+  let env = ExtractionEnv {
+    cpp_macro_include_roots: Some(vec![headers]),
+    ..Default::default()
+  };
+  vorpal_index::build_index_env(&src, &index, Default::default(), Default::default(), &env)
+    .unwrap();
+  let projects = std::collections::BTreeMap::from([(
+    "fixture".to_owned(),
+    vorpal_mcp::registry::ProjectEntry {
+      src: src.canonicalize().unwrap(),
+      index,
+    },
+  )]);
+  let mut server = vorpal_mcp::MultiServerForTest::with_envs(
+    projects,
+    Profile::Full,
+    std::collections::BTreeMap::from([("fixture".to_owned(), env)]),
+  );
+  let mut query = |id| {
+    let reply = server.handle_line(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"health","arguments":{"project":"fixture"}}}).to_string()).unwrap();
+    let reply: Value = serde_json::from_str(&reply).unwrap();
+    assert_eq!(reply["result"]["isError"], false, "{reply}");
+    reply["result"]["content"][0]["text"]
+      .as_str()
+      .unwrap()
+      .to_owned()
+  };
+  assert!(query(1).contains("parse health: clean"));
+  fs::write(&header, "#define CHECK(x) consume(x)\n").unwrap();
+  assert!(query(2).contains("carry ERROR/MISSING nodes"));
+  fs::write(&header, valid).unwrap();
+  assert!(query(3).contains("parse health: clean"));
+  drop(server);
+  fs::remove_dir_all(base).unwrap();
 }

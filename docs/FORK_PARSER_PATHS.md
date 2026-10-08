@@ -1539,8 +1539,24 @@ Additional original type leaves survive where previously distinct anonymous
 scopes lost their dedup domains. This is an extraction correction, not recovery
 of actual Hades ASSERT proofs. The SDK evidence boundary remains opaque.
 
-The watched MCP regression uses the normal <source>/.vorpal/index layout. A
-separate open issue is source watching for an explicitly external index: current
-watch-root inference recognizes only that default layout, even if callers know
-the source root. Do not infer a source tree from an arbitrary index parent.
-Productive .2 binaries/index/tunnel and the read-only Hades checkout remain intact.
+External index freshness now takes an explicit launcher-authorized source root:
+`vorpal mcp --src <source> --index <external-index> --config <config>` and the
+library's with_profile_env_rebuild_source/serve_stdio_source_opts entry points.
+Registered projects pass their enrolled source root to the same server path.
+No root is inferred from index data or an arbitrary index parent. Missing explicit
+roots never fall back to another layout root; missing/non-directory CLI roots
+fail before serving. --src conflicts with --projects, and defaults to serving
+<source>/.vorpal/index when --index is absent. Config selection stays --config or
+launch-directory discovery, not implicit rediscovery under --src. The retained
+environment and existing proof-freshness/rebuild logic remain authoritative.
+
+Windows/Linux pass thirteen macro-freshness MCP tests, six actual CLI/MCP-process
+config tests, existing watcher/project routing tests and the explicit-root refusal
+unit. External index tests cover default and recovered extraction, LF/CRLF,
+background rebuild on/off, anonymous-to-real function transitions and original
+caller sites. Header-only edits with restored timestamps change running MCP
+health without an index tool call; restoring proof recovers clean health. Registry
+routing uses its enrolled root for external indexes. Native CLI/MCP and Linux
+workspace/default/no-builtins Clippy pass. No parser, product identity, schema,
+provenance or installed runtime changes in this source-root follow-up. Productive
+.2 binaries/index/tunnel and the read-only Hades checkout remain intact.

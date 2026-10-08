@@ -118,7 +118,21 @@ pub fn serve_stdio_opts(
   env: vorpal_index::ExtractionEnv,
   watch_rebuild: bool,
 ) -> io::Result<()> {
-  let mut server = Server::with_profile_env_rebuild(index_dir, profile, env, watch_rebuild);
+  serve_stdio_source_opts(index_dir, profile, env, watch_rebuild, None)
+}
+
+/// [`serve_stdio_opts`] with an explicit launcher-authorized source root for an
+/// external index. This does not infer or enroll a tree from index contents.
+pub fn serve_stdio_source_opts(
+  index_dir: PathBuf,
+  profile: Profile,
+  env: vorpal_index::ExtractionEnv,
+  watch_rebuild: bool,
+  source_root: Option<PathBuf>,
+) -> io::Result<()> {
+  let mut server = Server::with_profile_env_rebuild_source(
+    index_dir, profile, env, watch_rebuild, source_root,
+  );
   pump(|line| match line {
     Some(line) => server.handle_line(line),
     None => {

@@ -397,6 +397,23 @@ must run as a single-project daemon.
 
 ## Freshness and crash isolation
 
+External indexes need an explicit source tree to participate in freshness checks:
+
+```sh
+vorpal mcp --src /absolute/path/to/project --index /absolute/path/to/external-index --config /absolute/path/to/vorpalconfig.yml
+```
+
+`--src` watches that tree even when the launch directory and index live elsewhere.
+Without `--index`, it serves `<src>/.vorpal/index`. Configuration still comes from
+`--config` or discovery in the launch directory; `--src` does not change config
+selection or enable macro recovery by itself. A configured `cppMacroIncludeRoots`
+enables the existing header dependency checks in the same retained environment.
+An external index without `--src` remains explicitly refreshed: index contents
+and parent directories never authorize a watched source tree. In `--projects`
+mode the enrolled registry supplies each source root, including external indexes;
+`--src` and `--projects` cannot be combined. Missing/non-directory CLI roots fail
+at startup. `--no-watch-rebuild` still keeps lazy query-time freshness active.
+
 The daemon watches the source tree (FSEvents/inotify) and rebuilds **proactively**: after a
 save, once the tree is quiet for half a second, a background worker rebuilds the index so the
 first query after an edit is already warm (it pays a fast-path check plus an mmap reload, not
