@@ -1508,3 +1508,39 @@ All 21 original directives were independently inventoried during a read-only
 audit. Unknown effects remain opaque; this control-statement extension neither
 repairs that boundary nor claims an actual Hades ASSERT recovery. Hades and the
 productive .2 installation remain untouched.
+
+
+Bare returnless C++ function heads now keep an anonymous traversal boundary
+instead of becoming named functions. Declaration-generating macro names and
+parameter-shaped generated names supply neither function entities nor type-use
+proof. Qualified constructors/destructors and conversion operators retain their
+existing rules. Anonymous boundaries survive outline filters and swallow recovery,
+so nested local classes/aliases cannot become public definitions by removing the
+outer name. Local binding and type-use dedup domains remain separate between
+anonymous bodies and the file. Hidden local type names cannot resolve to a
+same-spelled global type; anonymous method fields/parameters/returns never become
+file facts. Original argument/body calls retain their spans and use the existing
+containing owner, without inventing an anonymous graph entity. Reference capture
+v2 and typefacts v6 invalidate older products; no grammar/schema/provenance change.
+
+Windows/Linux outline (17), parser/product (57), evidence (29/30), recovery (40),
+ten watched MCP regressions, bucketed/flat replay/member-call/health, fourteen
+native resolver checks and Clippy gates pass. Default cached C++ reparses match
+fresh products after prefix/body edits, removal and conversion to a real named
+function; owned/streaming/scan products also agree for LF/CRLF. Snapshot tests
+preserve and shift the lexical dedup anchor. The unchanged 179-case grammar corpus
+and native MSVC positive/negative controls pass. A complete-product comparison of
+all 902 original C++ files against the verified v53 candidate changes 149 files:
+2424 false function items, 4357 unproven reference rows and 1886 false function
+sketches disappear; 42806 reference owners move to existing containing scopes and
+1306 receiver facts conservatively change. All retained definitions/members,
+syntax diagnostics/spans/cuts/requests and retained clone sketches are unchanged.
+Additional original type leaves survive where previously distinct anonymous
+scopes lost their dedup domains. This is an extraction correction, not recovery
+of actual Hades ASSERT proofs. The SDK evidence boundary remains opaque.
+
+The watched MCP regression uses the normal <source>/.vorpal/index layout. A
+separate open issue is source watching for an explicitly external index: current
+watch-root inference recognizes only that default layout, even if callers know
+the source root. Do not infer a source tree from an arbitrary index parent.
+Productive .2 binaries/index/tunnel and the read-only Hades checkout remain intact.

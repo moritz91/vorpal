@@ -32,6 +32,7 @@ struct MacroProofContext<'a> {
 }
 
 type LangExtractors = HashMap<SgLang, CombinedExtractors<SgLang>>;
+type ReceiverTyping<'a> = Option<(&'a str, crate::typefacts::BindOrigin)>;
 
 /// The rule set behind an extractor.
 ///
@@ -1225,20 +1226,115 @@ impl OutlineExtractor {
     // never matters (a use-before-assign types identically), so the map is order-free.
     let mut typed: HashMap<&str, Option<(&str, crate::typefacts::BindOrigin)>> = HashMap::new();
     let cpp = matches!(lang, SgLang::Builtin(vorpal_language::SupportLang::Cpp));
-    let mut cpp_local: HashMap<(u32, &str), Option<(&str, crate::typefacts::BindOrigin)>> = HashMap::new();
+    // An unexpanded, returnless macro head has no evidenced function name. Its
+    // original syntactic body still separates local bindings from other such
+    // bodies attributed to the same file/module. Do not manufacture an entity
+    // just to preserve that lexical boundary.
+    let mut unowned_cpp_functions = Vec::new();
+    if cpp {
+      for node in root
+        .dfs()
+        .filter(|n| n.kind().as_ref() == "function_definition")
+      {
+        if crate::references::untyped_cpp_namespace_function(&node) {
+          unowned_cpp_functions.push(node.range());
+        }
+      }
+      unowned_cpp_functions.sort_by_key(|range| range.start);
+    }
+    let cpp_scope = |offset: usize| {
+      let count = unowned_cpp_functions.partition_point(|range| range.start <= offset);
+      unowned_cpp_functions[..count]
+        .iter()
+        .rev()
+        .find(|range| range.contains(&offset))
+        .map_or(0, |range| range.start + 1)
+    };
+    let mut cpp_local: HashMap<(u32, usize, &str), ReceiverTyping<'_>> =
+      HashMap::new();
+    // Local class/alias names have no public entity in these anonymous bodies.
+    // Never narrow their uses to a same-spelled global type. Scope-wide rejection
+    // is conservative for declaration order and nested local type shadowing.
+    let mut cpp_hidden_types =
+      std::collections::BTreeMap::<usize, std::collections::BTreeSet<String>>::new();
+    if cpp && !unowned_cpp_functions.is_empty() {
+      for node in root.dfs() {
+        let scope = cpp_scope(node.range().start);
+        if scope == 0 {
+          continue;
+        }
+        let name = match node.kind().as_ref() {
+          "class_specifier" | "struct_specifier" | "union_specifier" | "enum_specifier"
+          | "alias_declaration" => node.field("name"),
+          "type_definition" => node.field("declarator"),
+          _ => None,
+        };
+        if let Some(name) = name {
+          // Qualified/template spellings also block their simple leading name.
+          let text = name.text();
+          if let Some(first) = text
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .find(|part| !part.is_empty())
+          {
+            if !first.is_empty() {
+              cpp_hidden_types
+                .entry(scope)
+                .or_default()
+                .insert(first.to_owned());
+            }
+          }
+        }
+      }
+    }
+    let hidden_cpp_type = |scope: usize, ty: &str| {
+      cpp_hidden_types.get(&scope).is_some_and(|names| {
+        ty.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+          .any(|part| names.contains(part))
+      })
+    };
     let mut binding_cursor = crate::references::SpanCursor::new(&spans);
     for binding in &bindings {
+      // Parameters/fields in anonymous local methods cannot become file facts.
+      if cpp_scope(binding.start as usize) != 0
+        && matches!(
+          binding.origin,
+          crate::typefacts::BindOrigin::Field | crate::typefacts::BindOrigin::Param
+        )
+      {
+        continue;
+      }
       // Return bindings key a FUNCTION's name to its return type — they feed the chained-
       // call ledger below and must never type a same-named receiver variable.
       if binding.origin == crate::typefacts::BindOrigin::Return {
         continue;
       }
-      if cpp && binding.ty.as_deref().is_some_and(|ty| ty.starts_with(crate::typefacts::CPP_ALIAS_PREFIX)) { continue; }
+      if cpp
+        && binding
+          .ty
+          .as_deref()
+          .is_some_and(|ty| ty.starts_with(crate::typefacts::CPP_ALIAS_PREFIX))
+      {
+        continue;
+      }
       if cpp && binding.origin != crate::typefacts::BindOrigin::Field {
         if let Some(from) = binding_cursor.enclosing(binding.start as usize) {
-          let value = binding.ty.as_deref().map(|ty| (ty, binding.origin));
-          cpp_local.entry((from.raw() as u32, binding.name.as_ref()))
-            .and_modify(|slot| { if *slot != value { *slot = None; } })
+          let scope = cpp_scope(binding.start as usize);
+          let value = binding
+            .ty
+            .as_deref()
+            .filter(|ty| !hidden_cpp_type(scope, ty))
+            .map(|ty| (ty, binding.origin));
+          cpp_local
+            .entry((
+              from.raw() as u32,
+              cpp_scope(binding.start as usize),
+              binding.name.as_ref(),
+            ))
+            .and_modify(|slot| {
+              if *slot != value {
+                *slot = None;
+              }
+            })
             .or_insert(value);
         }
         continue;
@@ -1263,15 +1359,42 @@ impl OutlineExtractor {
     if cpp {
       let mut cursor = crate::references::SpanCursor::new(&spans);
       for binding in &bindings {
-        let Some(alias) = binding.ty.as_deref().and_then(|ty| ty.strip_prefix(crate::typefacts::CPP_ALIAS_PREFIX)) else { continue; };
-        let Some(from) = cursor.enclosing(binding.start as usize) else { continue; };
-        let key = (from.raw() as u32, binding.name.as_ref());
-        let value = cpp_local.get(&(from.raw() as u32, alias)).copied().flatten()
-          .or_else(|| typed.get(alias).copied().flatten());
-        cpp_local.entry(key).and_modify(|slot| { if *slot != value { *slot = None; } }).or_insert(value);
+        let Some(alias) = binding
+          .ty
+          .as_deref()
+          .and_then(|ty| ty.strip_prefix(crate::typefacts::CPP_ALIAS_PREFIX))
+        else {
+          continue;
+        };
+        let Some(from) = cursor.enclosing(binding.start as usize) else {
+          continue;
+        };
+        let key = (
+          from.raw() as u32,
+          cpp_scope(binding.start as usize),
+          binding.name.as_ref(),
+        );
+        let scope = cpp_scope(binding.start as usize);
+        let local = cpp_local.get(&(from.raw() as u32, scope, alias));
+        let value = if scope != 0 {
+          local.copied().flatten()
+        } else {
+          local
+            .copied()
+            .flatten()
+            .or_else(|| typed.get(alias).copied().flatten())
+        };
+        let value = value.filter(|(ty, _)| !hidden_cpp_type(scope, ty));
+        cpp_local
+          .entry(key)
+          .and_modify(|slot| {
+            if *slot != value {
+              *slot = None;
+            }
+          })
+          .or_insert(value);
       }
     }
-
     // Per-entity parameter lists: every Param binding attributed to its innermost enclosing
     // definition span, in file order (dfs order is file order). Borrowed — the finish
     // decides whether the strings are copied (owned product) or encoded in place.
@@ -1281,7 +1404,7 @@ impl OutlineExtractor {
       let mut by_entity: std::collections::BTreeMap<u32, Vec<(&str, Option<&str>)>> =
         std::collections::BTreeMap::new();
       for binding in &bindings {
-        if binding.origin != crate::typefacts::BindOrigin::Param {
+        if binding.origin != crate::typefacts::BindOrigin::Param || cpp_scope(binding.start as usize) != 0 {
           continue;
         }
         if let Some(from) = cursor.enclosing(binding.start as usize) {
@@ -1298,7 +1421,7 @@ impl OutlineExtractor {
     // local rows; the link-time map poisons cross-file disagreements.
     let returns: Vec<(&str, &str)> = bindings
       .iter()
-      .filter(|b| b.origin == crate::typefacts::BindOrigin::Return)
+      .filter(|b| b.origin == crate::typefacts::BindOrigin::Return && cpp_scope(b.start as usize) == 0)
       .filter_map(|b| Some((b.name.as_ref(), b.ty.as_deref()?)))
       .collect();
 
@@ -1309,6 +1432,11 @@ impl OutlineExtractor {
       // statement. Retain the original argument calls; invent no macro call edge.
       raw.retain(|r| r.kind != vorpal_resolve::RefKind::Call || !proof.calls.iter().any(|span| span.start == r.start as usize && span.end == r.end as usize));
     }
+    raw.retain(|r| {
+      let scope = cpp_scope(r.start as usize);
+      !hidden_cpp_type(scope, &r.name)
+        && !r.qualifier.as_deref().is_some_and(|qualifier| hidden_cpp_type(scope, qualifier))
+    });
     let refs: Vec<product::RefParts<'_>> = raw
       .into_iter()
       .map(|r| {
@@ -1316,7 +1444,8 @@ impl OutlineExtractor {
           .receiver
           .as_deref()
           .and_then(|name| {
-            if cpp && let Some(value) = cpp_local.get(&(r.from.raw() as u32, name)) { return *value; }
+            if cpp && let Some(value) = cpp_local.get(&(r.from.raw() as u32, cpp_scope(r.start as usize), name)) { return *value; }
+            if cpp_scope(r.start as usize) != 0 { return None; }
             typed.get(name).copied().flatten()
           });
         product::RefParts {

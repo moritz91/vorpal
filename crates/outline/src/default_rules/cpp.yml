@@ -50,6 +50,21 @@ isExported:
 # never enters), and tree-sitter-cpp shares the block-item shape — see the C rule.
 # Measured on the C corpora first; the shape is the same grammar family.
 swallowRecovery: true
+# A bare returnless head may be a declaration-generating macro. Keep its
+# original body as a local traversal boundary, but invent no function name.
+# Qualified constructors and conversion operators retain their existing shapes.
+anonymous:
+  all:
+    - not:
+        has:
+          field: type
+          pattern: $TYPE
+    - has:
+        field: declarator
+        kind: function_declarator
+        has:
+          field: declarator
+          kind: identifier
 ---
 
 id: cpp-class

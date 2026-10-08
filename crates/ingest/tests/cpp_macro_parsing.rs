@@ -2790,3 +2790,285 @@ fn cpp_specialized_constructor_products_preserve_original_calls() {
     assert_eq!(owned, streamed);
   }
 }
+
+#[test]
+fn cpp_unproven_declaration_macros_keep_original_sites_without_fake_owners() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_language::{LanguageExt, SupportLang};
+  let extractor = OutlineExtractor::new().unwrap();
+  let lf = "#define TEST(name) void test_##name()\n#define DECLARE_STORAGE(Type) int* storage();\nstruct Holder {\n Holder();\n ~Holder();\n int* getter() { return value(); }\n DECLARE_STORAGE(Item);\n};\nTEST(originalTest) { use(); }\n#undef TEST\nvoid TEST(int value) { use(); }\nHolder::Holder() { work(); }\nHolder::~Holder() { cleanup(); }\nvoid following() { after(); }\nvoid broken() { missing() }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = extractor
+      .extract_product("declarations.cpp", &source)
+      .unwrap();
+    assert_eq!(
+      product
+        .items
+        .iter()
+        .filter(|item| item.entry.name == "TEST"
+          && item.entry.symbol_type == vorpal_outline::model::SymbolType::Function)
+        .count(),
+      1
+    );
+    assert!(
+      !product
+        .items
+        .iter()
+        .any(|item| item.entry.name == "test_originalTest")
+    );
+    let holder = product
+      .items
+      .iter()
+      .find(|item| item.entry.name == "Holder")
+      .unwrap();
+    assert_eq!(
+      holder
+        .members
+        .iter()
+        .map(|member| member.entry.name.as_ref())
+        .collect::<Vec<_>>(),
+      ["Holder", "~Holder", "getter"]
+    );
+    for name in ["Holder::Holder", "Holder::~Holder", "following"] {
+      assert!(product.items.iter().any(|item| item.entry.name == name));
+    }
+    for name in ["value", "use", "work", "cleanup", "after"] {
+      let calls: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|reference| reference.kind == 0 && reference.name == name)
+        .collect();
+      assert_eq!(calls.len(), if name == "use" { 2 } else { 1 });
+      for call in calls {
+        assert_eq!(
+          &source[call.start as usize..call.end as usize],
+          format!("{name}()")
+        );
+      }
+    }
+    assert!(
+      product
+        .refs
+        .iter()
+        .filter(|reference| reference.kind == 0)
+        .all(|reference| !matches!(reference.name.as_ref(), "TEST" | "DECLARE_STORAGE"))
+    );
+    let first_use = product
+      .refs
+      .iter()
+      .find(|reference| reference.kind == 0 && reference.name == "use")
+      .unwrap();
+    assert_eq!(
+      first_use.from_entity_index, 0,
+      "unproven generated owner belongs to the file"
+    );
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|reference| reference.kind == 1 && reference.name == "originalTest")
+    );
+    let parsed = vorpal_lang_registry::SgLang::Builtin(SupportLang::Cpp).grep(&source);
+    assert!(parsed.root().has_error());
+    assert!(product.error_nodes > 0);
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("declarations.cpp", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let from_root = extractor
+      .extract_product_from_root("declarations.cpp", &parsed)
+      .unwrap();
+    let mut scanned = Vec::new();
+    encode_product_into(&from_root, &mut scanned);
+    assert_eq!(owned, scanned);
+  }
+}
+
+#[test]
+fn cpp_unproven_function_heads_keep_body_local_types_separate() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_language::{LanguageExt, SupportLang};
+  let extractor = OutlineExtractor::new().unwrap();
+  let lf = "struct A { void ping(); }; struct B { void ping(); };\n#define GENERATE(name) void test_##name()\nGENERATE(one) { A object; object.ping(); auto alias = object; alias = object; alias.ping(); }\nGENERATE(two) { B object; object.ping(); auto alias = object; alias = object; alias.ping(); }\n#undef GENERATE\nvoid following() { A object; object.ping(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = extractor.extract_product("bodies.cpp", &source).unwrap();
+    assert!(
+      !product
+        .items
+        .iter()
+        .any(|item| item.entry.name == "GENERATE"
+          && item.entry.symbol_type == vorpal_outline::model::SymbolType::Function)
+    );
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|reference| reference.kind == 1 && matches!(reference.name.as_ref(), "one" | "two"))
+    );
+    let mut calls: Vec<_> = product
+      .refs
+      .iter()
+      .filter(|reference| reference.kind == 0 && reference.name == "ping")
+      .collect();
+    calls.sort_by_key(|reference| reference.start);
+    assert_eq!(calls.len(), 5);
+    for (call, ty) in calls
+      .iter()
+      .zip([Some("A"), None, Some("B"), None, Some("A")])
+    {
+      assert_eq!(call.receiver_type.as_deref(), ty, "{call:?}");
+      let original = &source[call.start as usize..call.end as usize];
+      assert!(matches!(original, "object.ping()" | "alias.ping()"));
+    }
+    assert!(calls[..4].iter().all(|call| call.from_entity_index == 0));
+    assert_ne!(calls[4].from_entity_index, 0);
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("bodies.cpp", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let parsed = vorpal_lang_registry::SgLang::Builtin(SupportLang::Cpp).grep(&source);
+    let scanned = extractor
+      .extract_product_from_root("bodies.cpp", &parsed)
+      .unwrap();
+    let mut bytes = Vec::new();
+    encode_product_into(&scanned, &mut bytes);
+    assert_eq!(owned, bytes);
+  }
+}
+
+#[test]
+fn anonymous_cpp_bodies_do_not_promote_local_types_or_export_their_facts() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_language::{LanguageExt, SupportLang};
+  let extractor = OutlineExtractor::new().unwrap();
+  let lf = "struct A { void ping(); };\nstruct Local { void ping(); static void factory(); };\nstruct Alias { void ping(); };\n#define GENERATE(name) void test_##name()\nGENERATE(one) {\n struct Local { A field; A method(A parameter) { parameter.ping(); return field; } };\n using Alias = Local; typedef Local* Pointer;\n Local object; object.ping(); auto created = Local(); Local::factory();\n Alias alias; alias.ping(); Pointer pointer; pointer.ping();\n A known; known.ping();\n}\nGENERATE(two) { A object; object.ping(); }\n#undef GENERATE\nvoid following() { Local object; object.ping(); Alias alias; alias.ping(); field.ping(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = extractor
+      .extract_product("local-types.cpp", &source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    for name in ["Local", "Alias"] {
+      assert_eq!(
+        product
+          .items
+          .iter()
+          .filter(|i| i.entry.name == name)
+          .count(),
+        1
+      );
+    }
+    assert!(!product.items.iter().any(|i| i.entry.name == "Pointer"));
+    assert!(!product.items.iter().any(|i| i.entry.name == "GENERATE"
+      && i.entry.symbol_type == vorpal_outline::model::SymbolType::Function));
+    assert!(!product.returns.iter().any(|(name, _)| name == "method"));
+    assert!(
+      product.entity_params.is_empty(),
+      "local method parameters cannot attach to the file"
+    );
+    let start = source.find("GENERATE(one)").unwrap();
+    let end = source.find("GENERATE(two)").unwrap();
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| (start..end).contains(&(r.start as usize))
+          && matches!(r.name.as_ref(), "Local" | "Alias" | "Pointer"))
+    );
+    for (site, ty) in [
+      ("object.ping()", None),
+      ("alias.ping()", None),
+      ("pointer.ping()", None),
+      ("known.ping()", Some("A")),
+      ("parameter.ping()", None),
+    ] {
+      let call = product
+        .refs
+        .iter()
+        .find(|r| r.kind == 0 && &source[r.start as usize..r.end as usize] == site)
+        .unwrap();
+      assert_eq!(call.receiver_type.as_deref(), ty, "{call:?}");
+    }
+    let following = source.find("void following").unwrap();
+    for (site, ty) in [
+      ("object.ping()", Some("Local")),
+      ("alias.ping()", Some("Alias")),
+      ("field.ping()", None),
+    ] {
+      let call = product
+        .refs
+        .iter()
+        .find(|r| {
+          r.kind == 0
+            && r.start as usize > following
+            && &source[r.start as usize..r.end as usize] == site
+        })
+        .unwrap();
+      assert_eq!(call.receiver_type.as_deref(), ty, "{call:?}");
+    }
+    let mut bytes = Vec::new();
+    encode_product_into(&product, &mut bytes);
+    let mut streaming = Vec::new();
+    extractor
+      .extract_product_encoded("local-types.cpp", &source, 0, 0, &mut streaming)
+      .unwrap();
+    assert_eq!(bytes, streaming);
+    let parsed = vorpal_lang_registry::SgLang::Builtin(SupportLang::Cpp).grep(&source);
+    let scan = extractor
+      .extract_product_from_root("local-types.cpp", &parsed)
+      .unwrap();
+    let mut scanned = Vec::new();
+    encode_product_into(&scan, &mut scanned);
+    assert_eq!(bytes, scanned);
+  }
+}
+
+#[test]
+fn anonymous_cpp_type_uses_preserve_file_and_body_domains() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_language::{LanguageExt, SupportLang};
+  let extractor = OutlineExtractor::new().unwrap();
+  let lf = "struct Shared {};\n#define HEAD(name) void test_##name()\nHEAD(one) { Shared first; Shared duplicate; }\nHEAD(two) { Shared second; }\nShared global;\nvoid following() { Shared local; }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let product = extractor
+      .extract_product("type-domains.cpp", &source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    let types: Vec<_> = product
+      .refs
+      .iter()
+      .filter(|r| r.kind == 1 && r.name == "Shared")
+      .collect();
+    let expected: Vec<_> = [
+      "Shared first",
+      "Shared second",
+      "Shared global",
+      "Shared local",
+    ]
+    .iter()
+    .map(|site| source.find(site).unwrap() as u32)
+    .collect();
+    assert_eq!(types.iter().map(|r| r.start).collect::<Vec<_>>(), expected);
+    assert!(types[..3].iter().all(|r| r.from_entity_index == 0));
+    assert_ne!(types[3].from_entity_index, 0);
+    let mut bytes = Vec::new();
+    encode_product_into(&product, &mut bytes);
+    let mut streaming = Vec::new();
+    extractor
+      .extract_product_encoded("type-domains.cpp", &source, 0, 0, &mut streaming)
+      .unwrap();
+    assert_eq!(bytes, streaming);
+    let parsed = vorpal_lang_registry::SgLang::Builtin(SupportLang::Cpp).grep(&source);
+    let scanned = extractor
+      .extract_product_from_root("type-domains.cpp", &parsed)
+      .unwrap();
+    let mut scan = Vec::new();
+    encode_product_into(&scanned, &mut scan);
+    assert_eq!(bytes, scan);
+  }
+}

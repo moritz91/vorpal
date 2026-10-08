@@ -301,10 +301,11 @@ impl<L: Language> CombinedExtractors<L> {
         {
           if let Some(mut matched) = self.item_extractors[idx].match_node_reusing(&node, &mut scratch)
           {
+            let anonymous = self.item_extractors[idx].is_anonymous(&mut matched);
             let item =
               self.item_extractors[idx].extract(&mut matched, vec![], &mut render_scratch);
             reclaim_env(&mut scratch, &mut matched);
-            if self.options.keep_item(&item) {
+            if !anonymous && self.options.keep_item(&item) {
               items.push(item);
             }
             break;
@@ -533,6 +534,7 @@ impl<'a, 'tree, L: LanguageExt> OutlineItemIter<'a, 'tree, L> {
       self.traversal.descend();
       return None;
     };
+    let anonymous = extractor.is_anonymous(&mut node_match);
     let member_of = extractor.resolve_member_of(&node_match, &mut self.render_scratch);
     let lifted = self.floor > 0 && range.start >= self.floor;
     if extractor.swallow_recovery && self.anchor > 0 && range.end >= self.anchor && node.has_error()
@@ -563,7 +565,8 @@ impl<'a, 'tree, L: LanguageExt> OutlineItemIter<'a, 'tree, L> {
         return combined
           .options
           .keep_item(&item)
-          .then_some((item, member_of));
+          .then_some((item, member_of))
+          .filter(|_| !anonymous);
       }
     }
     let item = if extractor.transparent {
@@ -581,7 +584,7 @@ impl<'a, 'tree, L: LanguageExt> OutlineItemIter<'a, 'tree, L> {
       reclaim_env(&mut self.scratch, &mut node_match);
       item
     };
-    if !combined.options.keep_item(&item) {
+    if anonymous || !combined.options.keep_item(&item) {
       return None;
     }
     if lifted {

@@ -765,3 +765,104 @@ fn complete_control_macros_revalidate_external_headers_in_normal_mcp() {
     }
   }
 }
+
+#[test]
+fn normal_mcp_rebuilds_keep_generated_heads_anonymous_and_real_functions_named() {
+  for watch_rebuild in [false, true] {
+    for crlf in [false, true] {
+      for recovery in [false, true] {
+        let base = std::env::temp_dir().join(format!(
+          "vorpal-mcp-anonymous-{}-{}",
+          std::process::id(),
+          std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+        ));
+        let src = base.join("repo");
+        fs::create_dir_all(&src).unwrap();
+        let path = src.join("main.cc");
+        let newline = if crlf { "\r\n" } else { "\n" };
+        let generated = "#define GENERATE(name) void test_##name()\nvoid sink() {}\nGENERATE(one) { sink(); }\nvoid following() { sink(); }\n".replace('\n', newline);
+        let ordinary = "#define GENERATE(name) void test_##name()\n#undef GENERATE\nvoid sink() {}\nvoid GENERATE(int one) { sink(); }\nvoid following() { sink(); }\n".replace('\n', newline);
+        fs::write(&path, &generated).unwrap();
+        let env = ExtractionEnv {
+          cpp_macro_include_roots: recovery.then(Vec::new),
+          ..Default::default()
+        };
+        let index = src.join(".vorpal/index");
+        let build = |out: &std::path::Path| {
+          vorpal_index::build_index_env(&src, out, Default::default(), Default::default(), &env)
+            .unwrap()
+        };
+        assert_eq!(build(&index).indexed, 1);
+        assert_eq!(build(&index).indexed, 0);
+        let mut server = Server::with_profile_env_rebuild(
+          index.clone(),
+          Profile::Full,
+          env.clone(),
+          watch_rebuild,
+        );
+        let mut id = 1;
+        for named in [false, true, false] {
+          fs::write(&path, if named { &ordinary } else { &generated }).unwrap();
+          assert!(health(&mut server, id).contains("parse health: clean"));
+          id += 1;
+          // Source watch events are asynchronous in the default live lane.
+          let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+          let response: Value = loop {
+            let response = server.handle_line(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"graph","arguments":{"relation":"callers","name":"sink","format":"lean"}}}).to_string()).unwrap();
+            id += 1;
+            let response: Value = serde_json::from_str(&response).unwrap();
+            assert_eq!(response["result"]["isError"], false, "{response}");
+            let rows = response["result"]["structuredContent"]["records"]
+              .as_array()
+              .unwrap();
+            if rows.len() == 2 && rows.iter().any(|row| row["name"] == "GENERATE") == named {
+              break response;
+            }
+            assert!(
+              std::time::Instant::now() < deadline,
+              "stale callers: {response}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+          };
+          let rows = response["result"]["structuredContent"]["records"]
+            .as_array()
+            .unwrap();
+          assert!(
+            rows.iter().any(|row| row["name"] == "following"),
+            "{response}"
+          );
+          assert!(
+            !rows.iter().any(|row| row["name"] == "test_one"),
+            "no generated owner is guessed"
+          );
+          if !named {
+            assert!(rows.iter().any(|row| row["kind"] == "File"), "{response}");
+          }
+          let response = server.handle_line(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"graph","arguments":{"relation":"callees","name":"following","format":"lean"}}}).to_string()).unwrap();
+          id += 1;
+          let response: Value = serde_json::from_str(&response).unwrap();
+          let rows = response["result"]["structuredContent"]["records"]
+            .as_array()
+            .unwrap();
+          assert_eq!(rows.len(), 1, "{response}");
+          assert_eq!(rows[0]["name"], "sink");
+          assert_eq!(rows[0]["site_line"], if named { 5 } else { 4 });
+          assert_eq!(rows[0]["site"], "void following() { sink(); }");
+        }
+        drop(server);
+        build(&index);
+        assert_eq!(build(&index).indexed, 0);
+        let scratch = base.join("scratch");
+        build(&scratch);
+        assert_eq!(
+          fs::read(index.join("CURRENT")).unwrap(),
+          fs::read(scratch.join("CURRENT")).unwrap()
+        );
+        fs::remove_dir_all(base).unwrap();
+      }
+    }
+  }
+}

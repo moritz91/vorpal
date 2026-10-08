@@ -29,11 +29,30 @@ use vorpal_resolve::{RefForm, RefKind};
 
 /// Product capture policy, independent of the parser and near-clone token seed.
 /// Increment when reference semantics change without a grammar or rule change.
-pub(crate) const REFERENCE_CAPTURE_VERSION: u32 = 1;
+pub(crate) const REFERENCE_CAPTURE_VERSION: u32 = 2;
 
 type SgNode<'t> = Node<'t, StrDoc<SgLang>>;
 /// The walk's node type, exported for the typefacts capture module (same doc, same lifetime).
 pub(crate) type SgNodeAlias<'t> = SgNode<'t>;
+
+// A returnless bare namespace head has no evidenced function/type-argument meaning.
+pub(crate) fn untyped_cpp_namespace_function(node: &SgNodeAlias<'_>) -> bool {
+  *node.lang() == SgLang::Builtin(SupportLang::Cpp)
+    && node.kind().as_ref() == "function_definition"
+    && node.field("type").is_none()
+    && node.field("declarator").is_some_and(|declarator| {
+      declarator.kind().as_ref() == "function_declarator"
+        && declarator
+          .field("declarator")
+          .is_some_and(|name| name.kind().as_ref() == "identifier")
+    })
+    && !node.ancestors().any(|parent| {
+      matches!(
+        parent.kind().as_ref(),
+        "class_specifier" | "struct_specifier" | "union_specifier"
+      )
+    })
+}
 
 /// One extracted reference, file-locally attributed: `from` indexes the file's local
 /// definition layout (see `local_layout`). Deliberately path-free — the enclosing file's path
@@ -1803,6 +1822,8 @@ pub(crate) enum Pending<'t> {
     name: Cow<'t, str>,
     start: u32,
     end: u32,
+    // Anonymous C++ bodies share a graph owner, but not a lexical dedup domain.
+    lexical_scope: Option<u32>,
   },
   // (span accessors for the walk-reuse containment check live below the enum)
   /// An `implements` candidate awaiting the post-pass (from, name) first-wins dedup —
@@ -2238,8 +2259,9 @@ pub(crate) fn finalize_references<'t>(walk: RefWalk<'t>, out: &mut Vec<RawRef<'t
   // deduplication itself allocates nothing.
   let mut seen_impls: HashSet<(u64, Cow<'t, str>)> = HashSet::new();
   // Post-pass in visit order: binder-shadowed type uses drop; survivors dedup per
-  // (enclosing definition, name) — the same outcome the two-walk version produced.
-  let mut seen_types: HashSet<(u64, Cow<'t, str>)> = HashSet::new();
+  // (enclosing definition, anonymous body, name). Anonymous bodies must not
+  // consume each other's rows or a later file-scope use of the same type.
+  let mut seen_types: HashSet<(u64, Option<u32>, Cow<'t, str>)> = HashSet::new();
   for entry in pending {
     match entry {
       Pending::Ready(reference) => out.push(reference),
@@ -2248,11 +2270,12 @@ pub(crate) fn finalize_references<'t>(walk: RefWalk<'t>, out: &mut Vec<RawRef<'t
         name,
         start,
         end,
+        lexical_scope,
       } => {
         let shadowed = binders
           .iter()
           .any(|(scope, binder)| *binder == name && scope.contains(&(start as usize)));
-        if !shadowed && seen_types.insert((from.raw(), name.clone())) {
+        if !shadowed && seen_types.insert((from.raw(), lexical_scope, name.clone())) {
           out.push(RawRef::plain(from, name, RefKind::Type, start, end));
         }
       }
@@ -2598,6 +2621,22 @@ fn stage_type_use<'t>(
       return;
     }
   }
+  // The parameter-shaped tokens of an unexpanded declaration macro can be
+  // values or generated names; they do not prove type references.
+  if ancestors
+    .iter()
+    .rev()
+    .find(|parent| parent.kind().as_ref() == "function_definition")
+    .is_some_and(|function| {
+      untyped_cpp_namespace_function(function)
+        && function
+          .field("declarator")
+          .and_then(|declarator| declarator.field("parameters"))
+          .is_some_and(|parameters| parameters.range().contains(&node.range().start))
+    })
+  {
+    return;
+  }
   let range = node.range();
   let (Some(name), Some(from)) = (callee_name(node), span_cursor.enclosing(range.start)) else {
     return;
@@ -2605,11 +2644,17 @@ fn stage_type_use<'t>(
   if spec.type_placeholders.iter().any(|t| t.as_str() == name.as_ref()) {
     return;
   }
+  let lexical_scope = ancestors
+    .iter()
+    .rev()
+    .find(|ancestor| untyped_cpp_namespace_function(ancestor))
+    .map(|function| function.range().start as u32);
   pending.push(Pending::TypeUse {
     from,
     name,
     start: range.start as u32,
     end: range.end as u32,
+    lexical_scope,
   });
 }
 

@@ -21,7 +21,7 @@ use vorpal_language::SupportLang;
 
 /// Bump on ANY semantic change to the capture tables below — it folds into the extraction
 /// identity, so stale products can never replay into a build with different capture rules.
-pub const TYPEFACTS_VERSION: u64 = 5;
+pub const TYPEFACTS_VERSION: u64 = 6;
 pub(crate) const CPP_ALIAS_PREFIX: &str = "\u{1}cpp-alias:";
 
 /// Where a binding's type knowledge came from — persisted with the product, mapped onto the

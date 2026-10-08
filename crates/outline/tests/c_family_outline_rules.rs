@@ -620,3 +620,69 @@ fn cpp_qualified_class_definitions_keep_only_the_terminal_constructor_name() {
     );
   }
 }
+
+#[test]
+fn cpp_unexpanded_macro_heads_do_not_become_functions_or_constructors() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  let lf = "#define TEST(name) void test_##name()\n#define DECLARE_STORAGE(Type) int* storage();\nstruct Holder {\n Holder();\n ~Holder();\n int* getter() { return value(); }\n DECLARE_STORAGE(Item);\n};\nTEST(originalTest) { use(); }\n#undef TEST\nvoid TEST(int value) { use(); }\nHolder::Holder() { work(); }\nHolder::~Holder() { cleanup(); }\nvoid following() { after(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    common::assert_outline_snapshot(
+      SupportLang::Cpp,
+      RULES,
+      &source,
+      r#"
+- Macro item exported TEST
+- Macro item exported DECLARE_STORAGE
+- Struct item exported Holder
+  - Constructor public Holder
+  - Constructor public ~Holder
+  - Method public getter
+- Function item exported TEST
+- Function item exported Holder::Holder
+- Function item exported Holder::~Holder
+- Function item exported following
+"#,
+    );
+  }
+  // A constructor name from an outer type cannot validate a nested foreign head.
+  common::assert_outline_snapshot(
+    SupportLang::Cpp,
+    RULES,
+    "struct Other {}; struct Holder { Other(); Holder(); ~Holder(); };",
+    "- Struct item exported Other\n- Struct item exported Holder\n  - Constructor public Holder\n  - Constructor public ~Holder\n",
+  );
+}
+
+#[test]
+fn anonymous_cpp_bodies_remain_boundaries_through_output_filters() {
+  use vorpal_language::LanguageExt;
+  use vorpal_outline::{
+    combined_extractor::CombinedExtractors, extractor::parse_outline_rules, model::SymbolType,
+    options::OutlineExtractorOptions,
+  };
+  let source = "struct Global {};\nGENERATE(one) { struct Local {}; }\nvoid real() { struct AlsoLocal {}; }\nstruct Following {};\n";
+  for text in [source.to_owned(), source.replace('\n', "\r\n")] {
+    for symbol_types in [None, Some(vec![SymbolType::Struct])] {
+      let rules =
+        parse_outline_rules::<SupportLang>(include_str!("../src/default_rules/cpp.yml")).unwrap();
+      let combined = CombinedExtractors::try_from_rules(
+        rules,
+        OutlineExtractorOptions {
+          symbol_types,
+          ..Default::default()
+        },
+        &Default::default(),
+      )
+      .unwrap();
+      let parsed = SupportLang::Cpp.grep(&text);
+      let items: Vec<_> = combined.extract(parsed.root()).collect();
+      assert!(items.iter().any(|i| i.entry.name == "Global"));
+      assert!(items.iter().any(|i| i.entry.name == "Following"));
+      assert!(
+        !items
+          .iter()
+          .any(|i| matches!(i.entry.name.as_ref(), "GENERATE" | "Local" | "AlsoLocal"))
+      );
+    }
+  }
+}
