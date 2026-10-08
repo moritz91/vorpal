@@ -6,6 +6,8 @@ use std::sync::{Arc, OnceLock};
 
 use rayon::prelude::*;
 use vorpal_core::Language;
+#[cfg(feature = "builtin-parser")]
+use vorpal_core::tree_sitter::LanguageExt;
 use vorpal_kg::KgWriter;
 use vorpal_lang_registry::SgLang;
 
@@ -29,6 +31,7 @@ struct MacroProofContext<'a> {
   dependency: u64,
   errors: &'a [std::ops::Range<usize>],
   calls: &'a [std::ops::Range<usize>],
+  definition_sites: &'a [std::ops::Range<usize>],
 }
 
 type LangExtractors = HashMap<SgLang, CombinedExtractors<SgLang>>;
@@ -160,6 +163,7 @@ pub struct OutlineExtractor {
   /// grammar digest alone cannot see a rule change.
   rules_digest: u64,
   cpp_macro_roots: Option<Vec<std::path::PathBuf>>,
+  cpp_macro_compiler: Option<crate::cpp_macro_compiler::CompilerCommand>,
   pub(crate) cpp_macro_freshness: Option<Arc<crate::cpp_macro_freshness::MacroFreshness>>,
 }
 
@@ -261,6 +265,7 @@ impl OutlineExtractor {
     Ok(Self {
       by_lang,
       cpp_macro_roots: None,
+      cpp_macro_compiler: None,
       cpp_macro_freshness: None,
       dynamic_specs: HashMap::new(),
       rules_digest: xxhash_rust::xxh3::xxh3_64(DEFAULT_OUTLINE_RULES.as_bytes()),
@@ -272,6 +277,7 @@ impl OutlineExtractor {
     Ok(Self {
       by_lang: Arc::new(ExtractorSet::Eager(compile_rules(rules_yaml)?)),
       cpp_macro_roots: None,
+      cpp_macro_compiler: None,
       cpp_macro_freshness: None,
       dynamic_specs: HashMap::new(),
       rules_digest: xxhash_rust::xxh3::xxh3_64(rules_yaml.as_bytes()),
@@ -391,6 +397,7 @@ impl OutlineExtractor {
       by_lang: Arc::new(ExtractorSet::Eager(compile_groups(rules)?)),
       dynamic_specs,
       cpp_macro_roots: None,
+      cpp_macro_compiler: None,
       cpp_macro_freshness: None,
       rules_digest: h.digest(),
     })
@@ -429,7 +436,7 @@ impl OutlineExtractor {
     if !cfg!(feature = "builtin-parser") {
       return Err("C++ macro recovery requires builtin-parser".to_owned());
     }
-    if self.cpp_macro_roots.is_some() {
+    if self.cpp_macro_recovery_enabled() {
       return Err("C++ macro recovery already configured".to_owned());
     }
     let roots: Vec<_> = roots.iter().map(|p| std::path::absolute(p).map_err(|e| e.to_string())).collect::<Result<_, _>>()?;
@@ -446,13 +453,45 @@ impl OutlineExtractor {
     Ok(self)
   }
 
+  pub fn with_cpp_macro_compiler(
+    mut self,
+    mut command: crate::cpp_macro_compiler::CompilerCommand,
+  ) -> Result<Self, String> {
+    command.validate()?;
+    if self.cpp_macro_compiler.is_some() {
+      return Err("C++ compiler recovery already configured".into());
+    }
+    let mut hash = xxhash_rust::xxh3::Xxh3::new();
+    hash.update(b"vorpal-cpp-compiler-config-v1\0");
+    hash.update(&self.rules_digest.to_le_bytes());
+    hash.update(&serde_json::to_vec(&command).map_err(|e| e.to_string())?);
+    self.rules_digest = hash.digest();
+    command.translation_units = command.translation_units.iter()
+      .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone())).collect();
+    self.cpp_macro_compiler = Some(command);
+    Ok(self)
+  }
+
   pub fn cpp_macro_recovery_enabled(&self) -> bool {
-    self.cpp_macro_roots.is_some()
+    self.cpp_macro_roots.is_some() || self.cpp_macro_compiler.is_some()
+  }
+
+  fn compiler_applies(&self, path: &str) -> bool {
+    self.cpp_macro_compiler.as_ref().is_some_and(|c| {
+      let physical = std::fs::canonicalize(path).ok();
+      c.translation_units.iter().any(|p| p == std::path::Path::new(path) || physical.as_ref() == Some(p))
+    })
   }
 
   /// Replay identity from current source/include bytes, including missing
   /// candidates which may now shadow an existing header. Failure declines reuse.
   pub fn extraction_identity_for_path(&self, path: &str) -> Option<u64> {
+    // Native observers do not yet certify every native dependency. An identity
+    // from a previous capture must never authorize product replay.
+    if self.compiler_applies(path)
+      && SgLang::from_path(path) == Some(SgLang::Builtin(vorpal_language::SupportLang::Cpp)) {
+      return None;
+    }
     let base = crate::extraction_identity_for_path(path, self.rules_digest)?;
     #[cfg(feature = "builtin-parser")]
     if let Some(roots) = &self.cpp_macro_roots
@@ -620,15 +659,24 @@ impl OutlineExtractor {
     // product before it drops. Reference extraction runs even without outline rules (the file
     // node is the only definition span).
     #[cfg(feature = "builtin-parser")]
-    if self.cpp_macro_recovery_enabled() && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
+    if (self.cpp_macro_roots.is_some() || self.compiler_applies(path)) && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
       // Recovery always reparses: cached trees/walk snapshots have no proof identity.
       let _ = crate::tree_cache::take_reuse(path);
+      if self.compiler_applies(path) {
+        let command = self.cpp_macro_compiler.as_ref().unwrap();
+        if let Some(parsed) = crate::cpp_macro_compiler::parse(command, std::path::Path::new(path), source) {
+          return self.extract_from_grep(lang, path, source, &parsed.root, Some(MacroProofContext { dependency: parsed.dependency, errors: &parsed.diagnostics.errors, calls: &parsed.diagnostics.macro_calls, definition_sites: &parsed.definition_sites }), finish);
+        }
+        // Failure declines recovery. Raw syntax and diagnostics remain intact.
+        let grep = vorpal_language::with_cpp_statement_macros(&[], || lang.grep(source));
+        return self.extract_from_grep(lang, path, source, &grep, None, finish);
+      }
       let (grep, evidence, diagnostics) = crate::cpp_macro_recovery::parse_recovery(
         std::path::Path::new(path), source, self.cpp_macro_roots.as_deref().unwrap());
       if observe_freshness && let Some(freshness) = &self.cpp_macro_freshness {
         freshness.observe(std::path::Path::new(path), source, &evidence);
       }
-      return self.extract_from_grep(lang, path, source, &grep, Some(MacroProofContext { dependency: evidence.dependency_identity(), errors: &diagnostics.errors, calls: &diagnostics.macro_calls }), finish);
+      return self.extract_from_grep(lang, path, source, &grep, Some(MacroProofContext { dependency: evidence.dependency_identity(), errors: &diagnostics.errors, calls: &diagnostics.macro_calls, definition_sites: &[] }), finish);
     }
     #[cfg(feature = "builtin-parser")]
     let grep = if lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
@@ -662,7 +710,7 @@ impl OutlineExtractor {
     if *root.lang() != lang || !self.extracts(lang) {
       return None;
     }
-    if self.cpp_macro_recovery_enabled() && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
+    if (self.cpp_macro_roots.is_some() || self.compiler_applies(path)) && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
       return self.extract_product(path, root.source());
     }
     self.extract_from_grep(lang, path, root.source(), root, None, product_from_parts)
@@ -901,6 +949,12 @@ impl OutlineExtractor {
       }
     }
 
+    if let Some(proof) = proof {
+      items.retain(|item| !proof.definition_sites.contains(&item.entry.range.byte_offset));
+      for item in &mut items {
+        item.members.retain(|member| !proof.definition_sites.contains(&member.entry.range.byte_offset));
+      }
+    }
     let (entities, spans) = local_layout(&items);
 
     // Reuse attempt, row side (needs the NEW layout): remap retained attribution by
@@ -1429,9 +1483,10 @@ impl OutlineExtractor {
     // References stay borrowed; receiver typing is resolved HERE, once, so the owning and
     // encoding finishes see identical evidence.
     if let Some(proof) = proof {
-      // The callee token is a proven macro, even when it was not recovered as a
-      // statement. Retain the original argument calls; invent no macro call edge.
-      raw.retain(|r| r.kind != vorpal_resolve::RefKind::Call || !proof.calls.iter().any(|span| span.start == r.start as usize && span.end == r.end as usize));
+      // Omit only exact original calls excluded by the proof. Native observations
+      // also exclude arguments ignored/stringified/unevaluated by an expansion.
+      let calls: std::collections::HashSet<_> = proof.calls.iter().map(|r| (r.start, r.end)).collect();
+      raw.retain(|r| r.kind != vorpal_resolve::RefKind::Call || !calls.contains(&(r.start as usize, r.end as usize)));
     }
     raw.retain(|r| {
       let scope = cpp_scope(r.start as usize);

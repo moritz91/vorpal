@@ -588,16 +588,21 @@ fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> Recove
   recovery_report(parsed, eligible_names, evidence, diagnostics)
 }
 
-// A report-only seam: callers cannot obtain a parser root/product or activate an
-// extraction environment using compiler observations without cache validation.
+// Internal compiler seam. Only the fresh configured driver may return these
+// roots to production; the public observation API remains report-only.
+pub(crate) fn parse_compiler_evidence(source: &str, evidence: crate::cpp_macro_evidence::Evidence) -> (crate::ParsedRoot, Vec<String>, crate::cpp_macro_evidence::Evidence, ContextDiagnostics) {
+  vorpal_language::with_cpp_statement_macros(&[], || {
+    let raw = SgLang::Builtin(SupportLang::Cpp).grep(source);
+    parse_with_evidence(source, raw, evidence)
+  })
+}
+
 pub(crate) fn audit_compiler_evidence(
   source: &str,
   evidence: crate::cpp_macro_evidence::Evidence,
 ) -> (RecoveryAudit, Vec<(String, Range<usize>)>) {
   vorpal_language::with_cpp_statement_macros(&[], || {
-    let raw = SgLang::Builtin(SupportLang::Cpp).grep(source);
-    let (parsed, eligible, evidence, diagnostics) =
-      parse_with_evidence(source, raw, evidence);
+    let (parsed, eligible, evidence, diagnostics) = parse_compiler_evidence(source, evidence);
     let member_calls = parsed
       .root()
       .dfs()

@@ -52,6 +52,7 @@ use vorpal_ingest::{
 // `Kg` is imported once and re-exported for downstream surfaces (CLI) that route all graph
 // access through this crate.
 pub use vorpal_ingest::{DynamicCanary, ExtractionEnv, RuleSource};
+pub use vorpal_ingest::cpp_macro_compiler::CompilerCommand;
 pub use vorpal_kg::{Direction, EdgeType, Kg};
 use vorpal_kg::NodeId;
 
@@ -531,7 +532,7 @@ fn build_index_inner(
   live: Option<&mut LiveSlots>,
   env: &vorpal_ingest::ExtractionEnv,
 ) -> Result<IndexReport, Box<dyn Error>> {
-  if env.cpp_macro_include_roots.is_some()
+  if (env.cpp_macro_include_roots.is_some() || env.cpp_macro_compiler.is_some())
     && vorpal_ingest::cpp_macro_evidence::path_has_redirected_components(src)
   {
     return Err(io::Error::other(

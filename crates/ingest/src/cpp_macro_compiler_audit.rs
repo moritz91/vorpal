@@ -177,11 +177,11 @@ pub fn audit(
   })
 }
 
-fn audit_without_context(
+pub(crate) fn prepare_evidence(
   path: &Path,
   source: &str,
   observation: &Observation<'_>,
-) -> Result<CompilerRecoveryAudit, Declined> {
+) -> Result<(Evidence, Vec<Range<usize>>), Declined> {
   if !observation.complete {
     return Err(Declined::Incomplete);
   }
@@ -339,6 +339,11 @@ fn audit_without_context(
   if ranges.windows(2).any(|pair| pair[0].end > pair[1].start) {
     return Err(Declined::InvalidExpansion);
   }
+  Ok((evidence, ranges))
+}
+
+fn audit_without_context(path: &Path, source: &str, observation: &Observation<'_>) -> Result<CompilerRecoveryAudit, Declined> {
+  let (evidence, ranges) = prepare_evidence(path, source, observation)?;
   let (report, member_calls) = crate::cpp_macro_recovery::audit_compiler_evidence(source, evidence);
   // The site-scoped scanner must recover exactly captured original invocations,
   // not another occurrence hidden inside an overlong or malformed record range.

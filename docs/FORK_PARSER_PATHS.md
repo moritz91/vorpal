@@ -1,5 +1,40 @@
 # Fork parser and Windows path fixes
 
+## Current compiler-backed production path
+
+`cppMacroCompiler` now connects fresh native observations to normal owned,
+streaming and Scan extraction and to watched MCP queries. It explicitly selects
+translation units and a trusted local preprocess-only provider. The bundled
+MSVC/LLVM 19 provider brackets physical observations with native preprocessing;
+exact source/definition bytes, token agreement, context and original invocation
+positions are independently checked before recovery. Configuration and the
+provider protocol are documented in [CPP_NATIVE_PROVIDER.md](CPP_NATIVE_PROVIDER.md).
+
+Native captures never authorize product replay. Every selected translation unit
+is recaptured, including quiet MCP queries with unchanged timestamps. External
+indexes require an authorized source root. Failed native proof retains raw syntax
+and cannot fall back to metadata proof for the selected file; optional metadata
+roots can still recover other files. Default extraction remains unchanged.
+Recovered trees bypass the dependency-unaware caches. Timeouts terminate the
+provider's process tree. Expanded names are not published as original named
+function/type owners; ordinary same-name definitions after undef remain.
+Ignored, stringified and unevaluated arguments cannot invent runtime calls.
+
+The corrected native Windows Hades comparison uses the same C++ header routing
+and metadata roots in both runs: 1,744 files, 26 damaged files / 1,952 diagnostics
+without native proof, versus 19 / 558 with the sixteen configured native units.
+Damaged bytes fall from 122,952 to 1,121. The normal MCP health query reproduces
+the latter result. Unsupported TEST/TEST_CALL expansions do not acquire generated
+owners or runtime macro edges. A real MSVC-only optional-header control changes a
+quiet MCP generation despite restored directory timestamps, and removal restores
+the initial generation. Historical report-only observations below describe the
+earlier audit seams; the fresh production adapter is separate from those APIs.
+
+This configuration has only been exercised with a native Windows MCP process.
+The installed `.2` WSL tunnel has not been changed or given compiler recovery.
+LLVM developer tools are explicit local prerequisites, not release assets.
+Remaining unsupported directives/macros and genuine source errors stay visible.
+
 The fork accepts either separator spelling in graph path suffix selectors, search
 filters, graph predicates, dead-code filters, structural `files_of` scopes and
 MATCH queries. Stored paths, node identities and case sensitivity are preserved.

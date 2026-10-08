@@ -537,6 +537,12 @@ fn extraction_env_from_project(
   env.cpp_macro_include_roots = project.cpp_macro_include_roots.as_ref().map(|roots| {
     roots.iter().map(|root| project.project_dir.join(root)).collect()
   });
+  env.cpp_macro_compiler = project.cpp_macro_compiler.clone().map(|mut command| {
+    command.program = project.project_dir.join(command.program);
+    command.directory = project.project_dir.join(command.directory);
+    command.translation_units = command.translation_units.iter().map(|p| project.project_dir.join(p)).collect();
+    command
+  });
   let Some(customs) = project.custom_languages.as_ref() else {
     return Ok(env);
   };

@@ -6,6 +6,18 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "cppMacroCompiler": {
+          "type": "object", "additionalProperties": false,
+          "required": ["program", "directory", "translationUnits"],
+          "properties": {
+            "program": { "type": "string" },
+            "arguments": { "type": "array", "items": { "type": "string" }, "maxItems": 128 },
+            "directory": { "type": "string" },
+            "translationUnits": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 16384 },
+            "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 300, "default": 60 }
+          },
+          "description": "Opt in to a trusted fresh native compiler observation provider. Paths resolve against the config directory. Listed translation units use fresh compiler recovery; cppMacroIncludeRoots may recover other files independently. Compiler failures never fall back to metadata proof. Compiler products never replay, and watched MCP queries rebuild before serving. See docs/CPP_NATIVE_PROVIDER.md for the versioned provider protocol."
+        },
         "cppMacroIncludeRoots": {
           "type": "array",
           "items": { "type": "string" },

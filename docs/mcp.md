@@ -421,8 +421,15 @@ after `#undef`, invalid arguments and incompatible expression contexts remain
 ordinary calls or original diagnostics. Macro arguments retain their source
 spans, and the macro name creates no runtime call edge. Opt-in product identity
 v23 reparses earlier name-wide declined products. Opaque SDK includes still stop
-metadata proof; compiler observations remain report-only and are not enabled by
-this configuration.
+metadata proof. A separate explicit `cppMacroCompiler` configuration can run a
+trusted fresh native provider for listed translation units; see
+[CPP_NATIVE_PROVIDER.md](CPP_NATIVE_PROVIDER.md). It is not enabled by include
+roots alone. Native products cannot authorize replay: every graph/health query
+recaptures the selected units, including quiet queries and external native-only
+header changes. This can be expensive. An authorized source root is mandatory;
+a frozen external index cannot claim native freshness. These recovery servers
+retain their exact extraction environment in process rather than rediscovering
+configuration through a child indexer.
 
 The daemon watches the source tree (FSEvents/inotify) and rebuilds **proactively**: after a
 save, once the tree is quiet for half a second, a background worker rebuilds the index so the

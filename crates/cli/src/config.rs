@@ -67,6 +67,8 @@ pub struct VorpalConfig {
   /// includes; absent means disabled. Relative roots use the config directory.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub cpp_macro_include_roots: Option<Vec<PathBuf>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub cpp_macro_compiler: Option<vorpal_index::CompilerCommand>,
 }
 
 #[derive(Clone)]
@@ -92,6 +94,7 @@ pub struct ProjectConfig {
   /// the index's existing encoder selection).
   pub encoder_dir: Option<String>,
   pub cpp_macro_include_roots: Option<Vec<PathBuf>>,
+  pub cpp_macro_compiler: Option<vorpal_index::CompilerCommand>,
 }
 
 impl ProjectConfig {
@@ -140,6 +143,7 @@ impl ProjectConfig {
       semantic_tier: sg_config.semantic_tier.clone(),
       encoder_dir: sg_config.encoder_dir.clone(),
       cpp_macro_include_roots: sg_config.cpp_macro_include_roots.clone(),
+      cpp_macro_compiler: sg_config.cpp_macro_compiler.clone(),
     };
     // sg_config will not use rule dirs and test configs anymore
     register_custom_language(&config.project_dir, sg_config)?;
@@ -176,6 +180,7 @@ impl ProjectConfig {
       semantic_tier: sg_config.semantic_tier.clone(),
       encoder_dir: sg_config.encoder_dir.clone(),
       cpp_macro_include_roots: sg_config.cpp_macro_include_roots.clone(),
+      cpp_macro_compiler: sg_config.cpp_macro_compiler.clone(),
     }))
   }
 }

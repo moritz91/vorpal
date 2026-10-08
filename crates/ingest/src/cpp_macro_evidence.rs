@@ -36,6 +36,26 @@ pub(crate) struct StatementReplacement {
 
 impl StatementReplacement {
   #[cfg(feature = "builtin-parser")]
+  pub(crate) fn runtime_parameters(&self, count: usize) -> Option<BTreeSet<usize>> {
+    // This is an ephemeral proof document. No substituted source or generated
+    // definition can enter a product. Ignored/unevaluated parameters are not
+    // evidence that an original argument call executes.
+    let names: Vec<_> = (0..count).map(|i| format!("vorpalProofArgument{i}")).collect();
+    if names.iter().any(|name| self.source.contains(name)) {
+      return None;
+    }
+    let arguments: Vec<_> = names.iter().map(String::as_str).collect();
+    let instantiated = self.instantiate(&arguments)?;
+    let parsed = SupportLang::Cpp.grep(format!("void proof() {{ {instantiated} }}"));
+    Some(parsed.root().dfs().filter(|n| n.children().next().is_none())
+      .filter(|n| !n.ancestors().any(|p| matches!(p.kind().as_ref(),
+        "sizeof_expression" | "alignof_expression" | "decltype" | "noexcept"
+        | "requires_expression" | "type_descriptor" | "static_assert_declaration")))
+      .filter_map(|n| names.iter().position(|name| n.text().as_ref() == name))
+      .collect())
+  }
+
+  #[cfg(feature = "builtin-parser")]
   pub(crate) fn instantiate(&self, arguments: &[&str]) -> Option<String> {
     // Bound repeated-parameter amplification independently of include limits.
     let mut size = self.source.len();

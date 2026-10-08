@@ -1,10 +1,54 @@
 //! Project configuration reaches CLI extraction and every MCP rebuild.
+#[path = "../../ingest/tests/support/cpp_compiler_provider.rs"]
+mod provider;
 use serde_json::{Value, json};
 use std::{
   fs,
   io::Write,
   process::{Command, Stdio},
 };
+
+#[test]
+fn explicit_fresh_compiler_configuration_survives_external_config_mcp_rebuilds() {
+  let temp = fixture_dir();
+  let src = temp.path().join("src");
+  let settings = temp.path().join("settings");
+  let sdk = settings.join("driver");
+  fs::create_dir(&src).unwrap();
+  fs::create_dir_all(&sdk).unwrap();
+  let path = src.join("main.cc");
+  let source = "#include <unknown-sdk.h>\nvoid run() { CHECK(value())\nafter(); }\nvoid value() {}\nvoid after() {}\n";
+  fs::write(&path, source).unwrap();
+  fs::write(sdk.join("proof.h"), "#define CHECK(x) { sink(x); }\n").unwrap();
+  let mut command = provider::command(&sdk, &path);
+  command.directory = "driver".into();
+  command.translation_units = vec!["../src/main.cc".into()];
+  let config = settings.join("vorpalconfig.yml");
+  fs::write(
+    &config,
+    serde_yaml::to_string(&json!({"ruleDirs":[],"cppMacroCompiler":command})).unwrap(),
+  )
+  .unwrap();
+  let out = temp.path().join("index");
+  index(&src, &out, &config);
+  assert!(
+    vorpal_index::parse_health_report(&out)
+      .unwrap()
+      .contains("parse health: clean")
+  );
+  assert!(health(mcp_rebuild(&src, &out, &config)).contains("parse health: clean"));
+  fs::write(sdk.join("native-only.h"), "changed").unwrap();
+  index(&src, &out, &config);
+  assert!(
+    vorpal_index::parse_health_report(&out)
+      .unwrap()
+      .contains("carry ERROR/MISSING nodes")
+  );
+  assert!(health(mcp_rebuild(&src, &out, &config)).contains("carry ERROR/MISSING nodes"));
+  fs::remove_file(sdk.join("native-only.h")).unwrap();
+  assert!(health(mcp_rebuild(&src, &out, &config)).contains("parse health: clean"));
+  assert_eq!(fs::read_to_string(path).unwrap(), source);
+}
 
 fn index(src: &std::path::Path, out: &std::path::Path, config: &std::path::Path) {
   let output = Command::new(env!("CARGO_BIN_EXE_vorpal"))
@@ -29,6 +73,8 @@ fn mcp_rebuild(src: &std::path::Path, out: &std::path::Path, config: &std::path:
     .arg(config)
     .arg("--index")
     .arg(out)
+    .arg("--src")
+    .arg(src)
     .env("VORPAL_NO_AUTOWARM", "1")
     .stdin(Stdio::piped())
     .stdout(Stdio::piped())
@@ -191,6 +237,7 @@ fn fixture_dir() -> tempfile::TempDir {
 }
 
 fn health(response: Value) -> String {
+  assert_eq!(response["result"]["isError"], false, "{response}");
   response["result"]["content"][0]["text"]
     .as_str()
     .unwrap()
