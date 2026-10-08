@@ -906,6 +906,96 @@ fn unrelated_literal_macro_stack_metadata_keeps_recovery_and_spans() {
 }
 
 #[test]
+fn saving_an_entering_macro_keeps_original_sites_without_proving_restoration() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for push in [
+    "#pragma push_macro(\"CHECK\")\n",
+    "#ifdef PLATFORM\n#pragma push_macro(\"CHECK\")\n#endif\n",
+    "#if 0\n#pragma push_macro(\"CHECK\")\n#endif\n",
+  ] {
+    let lf = format!(
+      "#define CHECK(x) {{ sink(x); }}\n{push}void run() {{ CHECK(value()) after(); }}\n#pragma pop_macro(\"CHECK\")\nvoid following() {{ later(); }}\n"
+    );
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("saved.cc"), &source, &[]);
+      assert!(!report.has_error, "{report:?}");
+      assert_eq!(report.eligible_names, ["CHECK"]);
+      assert_eq!(report.macro_spans.len(), 1);
+      assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+      assert!(
+        OutlineExtractor::new()
+          .unwrap()
+          .extract_product("saved.cc", &source)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+      let product = extractor.extract_product("saved.cc", &source).unwrap();
+      assert_eq!(product.error_nodes, 0);
+      for name in ["value", "after", "later"] {
+        let reference = product
+          .refs
+          .iter()
+          .find(|r| r.kind == 0 && r.name == name)
+          .unwrap();
+        assert_eq!(
+          &source[reference.start as usize..reference.end as usize],
+          format!("{name}()")
+        );
+      }
+      assert!(
+        !product
+          .refs
+          .iter()
+          .any(|r| r.kind == 0 && ["CHECK", "sink"].contains(&r.name.as_str()))
+      );
+      let mut owned = Vec::new();
+      encode_product_into(&product, &mut owned);
+      let mut streaming = Vec::new();
+      extractor
+        .extract_product_encoded("saved.cc", &source, 0, 0, &mut streaming)
+        .unwrap();
+      assert_eq!(owned, streaming);
+      let parsed = vorpal_lang_registry::SgLang::from_path("saved.cc")
+        .unwrap()
+        .grep(&source);
+      let scan = extractor
+        .extract_product_from_root("saved.cc", &parsed)
+        .unwrap();
+      let mut scan_bytes = Vec::new();
+      encode_product_into(&scan, &mut scan_bytes);
+      assert_eq!(owned, scan_bytes);
+
+      for damaged in [
+        format!("#define push_macro pop_macro\n{source}"),
+        source.replace("after();", "after()"),
+        source.replace(
+          "void following()",
+          "void bad() { CHECK(value()) }\nvoid following()",
+        ),
+        source.replace("push_macro(\"CHECK\")", "push_macro(NAME)"),
+        source.replace("push_macro(\"CHECK\")", "push_macro(\"CHECK\") junk"),
+        source.replace(
+          "void run()",
+          "#undef CHECK\n#define CHECK(x) { other(x); }\nvoid run()",
+        ),
+      ] {
+        assert!(
+          audit_recovery(Path::new("saved.cc"), &damaged, &[]).has_error,
+          "{damaged}"
+        );
+      }
+    }
+  }
+}
+
+#[test]
 fn unused_pragma_definitions_preserve_production_spans_without_executing_wrappers() {
   use vorpal_core::Language;
   use vorpal_core::tree_sitter::LanguageExt;

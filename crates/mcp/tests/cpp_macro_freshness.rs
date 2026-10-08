@@ -14,6 +14,77 @@ fn health(server: &mut Server, id: u64) -> String {
     .to_owned()
 }
 
+#[test]
+fn external_macro_save_preserves_sites_until_a_pop_invalidates_the_proof() {
+  for watch_rebuild in [false, true] {
+    for crlf in [false, true] {
+      let base = std::env::temp_dir().join(format!(
+        "vorpal-mcp-saved-macro-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .unwrap()
+          .as_nanos()
+      ));
+      let src = base.join("repo");
+      let headers = base.join("headers");
+      fs::create_dir_all(&src).unwrap();
+      fs::create_dir_all(&headers).unwrap();
+      let header = headers.join("saved.h");
+      let newline = if crlf { "\r\n" } else { "\n" };
+      let push = format!("#pragma push_macro(\"CHECK\"){newline}");
+      let pop = format!("#pragma pop_macro(\"CHECK\") {newline}");
+      assert_eq!(push.len(), pop.len());
+      fs::write(&header, &push).unwrap();
+      let source = "#define CHECK(x) { sink(x); }\n#include <saved.h>\nvoid run() { CHECK(target()) after(); }\n#pragma pop_macro(\"CHECK\")\nvoid target() {}\nvoid after() {}\n".replace('\n', newline);
+      let path = src.join("main.cc");
+      fs::write(&path, &source).unwrap();
+      let env = ExtractionEnv {
+        cpp_macro_include_roots: Some(vec![headers]),
+        ..Default::default()
+      };
+      let index = src.join(".vorpal/index");
+      vorpal_index::build_index_env(&src, &index, Default::default(), Default::default(), &env)
+        .unwrap();
+      let mut server = Server::with_profile_env_rebuild(index, Profile::Full, env, watch_rebuild);
+      let mut id = 1;
+      for restored in [false, true] {
+        assert!(health(&mut server, id).contains("parse health: clean"));
+        id += 1;
+        let response = server.handle_line(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"graph","arguments":{"relation":"callees","name":"run","format":"lean"}}}).to_string()).unwrap();
+        id += 1;
+        let response: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["result"]["isError"], false, "{response}");
+        let rows = response["result"]["structuredContent"]["records"]
+          .as_array()
+          .unwrap();
+        assert_eq!(rows.len(), 2, "{response}");
+        for name in ["target", "after"] {
+          let call = rows.iter().find(|r| r["name"] == name).unwrap();
+          assert_eq!(call["site"], "void run() { CHECK(target()) after(); }");
+          assert_eq!(call["site_line"], 3);
+        }
+        if !restored {
+          let modified = fs::metadata(&header).unwrap().modified().unwrap();
+          fs::write(&header, &pop).unwrap();
+          fs::File::options()
+            .write(true)
+            .open(&header)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+          assert!(health(&mut server, id).contains("carry ERROR/MISSING nodes"));
+          id += 1;
+          fs::write(&header, &push).unwrap();
+        }
+      }
+      drop(server);
+      assert_eq!(fs::read_to_string(path).unwrap(), source);
+      fs::remove_dir_all(base).unwrap();
+    }
+  }
+}
+
 fn assert_else_callees(server: &mut Server, id: u64) {
   let response = server.handle_line(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"graph","arguments":{"relation":"callees","name":"run","format":"lean"}}}).to_string()).unwrap();
   let response: Value = serde_json::from_str(&response).unwrap();

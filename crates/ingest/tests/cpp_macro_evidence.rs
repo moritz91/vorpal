@@ -874,6 +874,73 @@ fn literal_macro_stack_pragmas_only_invalidate_the_named_binding() {
 }
 
 #[test]
+fn literal_push_preserves_only_the_already_proven_definition() {
+  for push in [
+    "#pragma push_macro(\"CHECK\")\n",
+    "#if defined(PLATFORM)\n#pragma push_macro(\"CHECK\")\n#endif\n",
+    "#if 0\n#pragma push_macro(\"CHECK\")\n#endif\n",
+  ] {
+    let lf = format!(
+      "#define CHECK(x) {{ sink(x); }}\n{push}void run() {{ CHECK(value()) }}\n#pragma pop_macro(\"CHECK\")\n"
+    );
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let evidence = audit(Path::new("saved.cc"), &source);
+      let definition = evidence
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .unwrap();
+      assert_eq!(
+        &source[definition.definition_span.clone()],
+        "#define CHECK(x) { sink(x); }\n".replace(
+          '\n',
+          if source.contains("\r\n") {
+            "\r\n"
+          } else {
+            "\n"
+          }
+        )
+      );
+      assert!(evidence.macro_names.contains("CHECK"));
+      assert!(evidence.at("CHECK", source.len() - 1).is_none());
+    }
+  }
+  // Saving a name supplies no new definition, and popping it supplies no proof
+  // of restoration. Keep the old fail-closed boundary for later definitions.
+  for middle in [
+    "#undef CHECK\n#define CHECK(x) { other(x); }\n",
+    "#pragma pop_macro(\"CHECK\")\n",
+    "#pragma pop_macro(\"CHECK\")\n#define CHECK(x) { sink(x); }\n",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ sink(x); }}\n#pragma push_macro(\"CHECK\")\n{middle}void run() {{ CHECK(value()) }}\n"
+    );
+    assert!(
+      audit(Path::new("saved.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none(),
+      "{middle}"
+    );
+  }
+  for operation in ["push_macro", "pop_macro"] {
+    for conditional in [false, true] {
+      let pragma = format!("#pragma {operation}(\"OTHER\")\n");
+      let pragma = if conditional {
+        format!("#if defined(PLATFORM)\n{pragma}#endif\n")
+      } else {
+        pragma
+      };
+      let source = format!(
+        "#define CHECK(x) {{ sink(x); }}\n#define {operation}(name) pop_macro(\"CHECK\")\n{pragma}void run() {{ CHECK(value()) }}\n"
+      );
+      assert!(
+        audit(Path::new("aliased.cc"), &source)
+          .at("CHECK", source.find("CHECK(value").unwrap())
+          .is_none()
+      );
+    }
+  }
+}
+
+#[test]
 fn unused_pragma_replacements_have_no_effect_but_invoked_wrappers_remain_opaque() {
   let definitions = "#define DIRECT() __pragma(pop_macro(\"CHECK\"))\n#define PORTABLE() _Pragma(\"pop_macro(\\\"CHECK\\\")\")\n#define ALIAS DIRECT\n#define WRAPPER() ALIAS()\n#define CHECK(x) { sink(x); }\n";
   for use_site in ["", "// WRAPPER()\n", "const char* text = \"PORTABLE()\";\n"] {

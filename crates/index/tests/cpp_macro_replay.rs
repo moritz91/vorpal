@@ -763,82 +763,97 @@ fn dangling_else_header_edits_reparse_unchanged_sources_and_restore_scratch_grap
 }
 
 #[test]
-fn pre_return_value_proofs_cannot_replay_stale_macro_errors() {
+fn old_return_value_and_macro_save_proofs_cannot_replay_stale_errors() {
   use vorpal_ingest::{Manifest, OutlineExtractor, cache_file_name, save_product};
-  for newline in ["\n", "\r\n"] {
-    let nonce = std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)
-      .unwrap()
-      .as_nanos();
-    let root = physical_temp_dir().join(format!(
-      "vorpal-return-proof-migration-{}-{nonce}",
-      std::process::id()
-    ));
-    let src = root.join("src");
-    let out = root.join("index");
-    fs::create_dir_all(&src).unwrap();
-    fs::create_dir_all(out.join("products")).unwrap();
-    let source = "#define CHECK(v) { (v); }\nint value() { return 1; }\nbool left() { return true; }\nbool right() { return false; }\nbool run() { CHECK(value())\nreturn\n#if defined(CHOICE)\nleft()\n#else\nright()\n#endif\n;\n}\n".replace('\n', newline);
-    fs::write(src.join("run.cc"), &source).unwrap();
-    let env = ExtractionEnv {
-      cpp_macro_include_roots: Some(vec![]),
-      ..Default::default()
-    };
-    let extractor = env.extractor().unwrap();
-    let manifest = Manifest::scan(&src, |_| true).unwrap();
-    let stat = &manifest.entries()[0];
-    // v21 evidence had no dependencies here, but declined a valid return group.
-    // Freeze its exact identity instead of recomputing it with the new audit.
-    let mut dependency = xxhash_rust::xxh3::Xxh3::new();
-    dependency.update(b"vorpal-cpp-macro-evidence-v21\0");
-    dependency.update(&0u64.to_le_bytes());
-    dependency.update(&0u64.to_le_bytes());
-    let base =
-      vorpal_ingest::extraction_identity_for_path(&stat.path, extractor.rules_digest()).unwrap();
-    let mut identity = xxhash_rust::xxh3::Xxh3::new();
-    identity.update(b"vorpal-cpp-macro-product-v20\0");
-    identity.update(&base.to_le_bytes());
-    identity.update(&dependency.digest().to_le_bytes());
-    let mut legacy = OutlineExtractor::new()
-      .unwrap()
-      .extract_product(&stat.path, &source)
-      .unwrap();
-    assert!(legacy.error_nodes > 0);
-    legacy.grammar_digest = identity.digest();
-    legacy.source_mtime_ns = stat.mtime_ns;
-    legacy.source_size = stat.size;
-    legacy.source_xxh3 = xxhash_rust::xxh3::xxh3_64(source.as_bytes());
-    assert_ne!(
-      extractor.extraction_identity_for_path(&stat.path),
-      Some(legacy.grammar_digest)
-    );
-    save_product(
-      &out.join("products").join(cache_file_name(&stat.path)),
-      &legacy,
-    )
-    .unwrap();
-    let build = |out: &Path| {
-      build_index_env(
-        &src,
-        out,
-        CacheMode::default(),
-        ParseHealthPolicy::default(),
-        &env,
+  for (case, lf, evidence_version, product_version) in [
+    (
+      "return",
+      "#define CHECK(v) { (v); }\nint value() { return 1; }\nbool left() { return true; }\nbool right() { return false; }\nbool run() { CHECK(value())\nreturn\n#if defined(CHOICE)\nleft()\n#else\nright()\n#endif\n;\n}\n",
+      b"vorpal-cpp-macro-evidence-v21\0",
+      b"vorpal-cpp-macro-product-v20\0",
+    ),
+    (
+      "save",
+      "#define CHECK(v) { (v); }\n#pragma push_macro(\"CHECK\")\nint value() { return 1; }\nvoid run() { CHECK(value()) }\n#pragma pop_macro(\"CHECK\")\n",
+      b"vorpal-cpp-macro-evidence-v22\0",
+      b"vorpal-cpp-macro-product-v21\0",
+    ),
+  ] {
+    for newline in ["\n", "\r\n"] {
+      let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+      let root = physical_temp_dir().join(format!(
+        "vorpal-{case}-proof-migration-{}-{nonce}",
+        std::process::id()
+      ));
+      let src = root.join("src");
+      let out = root.join("index");
+      fs::create_dir_all(&src).unwrap();
+      fs::create_dir_all(out.join("products")).unwrap();
+      let source = lf.replace('\n', newline);
+      fs::write(src.join("run.cc"), &source).unwrap();
+      let env = ExtractionEnv {
+        cpp_macro_include_roots: Some(vec![]),
+        ..Default::default()
+      };
+      let extractor = env.extractor().unwrap();
+      let manifest = Manifest::scan(&src, |_| true).unwrap();
+      let stat = &manifest.entries()[0];
+      // Freeze the old declined proof/product identities: recomputing either
+      // with the new audit would make this a migration test of the wrong format.
+      let mut dependency = xxhash_rust::xxh3::Xxh3::new();
+      dependency.update(evidence_version);
+      dependency.update(&0u64.to_le_bytes());
+      dependency.update(&0u64.to_le_bytes());
+      let base =
+        vorpal_ingest::extraction_identity_for_path(&stat.path, extractor.rules_digest()).unwrap();
+      let mut identity = xxhash_rust::xxh3::Xxh3::new();
+      identity.update(product_version);
+      identity.update(&base.to_le_bytes());
+      identity.update(&dependency.digest().to_le_bytes());
+      let mut legacy = OutlineExtractor::new()
+        .unwrap()
+        .extract_product(&stat.path, &source)
+        .unwrap();
+      assert!(legacy.error_nodes > 0);
+      legacy.grammar_digest = identity.digest();
+      legacy.source_mtime_ns = stat.mtime_ns;
+      legacy.source_size = stat.size;
+      legacy.source_xxh3 = xxhash_rust::xxh3::xxh3_64(source.as_bytes());
+      assert_ne!(
+        extractor.extraction_identity_for_path(&stat.path),
+        Some(legacy.grammar_digest)
+      );
+      save_product(
+        &out.join("products").join(cache_file_name(&stat.path)),
+        &legacy,
       )
-      .unwrap()
-    };
-    let migrated = build(&out);
-    assert_eq!(migrated.indexed, 1);
-    assert_eq!(migrated.error_nodes, 0);
-    let warm = build(&out);
-    assert_eq!(warm.indexed, 0);
-    assert_eq!(warm.error_nodes, 0);
-    let scratch = root.join("scratch");
-    build(&scratch);
-    assert_eq!(
-      fs::read(out.join("CURRENT")).unwrap(),
-      fs::read(scratch.join("CURRENT")).unwrap()
-    );
-    fs::remove_dir_all(root).unwrap();
+      .unwrap();
+      let build = |out: &Path| {
+        build_index_env(
+          &src,
+          out,
+          CacheMode::default(),
+          ParseHealthPolicy::default(),
+          &env,
+        )
+        .unwrap()
+      };
+      let migrated = build(&out);
+      assert_eq!(migrated.indexed, 1);
+      assert_eq!(migrated.error_nodes, 0);
+      let warm = build(&out);
+      assert_eq!(warm.indexed, 0);
+      assert_eq!(warm.error_nodes, 0);
+      let scratch = root.join("scratch");
+      build(&scratch);
+      assert_eq!(
+        fs::read(out.join("CURRENT")).unwrap(),
+        fs::read(scratch.join("CURRENT")).unwrap()
+      );
+      fs::remove_dir_all(root).unwrap();
+    }
   }
 }

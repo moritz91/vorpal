@@ -1751,3 +1751,56 @@ The full MCP test suite passes on Windows/Linux with automatic warming enabled,
 including all fifteen library controls and fourteen watched macro cases. A
 separate fourteen-thread watched-suite run, six CLI/MCP configuration tests,
 native CLI/MCP Clippy and Linux default/no-builtins workspace Clippy also pass.
+
+The exact shutdown repair 16d3d67 passes all three jobs in CI 37808950360.
+
+Literal `#pragma push_macro("NAME")` now preserves only an entering proven
+definition. A save does not change the definition; complete nonexpanding
+conditional groups can therefore retain it without selecting a branch. Every
+stack target remains ineligible for a later proof restart, and `pop_macro` still
+ends its binding rather than claiming restoration, even after a known save.
+Malformed/nonliteral operations and pragma-name macros decline proof. Native
+MSVC expands an aliased `push_macro` into `pop_macro` in both preprocessor modes;
+an apparent save must not hide the missing semicolon after a restored expression.
+The literal distinction follows Microsoft's
+[push_macro](https://learn.microsoft.com/en-us/cpp/preprocessor/push-macro?view=msvc-170)
+and [pop_macro](https://learn.microsoft.com/en-us/cpp/preprocessor/pop-macro?view=msvc-170)
+contracts, with the compiler alias counterexample checked separately.
+
+Evidence v23 / opt-in product v22 invalidate older declined products. Frozen
+evidence-v21/product-v20 and evidence-v22/product-v21 replay controls both force
+reparsing, then match warm and scratch generations. LF/CRLF owned, streaming and
+scan handoffs retain identical encoded products, original definition/argument
+spans and following function/call sites. No macro-callee/replacement-only runtime
+edges are introduced. The fifteenth watched-MCP case swaps an external save for
+a pop with identical byte length and restored timestamp, observes the resulting
+diagnostics, and restores the original sites when the save is restored.
+Windows/Linux parser (61), evidence (30/31), recovery (43), replay (15),
+member-call/health, fourteen resolver cases, MCP/CLI and Clippy checks pass,
+including Linux default/no-builtins workspace Clippy and flat replay. The
+unchanged 179-case corpus/provenance checks pass. Native MSVC accepts all twelve
+direct/conditional/zero-condition/newline save controls and rejects all twelve
+missing ordinary semicolons. Both native preprocessor modes also reject the
+restored-expression alias counterexample. All 902 configured original C++
+products remain byte-identical against verified v57 after only source stat and
+extraction-identity normalization; complete clone sketches match unchanged.
+Grammar, schema, provenance and the productive .2 runtime are unchanged.
+
+An external read-only LLVM 18/19 callback experiment records actual macro
+expansions, including restored definitions and nested uses omitted by detailed
+preprocessing records. Six LF/CRLF controls per version observe missing/present/
+removed optional headers, wrapped `__has_include`, original physical offsets
+despite `#line`, and missing earlier search candidates before a later hit. The
+same six fixtures pass native MSVC syntax checks. A preprocess-only LLVM 19
+invocation adapted from Hades' native compile command records 21 ASSERT and six
+TEST uses in `binary_serialization_tests.cc`; all 27 original name/range/
+definition/header-digest records agree with the separate native Windows LLVM 19
+audit. Hades source bytes remain unchanged. This does not establish native MSVC
+equivalence or a complete compiler/filesystem/environment cache contract. The
+observer is outside the repository and supplies no production recovery proofs,
+parser roots or products. Opaque SDK boundaries still decline Hades ASSERT proof.
+The same original Hades translation unit also passes native MSVC `/Zs` with its
+recorded compile definitions/include roots and the Visual Studio environment;
+output/multiprocess/debug-write flags are removed. This confirms that this
+specific source is valid for its native invocation, not that LLVM and MSVC select
+identical macro environments or that compiler-backed production recovery is safe.

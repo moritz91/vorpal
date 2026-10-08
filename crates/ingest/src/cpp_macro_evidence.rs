@@ -100,7 +100,7 @@ impl Evidence {
   /// This does not install invalidation in the index or its product caches.
   pub fn dependency_identity(&self) -> u64 {
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
-    hash.update(b"vorpal-cpp-macro-evidence-v22\0");
+    hash.update(b"vorpal-cpp-macro-evidence-v23\0");
     hash.update(&(self.include_roots.len() as u64).to_le_bytes());
     for root in &self.include_roots {
       let text = root.as_os_str().as_encoded_bytes();
@@ -974,11 +974,23 @@ impl Audit {
           {
             // The admitted literal forms cannot define, undef or restore macros.
           } else if directive == "#pragma"
+            && !node.has_error()
             && let Some(target) = literal_macro_stack_target(&argument)
           {
-            // A literal stack operation can only change this macro name. Do
-            // not claim to restore its previous definition or trust its uses.
-            environment.remove(target);
+            // A push saves the current definition without changing it. Keep
+            // only the entering proof; no later definition may restart proof
+            // for a stacked name. A pop still supplies no restoration proof.
+            let push = argument.trim().starts_with("push_macro(");
+            if self
+              .macro_names
+              .contains(if push { "push_macro" } else { "pop_macro" })
+            {
+              // MSVC expands pragma-name macros. The apparent target need not
+              // be the actual operation's target, so this is an opaque effect.
+              self.invalidate_environment(environment);
+            } else if !push {
+              environment.remove(target);
+            }
             self.stack_targets.insert(target.to_owned());
             self.macro_names.insert(target.to_owned());
           } else {
@@ -1049,8 +1061,21 @@ impl Audit {
                     } else if self.inert_literal_pragma(&argument) {
                       // Every possible branch may change diagnostics/packing,
                       // but these literal forms leave the macro state intact.
-                    } else if let Some(target) = literal_macro_stack_target(&argument) {
-                      environment.remove(target);
+                    } else if !directive.has_error()
+                      && let Some(target) = literal_macro_stack_target(&argument)
+                    {
+                      // Neither possible branch changes an entering definition
+                      // by saving it. Do not select the condition or model a
+                      // later pop/restoration, even when a matching push exists.
+                      let push = argument.trim().starts_with("push_macro(");
+                      if self
+                        .macro_names
+                        .contains(if push { "push_macro" } else { "pop_macro" })
+                      {
+                        self.invalidate_environment(environment);
+                      } else if !push {
+                        environment.remove(target);
+                      }
                       self.stack_targets.insert(target.to_owned());
                       self.macro_names.insert(target.to_owned());
                     } else {
