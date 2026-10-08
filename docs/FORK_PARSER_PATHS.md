@@ -1560,3 +1560,25 @@ routing uses its enrolled root for external indexes. Native CLI/MCP and Linux
 workspace/default/no-builtins Clippy pass. No parser, product identity, schema,
 provenance or installed runtime changes in this source-root follow-up. Productive
 .2 binaries/index/tunnel and the read-only Hades checkout remain intact.
+
+Macro effect/substitution token scans now index the union of protected original
+literal/comment/definition spans instead of repeatedly searching every span for
+each byte or node. Empty proof environments keep the already parsed original tree
+and complete dependency observations; they cannot activate a scanner or context
+diagnostic, so a second empty-context parse is unnecessary. No proof cache,
+source rewrite, new grammar kind or extraction identity is introduced.
+
+The complete evidence records (definitions/templates, intervals, all observed
+macro names, ordered roots and consulted dependency digests) remain identical
+across all 902 original C++ files with the configured native SDK roots. Under the
+concurrent audit load, that comparison takes 1077761 ms before / 526024 ms after;
+a separate dense 8192-literal/comment fixture takes 24549 ms / 625 ms with the same
+evidence hash. These are debug audit measurements, not release latency promises.
+Windows/Linux evidence, recovery, parser/product, watched MCP, replay and Clippy
+checks pass. A linear span oracle covers unsorted/nested/duplicate ranges. A dense
+LF/CRLF source with missing include proof keeps its byte-identical raw product;
+creating the header still changes dependency identity and restores original-site
+recovery. Grammar/schema/provenance and all conservative proof boundaries remain
+unchanged. The separate exact 236d860 full CI is green; its verified normal MCP
+candidate reports 1744 files / 61631 nodes / 26 damaged files / 1960 diagnostics /
+123144 damaged bytes / 2848 clone pairs. The productive .2 runtime is untouched.

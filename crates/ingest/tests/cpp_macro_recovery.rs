@@ -3,6 +3,75 @@ use std::path::Path;
 use vorpal_ingest::cpp_macro_recovery::audit_recovery;
 
 #[test]
+fn opaque_large_sources_keep_raw_products_and_missing_include_dependencies() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let nonce = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_nanos();
+  let dir = physical_temp_dir().join(format!(
+    "vorpal-opaque-proof-{}-{nonce}",
+    std::process::id()
+  ));
+  std::fs::create_dir_all(&dir).unwrap();
+  let path = dir.join("opaque.cc");
+  let default = OutlineExtractor::new().unwrap();
+  let recovery = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for newline in ["\n", "\r\n"] {
+    let mut source = "#include \"proof.h\"\nvoid run() {\n".to_owned();
+    for i in 0..256 {
+      source.push_str(&format!(
+        "/* CHECK(hidden({i})) */ const char* text{i} = R\"tag(CHECK(ignored()))tag\";\n"
+      ));
+    }
+    source.push_str("CHECK(value())\nafter();\n}\nvoid following() { later(); }\n");
+    let source = source.replace('\n', newline);
+    let path = path.to_str().unwrap();
+    let mut ordinary = default.extract_product(path, &source).unwrap();
+    let declined = recovery.extract_product(path, &source).unwrap();
+    assert!(declined.error_nodes > 0);
+    ordinary.grammar_digest = declined.grammar_digest;
+    let mut ordinary_bytes = Vec::new();
+    let mut declined_bytes = Vec::new();
+    encode_product_into(&ordinary, &mut ordinary_bytes);
+    encode_product_into(&declined, &mut declined_bytes);
+    assert_eq!(ordinary_bytes, declined_bytes);
+    let before = audit_recovery(Path::new(path), &source, &[]);
+    assert!(before.eligible_names.is_empty());
+    assert!(before.context_errors.is_empty());
+
+    std::fs::write(dir.join("proof.h"), "#define CHECK(v) { sink(v); }\n").unwrap();
+    let proven = recovery.extract_product(path, &source).unwrap();
+    let after = audit_recovery(Path::new(path), &source, &[]);
+    assert_ne!(before.dependency_identity, after.dependency_identity);
+    assert_eq!(after.eligible_names, ["CHECK"]);
+    assert_eq!(proven.error_nodes, 0);
+    for name in ["value", "after", "later"] {
+      let call = proven
+        .refs
+        .iter()
+        .find(|r| r.kind == 0 && r.name == name)
+        .unwrap();
+      assert_eq!(
+        &source[call.start as usize..call.end as usize],
+        format!("{name}()")
+      );
+    }
+    assert!(
+      !proven
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && ["CHECK", "sink", "hidden", "ignored"].contains(&r.name.as_str()))
+    );
+    std::fs::remove_file(dir.join("proof.h")).unwrap();
+  }
+  std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn literal_diagnostic_pragmas_preserve_macro_arguments_and_following_functions() {
   use vorpal_ingest::{OutlineExtractor, encode_product_into};
   let extractor = OutlineExtractor::new()

@@ -694,15 +694,14 @@ impl Audit {
         })
         .map(|node| node.range()),
     );
+    let protected = ProtectedRanges::new(protected);
     let mut ordinary = identifier_tokens(source, &protected);
     ordinary.extend(
       root
         .dfs()
         .filter(|node| {
           node.kind().ends_with("identifier")
-            && !protected
-              .iter()
-              .any(|range| range.contains(&node.range().start))
+            && !protected.contains(node.range().start)
         })
         .map(|node| node.text().into_owned()),
     );
@@ -1216,28 +1215,25 @@ fn statement_replacement(replacement: &str, parameters: &[String]) -> Option<Sta
   let prefix = "void proof() { ";
   let parsed = SupportLang::Cpp.grep(format!("{prefix}{source}\n }}"));
   let root = parsed.root();
-  let protected: Vec<_> = root
-    .dfs()
-    .filter_map(|n| {
-      matches!(
-        n.kind().as_ref(),
-        "comment"
-          | "string_literal"
-          | "raw_string_literal"
-          | "char_literal"
-          | "number_literal"
-          | "user_defined_literal"
-      )
-      .then(|| n.range())
-    })
-    .collect();
+  let protected = ProtectedRanges::new(root.dfs().filter_map(|n| {
+    matches!(
+      n.kind().as_ref(),
+      "comment"
+        | "string_literal"
+        | "raw_string_literal"
+        | "char_literal"
+        | "number_literal"
+        | "user_defined_literal"
+    )
+    .then(|| n.range())
+  }));
   let mut substitutions = Vec::new();
   for node in root.dfs() {
     let span = node.range();
     if span.start < prefix.len()
       || span.end > prefix.len() + source.len()
       || node.children().next().is_some()
-      || protected.iter().any(|p| p.contains(&span.start))
+      || protected.contains(span.start)
     {
       continue;
     }
@@ -1268,16 +1264,17 @@ fn effect_tokens(replacement: &str) -> (BTreeSet<String>, bool) {
   let replacement = joined.as_str();
   let parsed = SupportLang::Cpp.grep(replacement);
   let root = parsed.root();
-  let protected: Vec<_> = root
-    .dfs()
-    .filter(|n| {
-      matches!(
-        n.kind().as_ref(),
-        "comment" | "string_literal" | "raw_string_literal" | "char_literal"
-      )
-    })
-    .map(|n| n.range())
-    .collect();
+  let protected = ProtectedRanges::new(
+    root
+      .dfs()
+      .filter(|n| {
+        matches!(
+          n.kind().as_ref(),
+          "comment" | "string_literal" | "raw_string_literal" | "char_literal"
+        )
+      })
+      .map(|n| n.range()),
+  );
   let mut names = identifier_tokens(replacement, &protected);
   names.extend(
     root
@@ -1291,20 +1288,52 @@ fn effect_tokens(replacement: &str) -> (BTreeSet<String>, bool) {
     .enumerate()
     .any(|(offset, bytes)| {
       (bytes == b"##" || replacement.as_bytes().get(offset..offset + 4) == Some(b"%:%:"))
-        && !protected.iter().any(|range| range.contains(&offset))
+        && !protected.contains(offset)
     });
   (names, pasted)
+}
+
+// A syntax tree can contain nested/overlapping protected nodes. Index their
+// union once instead of scanning every literal/comment/definition for every
+// source byte. This holds source spans only, never cached macro proof.
+struct ProtectedRanges(Vec<Range<usize>>);
+
+impl ProtectedRanges {
+  fn new(ranges: impl IntoIterator<Item = Range<usize>>) -> Self {
+    let mut ranges: Vec<_> = ranges.into_iter().filter(|r| !r.is_empty()).collect();
+    ranges.sort_unstable_by_key(|r| (r.start, r.end));
+    let mut merged: Vec<Range<usize>> = Vec::with_capacity(ranges.len());
+    for range in ranges {
+      if let Some(last) = merged.last_mut()
+        && range.start <= last.end
+      {
+        last.end = last.end.max(range.end);
+      } else {
+        merged.push(range);
+      }
+    }
+    Self(merged)
+  }
+
+  fn covering(&self, offset: usize) -> Option<&Range<usize>> {
+    let index = self.0.partition_point(|range| range.end <= offset);
+    self.0.get(index).filter(|range| range.start <= offset)
+  }
+
+  fn contains(&self, offset: usize) -> bool {
+    self.covering(offset).is_some()
+  }
 }
 
 // Preprocessor names include keywords: #define if(x) ... is legal. AST
 // identifier kinds alone miss them. Literal/comment ranges stay protected; this
 // scan only supplies conservative token sets, never replacement source/spans.
-fn identifier_tokens(source: &str, protected: &[Range<usize>]) -> BTreeSet<String> {
+fn identifier_tokens(source: &str, protected: &ProtectedRanges) -> BTreeSet<String> {
   let mut names = BTreeSet::new();
   let bytes = source.as_bytes();
   let mut offset = 0;
   while offset < bytes.len() {
-    if let Some(range) = protected.iter().find(|range| range.contains(&offset)) {
+    if let Some(range) = protected.covering(offset) {
       offset = range.end;
       continue;
     }
@@ -1383,4 +1412,64 @@ fn bounded_condition_integer(text: &str) -> bool {
     && digits.len() <= 32
     && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
     && u32::from_str_radix(digits, radix).is_ok_and(|value| value <= i32::MAX as u32)
+}
+
+#[cfg(test)]
+mod protected_range_tests {
+  use super::*;
+
+  #[test]
+  fn nested_unsorted_spans_match_linear_token_oracle() {
+    let source = "outside hidden inner tail adjacent visible";
+    let spans = vec![15..20, 8..25, 8..14, 25..34, 20..20, 0..0];
+    let indexed = ProtectedRanges::new(spans.clone());
+    for offset in 0..=source.len() + 1 {
+      assert_eq!(
+        indexed.contains(offset),
+        spans.iter().any(|span| span.contains(&offset)),
+        "offset {offset}"
+      );
+    }
+    assert_eq!(
+      identifier_tokens(source, &indexed),
+      BTreeSet::from(["outside".to_owned(), "visible".to_owned()])
+    );
+
+    // Many small literals/comments and enclosing definition ranges occur in
+    // real SDK headers. Compare the full identifier scan to the former linear
+    // oracle, including reversed, duplicate, adjacent and nested intervals.
+    let source = (0..1024)
+      .map(|i| format!("keep{i} skip{i} "))
+      .collect::<String>();
+    let mut spans: Vec<_> = source
+      .match_indices("skip")
+      .map(|(start, _)| start..source[start..].find(' ').unwrap() + start)
+      .collect();
+    spans.extend(spans.clone());
+    spans.reverse();
+    let mut expected = BTreeSet::new();
+    let mut offset = 0;
+    let bytes = source.as_bytes();
+    while offset < bytes.len() {
+      if let Some(span) = spans.iter().find(|span| span.contains(&offset)) {
+        offset = span.end;
+      } else if bytes[offset].is_ascii_alphabetic() || bytes[offset] == b'_' {
+        let start = offset;
+        offset += 1;
+        while offset < bytes.len()
+          && (bytes[offset].is_ascii_alphanumeric() || bytes[offset] == b'_')
+        {
+          offset += 1;
+        }
+        expected.insert(source[start..offset].to_owned());
+      } else {
+        offset += 1;
+      }
+    }
+    assert_eq!(expected.len(), 1024);
+    assert_eq!(
+      identifier_tokens(&source, &ProtectedRanges::new(spans)),
+      expected
+    );
+  }
 }

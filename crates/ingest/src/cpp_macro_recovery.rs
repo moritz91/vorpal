@@ -192,6 +192,12 @@ fn parse_without_context(
   let lang = SgLang::Builtin(SupportLang::Cpp);
   let raw = lang.grep(source);
   let evidence = crate::cpp_macro_evidence::audit_with_roots(path, source, roots);
+  // An empty proof cannot produce eligible scanner names or context diagnoses.
+  // Keep the original tree and the complete dependency observation, avoiding a
+  // byte scan and a second parse of large opaque SDK/header translation units.
+  if evidence.bindings.is_empty() {
+    return (raw, Vec::new(), evidence, ContextDiagnostics::default());
+  }
   let protected: Vec<_> = raw
     .root()
     .dfs()
