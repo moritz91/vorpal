@@ -135,6 +135,9 @@ pub struct Server {
   /// finally spawns — so an edit burst costs at most one wasted warm, and the newest
   /// generation always ends up warm.
   warm: Option<std::thread::JoinHandle<()>>,
+  /// Scope-table warming also heals lexical postings, so these tasks can write
+  /// artifacts. Keep their handles through shutdown instead of detaching them.
+  scope_warms: Vec<std::thread::JoinHandle<()>>,
   warm_pending: bool,
   /// When the pending warm was first asked for, and the running warm with its stop signal.
   /// A re-warm spawns only once the tree has been quiet since the last commit (see
@@ -524,10 +527,34 @@ generation they were read from.";
 
 impl Drop for Server {
   fn drop(&mut self) {
+    // Stop observation and cancel optional work first. Join directly: the normal
+    // reap/adoption paths can start successor tasks, which shutdown must not do.
+    self.watch.take();
+    if let Some(run) = &self.warm_run {
+      run.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     if let Some(handle) = self.canonicalizing.take() {
       let _ = handle.join();
     }
     if let Some(handle) = self.persisting.take() {
+      let _ = handle.join();
+    }
+    if let Some(handle) = self.rebuilding.take() {
+      let _ = handle.join();
+    }
+    if let Some(handle) = self.warm.take() {
+      let _ = handle.join();
+    }
+    if let Some(run) = self.warm_run.take() {
+      let _ = run.handle.join();
+    }
+    if let Some(handle) = self.overlay_building.take() {
+      let _ = handle.join();
+    }
+    if let Some(handle) = self.live_ann_task.take() {
+      let _ = handle.join();
+    }
+    for handle in self.scope_warms.drain(..) {
       let _ = handle.join();
     }
   }
@@ -622,6 +649,7 @@ impl Server {
       dirty_since: None,
       proactive,
       warm,
+      scope_warms: Vec::new(),
       warm_pending: false,
       warm_requested_at: None,
       warm_run: None,
@@ -657,15 +685,7 @@ impl Server {
     // scope file table (and searcher) now, so a name query, a `scope` call, or a scoped
     // query before any generation-bound tool pays for neither.
     if generation.join("nodes.vseg").exists() || generation.join(vorpal_kg::NODES_TOC).is_file() {
-      let index_dir = server.index_dir.clone();
-      std::thread::spawn(move || {
-        // The lexical tier first: every name query pays for its absence (the scan over
-        // all names), a scope file table only the scoped ones.
-        if autowarm_enabled() {
-          let _ = vorpal_index::heal_postings(&index_dir);
-        }
-        let _ = vorpal_index::prewarm_scope_table(&index_dir);
-      });
+      server.spawn_scope_warm();
     }
     server
   }
@@ -1210,13 +1230,29 @@ impl Server {
     self.kg_dir = Some(dir);
     // The generation's scope file table (and searcher) warm in the background, so the
     // first scoped query after a commit pays neither.
+    self.spawn_scope_warm();
+  }
+
+  fn spawn_scope_warm(&mut self) {
+    // Reap completed jobs without waiting on the query path or retaining one
+    // completed handle per generation for the daemon's entire lifetime.
+    let mut i = 0;
+    while i < self.scope_warms.len() {
+      if self.scope_warms[i].is_finished() {
+        let _ = self.scope_warms.swap_remove(i).join();
+      } else {
+        i += 1;
+      }
+    }
     let index_dir = self.index_dir.clone();
-    std::thread::spawn(move || {
+    self.scope_warms.push(std::thread::spawn(move || {
+      // Lexical healing writes postings; even a scope-only reader must finish
+      // before the caller can safely remove or replace this index directory.
       if autowarm_enabled() {
         let _ = vorpal_index::heal_postings(&index_dir);
       }
       let _ = vorpal_index::prewarm_scope_table(&index_dir);
-    });
+    }));
   }
 
   /// Act on a finished canonicalization (see [`CanonicalizeOutcome`]) — shared by the
@@ -4013,12 +4049,104 @@ mod pending_call_site_tests {
       }
       server.reap_persist(true);
       drop(server);
-      // Pinning may still have a background scope-table reader.
-      let _ = std::fs::remove_dir_all(root);
+      std::fs::remove_dir_all(root).unwrap();
     }
   }
 }
 
+#[cfg(test)]
+mod shutdown_tests {
+  use super::*;
+
+  #[test]
+  fn shutdown_waits_for_every_owned_background_task() {
+    // No index exists, so construction cannot launch real warming jobs. Each
+    // probe stands in for a writer held just before its final artifact write.
+    let root = std::env::temp_dir().join(format!(
+      "vorpal-shutdown-{}-{}",
+      std::process::id(),
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut server = Server::with_profile_env_rebuild(
+      root.join("index"),
+      Profile::Full,
+      ExtractionEnv::default(),
+      false,
+    );
+    let mut releases = Vec::new();
+    macro_rules! probe {
+      ($name:literal, $result:expr) => {{
+        let (release, wait) = std::sync::mpsc::channel();
+        releases.push(release);
+        let artifact = root.join($name);
+        std::thread::spawn(move || {
+          wait.recv().unwrap();
+          std::fs::write(artifact, b"finished").unwrap();
+          $result
+        })
+      }};
+    }
+    server.canonicalizing = Some(probe!("canonicalize", None));
+    server.persisting = Some(probe!("persist", Err("probe".into())));
+    server.rebuilding = Some(probe!("rebuild", false));
+    server.warm = Some(probe!("boot-warm", ()));
+    let cancel: vorpal_index::WarmCancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let warm_cancel = cancel.clone();
+    server.warm_run = Some(WarmRun {
+      handle: probe!("warm", {
+        assert!(warm_cancel.load(std::sync::atomic::Ordering::Relaxed));
+        vorpal_index::WarmOutcome::Cancelled
+      }),
+      cancel,
+      preemptible: false,
+    });
+    server.overlay_building = Some(probe!("overlay", Err("probe".into())));
+    server.live_ann_task = Some(probe!(
+      "live-ann",
+      Err(vorpal_index::live_ann::AdoptDecline { curable: false })
+    ));
+    server.scope_warms.push(probe!("boot-scope", ()));
+    server.scope_warms.push(probe!("commit-scope", ()));
+    let (started, start) = std::sync::mpsc::channel();
+    let (finished, finish) = std::sync::mpsc::channel();
+    let shutdown = std::thread::spawn(move || {
+      started.send(()).unwrap();
+      drop(server);
+      finished.send(()).unwrap();
+    });
+    start.recv().unwrap();
+    let mut returned_early = false;
+    for release in releases {
+      returned_early |= finish
+        .recv_timeout(std::time::Duration::from_millis(50))
+        .is_ok();
+      release.send(()).unwrap();
+    }
+    shutdown.join().unwrap();
+    assert!(
+      !returned_early,
+      "Server dropped while an owned background writer was still blocked"
+    );
+    for name in [
+      "canonicalize",
+      "persist",
+      "rebuild",
+      "boot-warm",
+      "warm",
+      "overlay",
+      "live-ann",
+      "boot-scope",
+      "commit-scope",
+    ] {
+      assert_eq!(std::fs::read(root.join(name)).unwrap(), b"finished");
+    }
+    std::fs::remove_dir_all(root).unwrap();
+  }
+}
 
 #[cfg(test)]
 mod explicit_source_tests {

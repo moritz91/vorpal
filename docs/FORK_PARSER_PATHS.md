@@ -1728,3 +1728,26 @@ The configured recovery comparison against verified v56 retains all 902 original
 C++ products byte-for-byte after only source stat and extraction-identity fields
 are normalized. Clone sketches also match without normalization. The existing
 Hades definitions, references, owners, facts and full diagnostics do not change.
+
+The exact 3eaad6c normal source-aware MCP candidate retains the verified v56
+generation and complete health: 61630 nodes, 26 of 1744 damaged files, 1952
+diagnostics and 122952 damaged bytes. Initial/quiet debug requests take 194.877 s /
+3.336 s under the audit load and the trace contains one full pipeline. These are
+candidate measurements, not productive runtime or release latency claims.
+
+Its full CI (37793677565) passes Windows and encoder jobs, but Linux exposes two
+watched-MCP test teardown races: detached scope/posting warmers can still access
+the index after Server drops. Shutdown now retains both startup/commit scope
+warmer handles, reaps finished handles during serving, stops the watcher, cancels
+optional warming and joins all owned background jobs without invoking successor-
+spawning adoption paths. Existing persistence/canonicalization draining is
+preserved. A gated nine-worker regression fails before the repair and passes
+after it; it verifies that every final artifact write completes before drop
+returns, including a deadline-forced warm's cancellation. The existing pending-
+call-site regression now requires immediate directory cleanup to succeed.
+Grammar, extraction identities, products, source and the productive .2 remain
+unchanged by this lifecycle repair.
+The full MCP test suite passes on Windows/Linux with automatic warming enabled,
+including all fifteen library controls and fourteen watched macro cases. A
+separate fourteen-thread watched-suite run, six CLI/MCP configuration tests,
+native CLI/MCP Clippy and Linux default/no-builtins workspace Clippy also pass.

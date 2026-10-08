@@ -438,6 +438,13 @@ lands, name queries take the exact scan over every name (150 ms on the kernel, 0
 with the tier), never a wrong answer. `VORPAL_NO_AUTOWARM=1` disables this heal with the
 other background tier builds.
 
+At orderly shutdown the daemon stops its source watcher, cancels a running
+cancelable ANN warm and waits for its existing rebuild, persistence, overlay,
+ANN and scope/posting tasks. It starts no successor work while draining them.
+Once shutdown returns, those tasks no longer read or write the index directory;
+an embedded caller can then remove or replace it. Shutdown can wait for an
+already running noncancelable build to finish.
+
 Two rules keep the served graph truthful when the tree and the index move independently:
 
 - **"Unchanged" is measured against what is served, never against what is on disk.** When
