@@ -244,6 +244,20 @@ fn parse_without_context(
   let lang = SgLang::Builtin(SupportLang::Cpp);
   let raw = lang.grep(source);
   let evidence = crate::cpp_macro_evidence::audit_with_roots(path, source, roots);
+  parse_with_evidence(source, raw, evidence)
+}
+
+fn parse_with_evidence(
+  source: &str,
+  raw: crate::ParsedRoot,
+  evidence: crate::cpp_macro_evidence::Evidence,
+) -> (
+  crate::ParsedRoot,
+  Vec<String>,
+  crate::cpp_macro_evidence::Evidence,
+  ContextDiagnostics,
+) {
+  let lang = SgLang::Builtin(SupportLang::Cpp);
   // An empty proof cannot produce eligible scanner names or context diagnoses.
   // Keep the original tree and the complete dependency observation, avoiding a
   // byte scan and a second parse of large opaque SDK/header translation units.
@@ -576,6 +590,44 @@ pub(crate) fn parse_recovery(
 
 fn audit_without_context(path: &Path, source: &str, roots: &[PathBuf]) -> RecoveryAudit {
   let (parsed, eligible_names, evidence, diagnostics) = parse_without_context(path, source, roots);
+  recovery_report(parsed, eligible_names, evidence, diagnostics)
+}
+
+// A report-only seam: callers cannot obtain a parser root/product or activate an
+// extraction environment using compiler observations without cache validation.
+pub(crate) fn audit_compiler_evidence(
+  source: &str,
+  evidence: crate::cpp_macro_evidence::Evidence,
+) -> (RecoveryAudit, Vec<(String, Range<usize>)>) {
+  vorpal_language::with_cpp_statement_macros(&[], || {
+    let raw = SgLang::Builtin(SupportLang::Cpp).grep(source);
+    let (parsed, eligible, evidence, diagnostics) = parse_with_evidence(source, raw, evidence);
+    let member_calls = parsed
+      .root()
+      .dfs()
+      .filter(|node| {
+        node.kind().as_ref() == "call_expression"
+          && !diagnostics.macro_calls.contains(&node.range())
+      })
+      .filter_map(|node| {
+        let function = node.field("function")?;
+        (function.kind().as_ref() == "field_expression")
+          .then(|| (function.text().into_owned(), node.range()))
+      })
+      .collect();
+    (
+      recovery_report(parsed, eligible, evidence, diagnostics),
+      member_calls,
+    )
+  })
+}
+
+fn recovery_report(
+  parsed: crate::ParsedRoot,
+  eligible_names: Vec<String>,
+  evidence: crate::cpp_macro_evidence::Evidence,
+  diagnostics: ContextDiagnostics,
+) -> RecoveryAudit {
   let dependency_identity = evidence.dependency_identity();
   let root = parsed.root();
   let macro_spans = root

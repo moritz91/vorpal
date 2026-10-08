@@ -1804,3 +1804,64 @@ recorded compile definitions/include roots and the Visual Studio environment;
 output/multiprocess/debug-write flags are removed. This confirms that this
 specific source is valid for its native invocation, not that LLVM and MSVC select
 identical macro environments or that compiler-backed production recovery is safe.
+
+The exact literal-save proof repair 5dc47fb passes all three full CI jobs in
+37813761964. All sixteen remaining damaged C++ translation units with native
+compile commands pass read-only MSVC `/Zs`, including `ui_tests.cc`; four other
+source files have no matching command. This separates valid native source from
+parser limitations without changing the source or suppressing diagnostics.
+
+The native Windows LLVM 19 callback observer now also records its effective cc1
+arguments/predefines, volatile builtin expansions, physical read-buffer digests,
+failed searches, directory membership, redirects and filesystem metadata. Its
+controls distinguish optional-header creation/removal and same-size content edits
+with restored timestamps. Defines, language mode and MSVC compatibility settings
+change the observed compiler context. These are read-only experiments, not a
+complete or reusable dependency contract. Native MSVC `/E` and the observer emit
+the same 622 main-file token spellings for `binary_serialization_tests.cc` under
+its recorded command. Equality for that selected file does not establish general
+MSVC equivalence, including dependency searches in compiler-specific SDK branches.
+An explicit counterexample confirms that limitation: an optional header behind
+`defined(_MSC_VER) && !defined(__clang__)` changes CHECK from a complete block to
+an expression. With the directory timestamp restored, the complete observed
+Clang filesystem/context/token trace remains identical across absent/created/
+removed states; MSVC's expanded tokens differ and `/Zs` rejects the created
+state's missing semicolon. MSVC returns to the original tokens/valid syntax after
+removal. A Clang observation ledger alone therefore cannot authorize reuse of an
+MSVC-targeted proof, even after one matching native token comparison. Native
+preprocessing must be rerun or its own complete dependencies validated.
+
+`cpp_macro_compiler_audit::audit` now brings physical callback observations into
+the existing independent recovery proof without copied parser implementations.
+Its input binds the exact source/path, captured definition buffers, physical byte
+anchors, parameter counts and all main-file expansion names, including nested
+effects. Invalid anchors/overlaps, conflicting buffers, stale sources, unfinished
+observations, volatile inputs and resource limits decline the report. Unsupported
+definitions or unobserved/invalid invocations cannot enable an offset-free name.
+Preprocessor operators are conservatively tracked even without macro callbacks.
+Function names expanded by the compiler are not reported as original functions.
+
+This API returns only diagnostics, original macro/call/member spans and original
+function names: no root, product, dependency identity or ExtractionEnv setting.
+Normal production extraction still uses the existing metadata proof. The compiler
+audit does not validate compiler selection, process environment, filesystems or
+cache reuse, and cannot activate SDK-backed recovery in normal MCP operation.
+A separate adapter verifies the original native callback buffer digests before
+using this API on Windows and Linux: all 21 ASSERT diagnoses disappear, all 19
+free argument calls and `first.empty()` retain original spans, and stale source
+bytes decline. Pasted/function-generating TEST definitions remain unsupported;
+no expanded function owners or graph improvements are claimed. Hades and the
+productive `.2` remain unchanged.
+
+Eleven compiler-audit regressions cover restored/unsupported definitions,
+stale/incomplete/volatile observations, malformed anchors, conflicting buffers,
+resource limits, nested effects, real missing semicolons/argument errors,
+unobserved invocations, original member spans, generated function names and
+thread/nested scanner-context restoration. Windows/Linux parser (61), evidence
+(30/31), recovery (43), freshness/directive, bucketed/flat replay (15), member-call,
+health, fourteen resolver, fifteen watched-MCP and six CLI configuration cases
+pass. Native ingest Clippy and Linux default/no-builtins workspace Clippy pass.
+The unchanged 179-case corpus, provenance and Actionlint checks pass. All 902
+configured original C++ products remain identical after only source stat/identity
+normalization; complete clone sketches match without normalization. Grammar,
+schema, provenance and production extraction identities are unchanged.

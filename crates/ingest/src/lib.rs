@@ -17,6 +17,8 @@ pub mod cpp_macro_evidence;
 pub mod cpp_macro_freshness;
 #[cfg(feature = "builtin-parser")]
 pub mod cpp_macro_recovery;
+#[cfg(feature = "builtin-parser")]
+pub mod cpp_macro_compiler_audit;
 mod tree_cache;
 mod walk_reuse;
 mod manifest;

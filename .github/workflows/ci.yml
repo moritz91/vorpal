@@ -54,7 +54,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-index --no-default-features --lib native_structured_base
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p vorpal-ingest --test cpp_macro_parsing --test cpp_directive_audit --test cpp_macro_evidence --test cpp_macro_recovery --test cpp_macro_freshness --test powershell_parsing
+          cargo test --locked -p vorpal-ingest --test cpp_macro_parsing --test cpp_directive_audit --test cpp_macro_evidence --test cpp_macro_recovery --test cpp_macro_compiler_audit --test cpp_macro_freshness --test powershell_parsing
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-mcp --test cpp_macro_freshness
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

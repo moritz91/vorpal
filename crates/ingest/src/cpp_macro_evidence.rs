@@ -1248,7 +1248,10 @@ fn literal_macro_stack_target(argument: &str) -> Option<&str> {
   canonical_identifier(target).then_some(target)
 }
 
-fn statement_replacement(replacement: &str, parameters: &[String]) -> Option<StatementReplacement> {
+pub(crate) fn statement_replacement(
+  replacement: &str,
+  parameters: &[String],
+) -> Option<StatementReplacement> {
   if !parameters.iter().all(|p| canonical_identifier(p)) {
     return None;
   }
