@@ -386,11 +386,11 @@ fn replacement_proofs_preserve_tokens_literals_and_original_call_spans() {
   let source = "#define ADD(value) { use(1+ value); }\nvoid run() { ADD(+real()) }";
   assert!(!audit_recovery(Path::new("tokens.cc"), source, &[]).has_error);
   let source = "#define DECLARE(name) { int name; }\nvoid run() { DECLARE(valid) DECLARE(1+2) }";
-  assert!(
-    audit_recovery(Path::new("blocked.cc"), source, &[])
-      .eligible_names
-      .is_empty()
-  );
+  let report = audit_recovery(Path::new("blocked.cc"), source, &[]);
+  assert!(report.has_error);
+  assert_eq!(report.eligible_names, ["DECLARE"]);
+  assert_eq!(report.macro_spans.len(), 1);
+  assert_eq!(&source[report.macro_spans[0].clone()], "DECLARE(valid)");
 }
 
 #[test]
@@ -853,8 +853,10 @@ fn comment_and_control_whitespace_invocations_cannot_escape_proof_intervals() {
     );
     let audit = audit_recovery(Path::new("comments.cc"), &source, &[]);
     assert!(audit.has_error, "{spacing:?}: {audit:?}");
-    assert!(audit.eligible_names.is_empty(), "{spacing:?}: {audit:?}");
-    assert!(audit.macro_spans.is_empty());
+    assert_eq!(audit.eligible_names, ["CHECK"], "{spacing:?}: {audit:?}");
+    assert_eq!(audit.macro_spans.len(), 1);
+    assert_eq!(audit.macro_spans[0].start, source.rfind("CHECK(value())").unwrap());
+    assert_eq!(&source[audit.macro_spans[0].clone()], "CHECK(value())");
   }
   for invocation in [
     "CHECK /* note */ (value(), second())",
@@ -1321,11 +1323,10 @@ fn closed_macro_else_and_extra_semicolons_remain_original_span_errors() {
     );
   }
   let mixed = "#define CHECK(x) if (x) { sink(x); }\nvoid first() { CHECK(value()) }\n#undef CHECK\n#define CHECK(x) { sink(x); }\nvoid second() { CHECK(value()) }\n";
-  assert!(
-    audit_recovery(Path::new("mixed.cc"), mixed, &[])
-      .eligible_names
-      .is_empty()
-  );
+  let report = audit_recovery(Path::new("mixed.cc"), mixed, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  assert_eq!(report.macro_spans.len(), 2);
   let ordinary = "void run() { CHECK(value()) else after(); }\n";
   assert!(audit_recovery(Path::new("ordinary.cc"), ordinary, &[]).has_error);
 }
@@ -1884,16 +1885,22 @@ fn do_while_statement_wrappers_require_the_original_terminator() {
     let mut scanned = Vec::new();
     encode_product_into(&handed, &mut scanned);
     assert_eq!(owned, scanned);
-    // One unproven use still blocks the offset-free scanner for the entire name.
+    // Unproven sites remain raw; an earlier proven do/while site survives undef.
+    let later_ordinary = source.replace(
+      "void following()",
+      "#undef CHECK\nvoid unproven() { CHECK(value()) }\nvoid following()",
+    );
+    let report = audit_recovery(Path::new("do.cc"), &later_ordinary, &[]);
+    assert!(report.has_error);
+    assert_eq!(report.eligible_names, ["CHECK"]);
+    assert_eq!(report.macro_spans.len(), 1);
+    assert!(report.calls.iter().any(|(name, span)| name == "CHECK"
+      && span.start == later_ordinary.rfind("CHECK(value())").unwrap()));
     for bad in [
       source.replace(" /* ending */ ;", " /* ending */ "),
       source.replace("while (false)", "while ()"),
       source.replace("while (false)", "while (false) junk"),
       source.replace("CHECK(value())", "CHECK(value(), extra())"),
-      source.replace(
-        "void following()",
-        "#undef CHECK\nvoid unproven() { CHECK(value()) }\nvoid following()",
-      ),
       source.replace("do { sink(v); } while (false)", "sink(v)"),
     ] {
       let report = audit_recovery(Path::new("do.cc"), &bad, &[]);
@@ -2158,5 +2165,68 @@ fn conditional_return_values_preserve_proof_and_all_original_call_sites() {
       assert!(report.macro_spans.is_empty(), "{report:?}");
       assert!(report.has_error, "{report:?}");
     }
+  }
+}
+
+#[test]
+fn exact_production_sites_preserve_partial_proof_all_parse_paths_and_ordinary_calls() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  let lf = "// Grüße 日本語\n#define CHECK(x) { sink(x); }\nvoid run() { CHECK(first()); int bad = object.CHECK(second()); CHECK(last()) }\n#undef CHECK\nint CHECK(int); int ordinary() { return CHECK(value()); }\nvoid following() { after(); }\n";
+  for newline in ["\n", "\r\n"] {
+    let source = lf.replace('\n', newline);
+    let report = audit_recovery(Path::new("sites.cc"), &source, &[]);
+    assert!(report.has_error);
+    assert_eq!(report.eligible_names, ["CHECK"]);
+    assert_eq!(report.macro_spans.len(), 2);
+    assert_eq!(report.context_errors.len(), 1);
+    assert_eq!(
+      &source[report.context_errors[0].clone()],
+      "object.CHECK(second())"
+    );
+    let product = extractor.extract_product("sites.cc", &source).unwrap();
+    assert!(product.error_nodes > 0);
+    for name in ["first", "second", "last", "value", "after"] {
+      let call = product
+        .refs
+        .iter()
+        .find(|r| r.kind == 0 && r.name == name)
+        .unwrap();
+      assert_eq!(
+        &source[call.start as usize..call.end as usize],
+        format!("{name}()")
+      );
+    }
+    let ordinary: Vec<_> = product
+      .refs
+      .iter()
+      .filter(|r| r.kind == 0 && r.name == "CHECK")
+      .collect();
+    assert_eq!(ordinary.len(), 1);
+    assert_eq!(
+      ordinary[0].start as usize,
+      source.find("CHECK(value())").unwrap()
+    );
+    assert!(!product.refs.iter().any(|r| r.name == "sink"));
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("sites.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw = SgLang::from_path("sites.cc").unwrap().grep(&source);
+    let handed = extractor
+      .extract_product_from_root("sites.cc", &raw)
+      .unwrap();
+    let mut scanned = Vec::new();
+    encode_product_into(&handed, &mut scanned);
+    assert_eq!(owned, scanned);
   }
 }

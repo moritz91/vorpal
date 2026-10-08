@@ -18,8 +18,8 @@ pub struct RecoveryAudit {
   pub context_errors: Vec<Range<usize>>,
 }
 
-/// Prove every invocation of a name before giving it to the offset-free scanner.
-/// One unproven/incorrect-arity occurrence disables that name for the whole file.
+/// Prove each original invocation before giving its byte position to the scanner.
+/// Unproven/incorrect-arity occurrences remain raw without enabling their names.
 /// This report does not write products or activate recovery in default extraction.
 pub fn audit_recovery(path: &Path, source: &str, roots: &[PathBuf]) -> RecoveryAudit {
   vorpal_language::with_cpp_statement_macros(&[], || audit_without_context(path, source, roots))
@@ -257,22 +257,6 @@ fn parse_with_evidence(
   crate::cpp_macro_evidence::Evidence,
   ContextDiagnostics,
 ) {
-  parse_with_evidence_mode(source, raw, evidence, false)
-}
-
-// Exact-site mode is restricted to report-only compiler observations. Normal
-// extraction retains the existing name-wide proof and cache contract.
-fn parse_with_evidence_mode(
-  source: &str,
-  raw: crate::ParsedRoot,
-  evidence: crate::cpp_macro_evidence::Evidence,
-  exact_sites: bool,
-) -> (
-  crate::ParsedRoot,
-  Vec<String>,
-  crate::cpp_macro_evidence::Evidence,
-  ContextDiagnostics,
-) {
   let lang = SgLang::Builtin(SupportLang::Cpp);
   // An empty proof cannot produce eligible scanner names or context diagnoses.
   // Keep the original tree and the complete dependency observation, avoiding a
@@ -303,8 +287,6 @@ fn parse_with_evidence_mode(
     .iter()
     .map(|b| b.definition.name.clone())
     .collect();
-  let mut candidates: BTreeMap<String, BTreeMap<usize, usize>> = BTreeMap::new();
-  let mut rejected = BTreeSet::new();
   let mut invocation_kinds: BTreeMap<String, BTreeMap<usize, (usize, bool)>> = BTreeMap::new();
   let bytes = source.as_bytes();
   let mut i = 0;
@@ -324,12 +306,9 @@ fn parse_with_evidence_mode(
         continue;
       }
       let Some(next) = invocation_spacing(bytes, i) else {
-        if !exact_sites {
-          rejected.insert(name.to_owned());
-        }
         continue;
       };
-      // Comments are whitespace between the name and '('; the offset-free
+      // Comments are whitespace between the name and '('; the site-scoped
       // scanner must use exactly the same conservative spacing rules.
       if bytes.get(next) == Some(&b'(') {
         let proven = evidence.at(name, start).and_then(|definition| {
@@ -355,94 +334,65 @@ fn parse_with_evidence_mode(
           {
             return None;
           }
-          Some((
-            count,
-            end,
-            crate::cpp_macro_evidence::statement_accepts_else(&replacement),
-          ))
+          Some((end, crate::cpp_macro_evidence::statement_accepts_else(&replacement)))
         });
-        if let Some((count, end, open_if)) = proven {
+        if let Some((end, open_if)) = proven {
           invocation_kinds
             .entry(name.to_owned())
             .or_default()
             .insert(start, (end, open_if));
-          candidates
-            .entry(name.to_owned())
-            .or_default()
-            .insert(start, count);
-        } else if !exact_sites {
-          rejected.insert(name.to_owned());
         }
       }
     } else {
       i += 1;
     }
   }
-  // Offset-free scanner framing cannot change syntax class in the middle of a file.
-  for (name, sites) in &invocation_kinds {
-    let classes: BTreeSet<_> = sites.values().map(|(_, open_if)| *open_if).collect();
-    if !exact_sites && classes.len() != 1 {
-      rejected.insert(name.clone());
-    }
-  }
-  let open_if_names: Vec<_> = invocation_kinds
-    .iter()
-    .filter(|(_, sites)| sites.values().all(|(_, open_if)| *open_if))
-    .map(|(name, _)| name.clone())
-    .collect();
-  let mut eligible_names: Vec<_> = candidates
-    .into_keys()
-    .filter(|name| name.len() <= 128 && name.is_ascii() && !rejected.contains(name))
+  let mut eligible_names: Vec<_> = invocation_kinds
+    .keys()
+    .filter(|name| name.len() <= 128 && name.is_ascii())
+    .cloned()
     .collect();
   let parse = |names: &[String], blocked: &BTreeSet<usize>| {
-    if exact_sites {
-      let mut sites: Vec<_> = invocation_kinds
-        .iter()
-        .filter(|(name, _)| names.contains(name))
-        .flat_map(|(name, entries)| {
-          entries
-            .iter()
-            .filter(|(start, _)| !blocked.contains(start))
-            .map(|(&start, &(_, open_if))| vorpal_language::CppStatementMacroSite {
-              offset: u32::try_from(start).expect("bounded original source"),
+    let mut sites: Vec<_> = invocation_kinds
+      .iter()
+      .filter(|(name, _)| names.contains(name))
+      .flat_map(|(name, entries)| {
+        entries
+          .iter()
+          .filter(|(start, _)| !blocked.contains(start))
+          .filter_map(|(&start, &(_, open_if))| {
+            Some(vorpal_language::CppStatementMacroSite {
+              offset: u32::try_from(start).ok()?,
               name: name.clone(),
               open_if,
             })
-        })
-        .collect();
-      sites.sort_by_key(|site| site.offset);
-      return vorpal_language::with_cpp_statement_macro_sites(&sites, || lang.grep(source));
-    }
-    let open: Vec<_> = open_if_names
-      .iter()
-      .filter(|name| names.contains(name))
-      .cloned()
+          })
+      })
       .collect();
-    vorpal_language::with_cpp_statement_macro_kinds(names, &open, || lang.grep(source))
+    sites.sort_by_key(|site| site.offset);
+    vorpal_language::with_cpp_statement_macro_sites(&sites, || lang.grep(source))
   };
   let mut blocked = BTreeSet::new();
   let mut parsed = parse(&eligible_names, &blocked);
   let uses = macro_calls(&parsed, &evidence);
-  let invalid: BTreeSet<_> = uses
-    .iter()
-    .filter(|(_, _, expression)| *expression)
-    .map(|(name, _, _)| name.clone())
-    .collect();
   let mut errors: Vec<_> = uses
     .into_iter()
     .filter(|(_, _, expression)| *expression)
     .map(|(_, span, _)| span)
     .collect();
-  if exact_sites {
-    blocked.extend(errors.iter().map(|span| span.start));
-    if !blocked.is_empty() {
-      eligible_names.retain(|name| {
-        invocation_kinds[name].keys().any(|start| !blocked.contains(start))
-      });
-      parsed = parse(&eligible_names, &blocked);
-    }
-  } else if eligible_names.iter().any(|name| invalid.contains(name)) {
-    eligible_names.retain(|name| !invalid.contains(name));
+  // A member/qualified call starts before its macro name. Block the actual
+  // proven name position covered by that original context diagnostic.
+  blocked.extend(
+    invocation_kinds
+      .values()
+      .flat_map(|sites| sites.keys())
+      .filter(|&&start| errors.iter().any(|span| span.contains(&start)))
+      .copied(),
+  );
+  if !blocked.is_empty() {
+    eligible_names.retain(|name| {
+      invocation_kinds[name].keys().any(|start| !blocked.contains(start))
+    });
     parsed = parse(&eligible_names, &blocked);
   }
   errors.extend(incompatible_else_spans(
@@ -647,7 +597,7 @@ pub(crate) fn audit_compiler_evidence(
   vorpal_language::with_cpp_statement_macros(&[], || {
     let raw = SgLang::Builtin(SupportLang::Cpp).grep(source);
     let (parsed, eligible, evidence, diagnostics) =
-      parse_with_evidence_mode(source, raw, evidence, true);
+      parse_with_evidence(source, raw, evidence);
     let member_calls = parsed
       .root()
       .dfs()

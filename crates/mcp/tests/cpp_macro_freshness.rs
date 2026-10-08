@@ -1108,3 +1108,83 @@ fn conditional_return_values_keep_both_branches_after_header_revalidation() {
     }
   }
 }
+
+#[test]
+fn exact_sites_keep_normal_mcp_calls_after_undef_and_revalidate_external_headers() {
+  for watch_rebuild in [false, true] {
+    for newline in ["\n", "\r\n"] {
+      let base = std::env::temp_dir().join(format!(
+        "vorpal-mcp-byte-sites-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .unwrap()
+          .as_nanos()
+      ));
+      let src = base.join("repo");
+      let headers = base.join("headers");
+      fs::create_dir_all(&src).unwrap();
+      fs::create_dir_all(&headers).unwrap();
+      let header = headers.join("proof.h");
+      let safe = "#define CHECK(x) { sink(x); }\n".replace('\n', newline);
+      let unsafe_definition = "#define CHECK(x)   sink(x)   \n".replace('\n', newline);
+      assert_eq!(safe.len(), unsafe_definition.len());
+      fs::write(&header, &safe).unwrap();
+      let source = "// Grüße 日本語\n#include <proof.h>\nvoid run() { CHECK(target()) after(); }\n#undef CHECK\nint CHECK(int v) { return v; }\nint ordinary() { return CHECK(next()); }\nint target() { return 1; }\nvoid after() {}\nint next() { return 2; }\n".replace('\n', newline);
+      let path = src.join("main.cc");
+      fs::write(&path, &source).unwrap();
+      let env = ExtractionEnv {
+        cpp_macro_include_roots: Some(vec![headers]),
+        ..Default::default()
+      };
+      let index = src.join(".vorpal/index");
+      vorpal_index::build_index_env(&src, &index, Default::default(), Default::default(), &env)
+        .unwrap();
+      let mut server =
+        Server::with_profile_env_rebuild(index.clone(), Profile::Full, env, watch_rebuild);
+      let mut id = 1;
+      let mut initial_generation = None;
+      for restored in [false, true] {
+        assert!(health(&mut server, id).contains("parse health: clean"));
+        id += 1;
+        for (owner, expected) in [
+          ("run", &["target", "after"][..]),
+          ("ordinary", &["CHECK", "next"][..]),
+        ] {
+          let response = server.handle_line(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"graph","arguments":{"relation":"callees","name":owner,"format":"lean"}}}).to_string()).unwrap();
+          id += 1;
+          let response: Value = serde_json::from_str(&response).unwrap();
+          assert_eq!(response["result"]["isError"], false, "{response}");
+          let rows = response["result"]["structuredContent"]["records"]
+            .as_array()
+            .unwrap();
+          assert_eq!(rows.len(), expected.len(), "{response}");
+          for name in expected {
+            assert!(rows.iter().any(|row| row["name"] == *name), "{response}");
+          }
+        }
+        let generation = fs::read(index.join("CURRENT")).unwrap();
+        if restored {
+          assert_eq!(Some(generation), initial_generation);
+        } else {
+          initial_generation = Some(generation);
+          let modified = fs::metadata(&header).unwrap().modified().unwrap();
+          fs::write(&header, &unsafe_definition).unwrap();
+          fs::File::options()
+            .write(true)
+            .open(&header)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+          let changed_health = health(&mut server, id);
+          assert!(changed_health.contains("carry ERROR/MISSING nodes"), "{changed_health}");
+          id += 1;
+          fs::write(&header, &safe).unwrap();
+        }
+      }
+      drop(server);
+      assert_eq!(fs::read_to_string(path).unwrap(), source);
+      fs::remove_dir_all(base).unwrap();
+    }
+  }
+}

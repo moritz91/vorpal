@@ -1894,8 +1894,8 @@ same-name occurrence. Invalid arguments, ordinary missing semicolons and
 incompatible expression contexts retain original diagnostics; mixed closed/open
 if replacements retain the else binding for their respective positions. Report
 invocation spans exclude the source semicolon/else clause belonging to the full
-statement node. This precise mode is limited to the compiler report: normal
-extraction retains the existing metadata/name-wide proof and production identities.
+statement node. This precise mode was initially limited to the compiler report;
+the production extension described below uses the same independently checked sites.
 
 Four scanner controls and fourteen compiler-report controls pass on Windows/Linux,
 as do the unchanged production parser/evidence/recovery/replay and resolver checks,
@@ -1906,3 +1906,26 @@ input_manager_tests.cc while preserving its remaining errors; the previous seven
 clean reports and log/UI results remain. SDK-backed production compiler selection,
 native preprocessing and dependency validation are still required. No report is
 turned into a production tree, product or normal MCP SDK recovery proof.
+
+Configured metadata recovery now uses exact original invocation sites in owned,
+streaming and Scan-root extraction, including ordinary same-name calls after
+undef and different closed/open-if replacements in one source. Invalid member
+or qualified contexts block the actual macro-name position covered by the
+original diagnostic rather than assuming the diagnostic starts at the name.
+Unproven sites remain raw; no source rewriting or error suppression is added.
+Metadata dependency evidence remains v23, while opt-in product identity advances
+to v23 so unchanged sources/headers with a prior name-wide declined product
+must reparse. Disabled/default extraction still uses an empty scanner context.
+
+Windows/Linux checks pass for 44 recovery regressions, fourteen compiler-report
+controls, four scanner controls, fifteen bucketed/flat replay cases, sixteen
+watched-MCP cases, six CLI configuration cases and the existing parser/evidence,
+member-call/health and resolver suites. The new production checks retain original
+UTF-8/LF/CRLF argument and following-function spans, owned/streaming/Scan parity,
+ordinary same-name graph edges and external header edit/restoration invalidation
+even with restored timestamps. Frozen product-v22 migration is covered. Native
+ingest/language and Linux default/no-builtins workspace Clippy pass; all 179
+unchanged corpus cases and provenance checks pass. Grammar/schema/provenance are
+unchanged by this production extension. Compiler observation inputs still return
+only reports: SDK compiler selection, native preprocessing and dependency
+validation remain required before any SDK-backed production recovery.

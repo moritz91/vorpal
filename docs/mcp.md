@@ -414,6 +414,16 @@ mode the enrolled registry supplies each source root, including external indexes
 `--src` and `--projects` cannot be combined. Missing/non-directory CLI roots fail
 at startup. `--no-watch-rebuild` still keeps lazy query-time freshness active.
 
+Configured recovery proves each original invocation separately and passes its
+exact byte position and statement syntax to the scanner. An unsupported or
+ordinary same-name call does not disable an independent proven statement; calls
+after `#undef`, invalid arguments and incompatible expression contexts remain
+ordinary calls or original diagnostics. Macro arguments retain their source
+spans, and the macro name creates no runtime call edge. Opt-in product identity
+v23 reparses earlier name-wide declined products. Opaque SDK includes still stop
+metadata proof; compiler observations remain report-only and are not enabled by
+this configuration.
+
 The daemon watches the source tree (FSEvents/inotify) and rebuilds **proactively**: after a
 save, once the tree is quiet for half a second, a background worker rebuilds the index so the
 first query after an edit is already warm (it pays a fast-path check plus an mmap reload, not

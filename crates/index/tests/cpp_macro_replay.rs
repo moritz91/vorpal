@@ -778,6 +778,12 @@ fn old_return_value_and_macro_save_proofs_cannot_replay_stale_errors() {
       b"vorpal-cpp-macro-evidence-v22\0",
       b"vorpal-cpp-macro-product-v21\0",
     ),
+    (
+      "sites",
+      "#define CHECK(v) { (v); }\nint value() { return 1; }\nvoid run() { CHECK(value()) }\n#undef CHECK\nint CHECK(int); int ordinary() { return CHECK(value()); }\n",
+      b"vorpal-cpp-macro-evidence-v23\0",
+      b"vorpal-cpp-macro-product-v22\0",
+    ),
   ] {
     for newline in ["\n", "\r\n"] {
       let nonce = std::time::SystemTime::now()
