@@ -346,7 +346,9 @@ fn unsupported_definitions_cannot_turn_into_complete_statements() {
   for (header, parameters) in [
     ("#define CHECK(x) expression(x)\n", 1),
     ("#define CHECK(x) void generated() { sink(x); }\n", 1),
-    ("#define CHECK(x, ...) { sink(x); }\n", 1),
+    // LLVM's MacroInfo count includes the implicit variadic parameter; the
+    // original parser has only the one named identifier here.
+    ("#define CHECK(x, ...) { sink(x); }\n", 2),
     ("#define CHECK(x, x) { sink(x); }\n", 2),
     ("#define CHECK(x) do { sink(x); } while(0)\n", 1),
   ] {
@@ -512,6 +514,60 @@ fn an_expanding_member_name_does_not_become_a_member_call() {
   let report = audit(observation.path, source, &observation).unwrap();
   assert!(report.has_error, "{report:?}");
   assert!(report.member_calls.is_empty(), "{report:?}");
+  let (_, span) = report
+    .calls
+    .iter()
+    .find(|(name, _)| name == "value")
+    .unwrap();
+  assert_eq!(&source[span.clone()], "value()");
+}
+
+#[test]
+fn unsupported_variadic_anchors_keep_independent_proof_and_ordinary_same_name_calls() {
+  let source = "void run() { CHECK(value()) object.LOG(\"cat\", \"member\"); LOG(\"cat\", \"macro\"); }\n#undef LOG\nvoid other() { LOG(\"cat\", \"ordinary\"); }";
+  let variadic = "#define LOG(category, ...) dispatch(category, __VA_ARGS__)\n";
+  let definitions = [
+    DefinitionBuffer {
+      path: Path::new("proof.h"),
+      source: HEADER,
+    },
+    DefinitionBuffer {
+      path: Path::new("log.h"),
+      source: variadic,
+    },
+  ];
+  let mut expansions = [
+    expansion(source, "CHECK(value())", HEADER, "CHECK"),
+    expansion(source, "LOG(\"cat\", \"member\")", variadic, "LOG"),
+    expansion(source, "LOG(\"cat\", \"macro\")", variadic, "LOG"),
+  ];
+  for e in &mut expansions[1..] {
+    let anchor = e.definition.as_mut().unwrap();
+    anchor.buffer = 1;
+    anchor.parameters = 2;
+  }
+  let names = BTreeSet::from(["CHECK".to_owned(), "LOG".to_owned()]);
+  let observation = Observation {
+    path: Path::new("sample.cc"),
+    source,
+    definitions: &definitions,
+    expansions: &expansions,
+    expanded_names: &names,
+    complete: true,
+    volatile_inputs: false,
+  };
+  let report = audit(observation.path, source, &observation).unwrap();
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  assert_eq!(report.macro_spans.len(), 1);
+  assert!(report.member_calls.is_empty(), "{report:?}");
+  let ordinary = source.find("LOG(\"cat\", \"ordinary\")").unwrap();
+  let calls: Vec<_> = report
+    .calls
+    .iter()
+    .filter(|(name, _)| name == "LOG")
+    .collect();
+  assert_eq!(calls.len(), 1, "{report:?}");
+  assert_eq!(calls[0].1.start, ordinary);
   let (_, span) = report
     .calls
     .iter()

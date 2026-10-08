@@ -1853,7 +1853,7 @@ bytes decline. Pasted/function-generating TEST definitions remain unsupported;
 no expanded function owners or graph improvements are claimed. Hades and the
 productive `.2` remain unchanged.
 
-Eleven compiler-audit regressions cover restored/unsupported definitions,
+Twelve compiler-audit regressions cover restored/unsupported definitions,
 stale/incomplete/volatile observations, malformed anchors, conflicting buffers,
 resource limits, nested effects, real missing semicolons/argument errors,
 unobserved invocations, original member spans, generated function names and
@@ -1865,3 +1865,17 @@ The unchanged 179-case corpus, provenance and Actionlint checks pass. All 902
 configured original C++ products remain identical after only source stat/identity
 normalization; complete clone sketches match without normalization. Grammar,
 schema, provenance and production extraction identities are unchanged.
+
+The compiler observation audit also handles LLVM's implicit variadic parameter:
+unsupported signatures decline only their definition before comparing supported
+parameter counts. An unrelated valid ASSERT proof is retained. Actual observed
+macro callee sites are omitted from the report, including member spellings;
+argument calls and ordinary same-name calls after undef retain original spans.
+The native Windows/Linux sixteen-source report agrees exactly: seven files are
+parse-clean (132 statements), log_tests.cc recovers 37 ASSERT statements while
+retaining other errors, and ui_tests.cc recovers 967 ASSERT statements while
+retaining other errors. Input-manager proof still declines the entire ASSERT
+name, and six observations are incomplete or differ from native preprocessing.
+These are report-only results, not production graphs or normal SDK recovery.
+The twelve controls and ingest Clippy pass on both platforms. All three full CI
+jobs for 121c8ad are green (37821305016). Production identities/runtime are unchanged.

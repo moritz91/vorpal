@@ -223,20 +223,23 @@ fn audit_without_context(
       .filter(|n| n.is_named())
       .map(|n| n.text().into_owned())
       .collect();
+    // MacroInfo includes an implicit variadic parameter that has no named
+    // identifier in the original AST. Unsupported signatures decline only this
+    // definition; do not mistake their different count for a malformed anchor.
+    if definition.has_error()
+      || !parameter_node
+        .children()
+        .all(|n| n.kind().as_ref() == "identifier" || matches!(n.text().as_ref(), "(" | ")" | ","))
+      || parameters.iter().collect::<BTreeSet<_>>().len() != parameters.len()
+    {
+      continue;
+    }
     if parameters.len() != anchor.parameters {
       return Err(Declined::InvalidDefinition);
     }
     let template = templates
       .entry((anchor.buffer, anchor.name_offset))
       .or_insert_with(|| {
-        if definition.has_error()
-          || !parameter_node.children().all(|n| {
-            n.kind().as_ref() == "identifier" || matches!(n.text().as_ref(), "(" | ")" | ",")
-          })
-          || parameters.iter().collect::<BTreeSet<_>>().len() != parameters.len()
-        {
-          return None;
-        }
         let replacement = statement_replacement(value, &parameters)?;
         Some(StatementMacro {
           name: name.to_owned(),
@@ -268,12 +271,36 @@ fn audit_without_context(
   }) {
     return Err(Declined::InvalidExpansion);
   }
+  let expansion_starts: BTreeMap<_, _> = observation
+    .expansions
+    .iter()
+    .map(|expansion| (expansion.invocation.start, expansion.name))
+    .collect();
   Ok(CompilerRecoveryAudit {
     has_error: report.has_error,
     eligible_names: report.eligible_names,
     macro_spans: report.macro_spans,
-    calls: report.calls,
-    member_calls,
+    // Unsupported macros still expand. Suppress only a callee whose original
+    // site is observed, retaining argument calls and ordinary same-name calls
+    // after undef. No expansion or source masking is used to invent a target.
+    calls: report
+      .calls
+      .into_iter()
+      .filter(|(name, span)| {
+        expansion_starts
+          .get(&span.start)
+          .is_none_or(|expanded| *expanded != name)
+      })
+      .collect(),
+    member_calls: member_calls
+      .into_iter()
+      .filter(|(callee, span)| {
+        let Some(end) = span.start.checked_add(callee.len()) else {
+          return false;
+        };
+        expansion_starts.range(span.start..end).next().is_none()
+      })
+      .collect(),
     functions: report
       .functions
       .into_iter()
