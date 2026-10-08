@@ -2537,6 +2537,25 @@
     }
   },
   {
+    "type": "conditional_return_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "preproc_if",
+          "named": true
+        },
+        {
+          "type": "preproc_ifdef",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "conditional_split_if_statement",
     "named": true,
     "fields": {
@@ -6473,6 +6492,16 @@
             "named": true
           }
         ]
+      },
+      "right": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
       }
     },
     "children": {
@@ -6708,6 +6737,16 @@
           }
         ]
       },
+      "left": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
       "operator": {
         "multiple": false,
         "required": false,
@@ -6878,6 +6917,16 @@
           },
           {
             "type": "preproc_else",
+            "named": true
+          }
+        ]
+      },
+      "left": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
             "named": true
           }
         ]
@@ -7529,6 +7578,10 @@
         },
         {
           "type": "conditional_logical_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_return_expression",
           "named": true
         },
         {

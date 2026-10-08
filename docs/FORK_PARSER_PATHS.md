@@ -1634,3 +1634,29 @@ and swallow diagnostics remain unchanged. The remaining 901 products are
 byte-identical after the stated normalization. Only the C++ provenance digest
 changes; schema and visible node kinds remain unchanged. Actual Hades ASSERT
 proofs remain blocked by opaque SDK includes. The productive .2 runtime is intact.
+
+Complete conditional return values now have an explicit conditional_return_expression:
+zero or more complete if/ifdef logical-prefix groups followed by a complete if/ifdef
+value group with a mandatory else operand. Original branch conditions, operands and
+operator spans survive; conditions are never selected or evaluated. Every group
+requires directive line endings, and the caller return still requires its semicolon.
+The new visible kind is synchronized in node types and the C++ rule schema; only the
+C++ provenance entry changes. No general expression or macro-prefix extension.
+
+LF/CRLF controls cover if/ifdef/ifndef, with/without a logical prefix, namespace end
+spans, original argument/callee sites and owners, and equal owned/streaming/scan
+products. Empty/missing arms, missing directives/operators/terminators and ordinary
+missing semicolons remain errors. Native MSVC accepts all four branch combinations
+on both newline styles and rejects the malformed controls. All 61 parser tests,
+evidence/recovery, outline, index/replay/resolver, normal MCP/CLI, corpus/schema,
+provenance and native/Linux workspace/default/no-builtins Clippy gates pass.
+
+Against verified v55, all 902 complete original C++ products change only Catch2
+(after stamp/grammar/sketch-seed normalization). Diagnostics fall from 56 / 580 bytes
+to 52 / 571 bytes. The real useColourOnPlatform function and its 47-shingle sketch
+are restored; its surrounding namespace gains the correct final 25 source bytes.
+Two existing calls retain every original site/argument/form and move from that
+namespace to the restored function. Every other complete item/member, reference,
+parameter, return fact, cut, representative error span, request, swallow and retained
+sketch owner/shingle count is unchanged. The remaining 901 products are identical
+after normalization. This does not widen opaque SDK macro proof or modify Hades.

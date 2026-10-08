@@ -3277,3 +3277,132 @@ namespace Native {
     assert!(product.signatures.is_empty());
   }
 }
+
+
+#[test]
+fn conditional_return_prefix_and_values_preserve_all_arms_and_owners() {
+  let lf = r#"bool prefix(); bool selected(); bool fallback(); bool next();
+namespace Palette {
+bool use() {
+ return
+#if FLAG_A
+ prefix() &&
+#endif
+#if FLAG_B
+ selected()
+#else
+ fallback()
+#endif
+ ;
+}
+bool following() { return next(); }
+}
+"#;
+  for form in [
+    lf.to_owned(),
+    lf.replace("#if FLAG_A", "#ifdef FLAG_A")
+      .replace("#if FLAG_B", "#ifndef FLAG_B"),
+    lf.replace("#if FLAG_A\n prefix() &&\n#endif\n", ""),
+  ] {
+    for source in [form.clone(), form.replace('\n', "\r\n")] {
+      let raw = SgLang::from_path("conditional.cc").unwrap().grep(&source);
+      assert!(!raw.root().has_error());
+      let value = raw
+        .root()
+        .dfs()
+        .find(|n| n.kind() == "conditional_return_expression")
+        .unwrap();
+      let groups: Vec<_> = value
+        .children()
+        .filter(|n| matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef"))
+        .collect();
+      assert_eq!(
+        groups.len(),
+        if source.contains("prefix() &&") { 2 } else { 1 }
+      );
+      let last = groups.last().unwrap();
+      assert_eq!(last.field("left").unwrap().text(), "selected()");
+      let alternative = last.field("alternative").unwrap();
+      assert_eq!(alternative.kind(), "preproc_else");
+      assert_eq!(alternative.field("right").unwrap().text(), "fallback()");
+      if groups.len() == 2 {
+        assert_eq!(groups[0].field("left").unwrap().text(), "prefix()");
+        assert_eq!(groups[0].field("operator").unwrap().text(), "&&");
+      }
+      let extractor = OutlineExtractor::new().unwrap();
+      let product = extractor
+        .extract_product("conditional.cc", &source)
+        .unwrap();
+      assert_eq!(product.error_nodes, 0);
+      let namespace = product
+        .items
+        .iter()
+        .find(|i| i.entry.name == "Palette")
+        .unwrap();
+      assert_eq!(
+        namespace.entry.range.byte_offset.end,
+        source.rfind('}').unwrap() + 1
+      );
+      for name in ["prefix", "selected", "fallback", "next"] {
+        let calls: Vec<_> = product
+          .refs
+          .iter()
+          .filter(|r| r.kind == 0 && r.name == name)
+          .collect();
+        let count = usize::from(name != "prefix" || groups.len() == 2);
+        assert_eq!(calls.len(), count, "{name}");
+        for call in calls {
+          assert_eq!(
+            &source[call.start as usize..call.end as usize],
+            format!("{name}()")
+          );
+          let owner = product
+            .items
+            .iter()
+            .position(|i| i.entry.name == if name == "next" { "following" } else { "use" })
+            .unwrap() as u32
+            + 1;
+          assert_eq!(call.from_entity_index, owner);
+        }
+      }
+      assert!(
+        !product
+          .refs
+          .iter()
+          .any(|r| r.kind == 0 && ["FLAG_A", "FLAG_B"].contains(&r.name.as_str()))
+      );
+      let mut owned = Vec::new();
+      vorpal_ingest::encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("conditional.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let scan = extractor
+        .extract_product_from_root("conditional.cc", &raw)
+        .unwrap();
+      let mut handed = Vec::new();
+      vorpal_ingest::encode_product_into(&scan, &mut handed);
+      assert_eq!(owned, handed);
+    }
+  }
+  for bad in [
+    lf.replace(" fallback()", ""),
+    lf.replace("#else\n fallback()\n", ""),
+    lf.replace("#endif\n ;", " ;"),
+    lf.replace(" ;\n", "\n"),
+    lf.replace("prefix() &&", "prefix()"),
+    "bool f() { ordinary() }\n".to_owned(),
+  ] {
+    for source in [bad.clone(), bad.replace('\n', "\r\n")] {
+      assert!(
+        SgLang::from_path("conditional.cc")
+          .unwrap()
+          .grep(&source)
+          .root()
+          .has_error(),
+        "{source}"
+      );
+    }
+  }
+}

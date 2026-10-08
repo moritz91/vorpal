@@ -10,16 +10,18 @@ from pathlib import Path
 path = Path(__file__).resolve().parents[1] / 'grammars/tree-sitter-cpp/src/grammar.json'
 grammar = json.loads(path.read_text(encoding='utf-8'))
 rules = grammar['rules']
-# Remove the previous return-only suffix before deriving dialect returns. The
+# Remove previous return-only additions before deriving dialect returns. The
 # ordinary C++ addition below must not migrate into an Objective-C body clone.
 return_rule = rules['return_statement']
 if return_rule.get('type') == 'CHOICE' and any(
         member.get('type') == 'SEQ' and any(
-            part == {'type': 'SYMBOL', 'name': 'conditional_logical_expression'}
+            part.get('type') == 'SYMBOL' and part.get('name') in
+            ['conditional_logical_expression', 'conditional_return_expression']
             for part in member['members']) for member in return_rule['members']):
     rules['return_statement'] = return_rule['members'][0]
 for name in list(rules):
-    if name.startswith('_conditional_logical_') or name == 'conditional_logical_expression':
+    if (name.startswith(('_conditional_logical_', '_conditional_return_')) or name in
+            ['conditional_logical_expression', 'conditional_return_expression']):
         del rules[name]
 # Rebuild conditional declaration scopes from the ordinary entries. They must
 # never leak into a function's block context on a later reproduction run.
@@ -1198,6 +1200,30 @@ rules['conditional_logical_expression'] = seq(field('left', symbol('expression')
         alias_rule('_conditional_logical_ifdef', 'preproc_ifdef'))})
 rules['return_statement'] = choice(rules['return_statement'],
     seq(string('return'), symbol('conditional_logical_expression'), string(';')))
+
+# A return may instead start with complete optional logical prefixes and end
+# in a complete value group with an explicit else operand. Every possible arm
+# retains its original expression and condition; no condition is evaluated.
+prefix = seq(field('left', symbol('expression')),
+    field('operator', choice(string('&&'), string('||'))))
+rules['_conditional_return_prefix_if'] = seq(*if_head[:3], prefix, if_head[-1], string('\n'))
+rules['_conditional_return_prefix_ifdef'] = seq(*ifdef_head[:2], string('\n'),
+    prefix, ifdef_head[-1], string('\n'))
+else_head = rules['preproc_else']['content']['members'][0]
+rules['_conditional_return_value_else'] = seq(else_head, string('\n'),
+    field('right', symbol('expression')))
+alternative = field('alternative', alias_rule('_conditional_return_value_else', 'preproc_else'))
+rules['_conditional_return_value_if'] = seq(*if_head[:3], field('left', symbol('expression')),
+    alternative, if_head[-1], string('\n'))
+rules['_conditional_return_value_ifdef'] = seq(*ifdef_head[:2], string('\n'),
+    field('left', symbol('expression')), alternative, ifdef_head[-1], string('\n'))
+rules['conditional_return_expression'] = seq(repeat(choice(
+    alias_rule('_conditional_return_prefix_if', 'preproc_if'),
+    alias_rule('_conditional_return_prefix_ifdef', 'preproc_ifdef'))), choice(
+    alias_rule('_conditional_return_value_if', 'preproc_if'),
+    alias_rule('_conditional_return_value_ifdef', 'preproc_ifdef')))
+rules['return_statement']['members'].append(seq(string('return'),
+    symbol('conditional_return_expression'), string(';')))
 
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'
