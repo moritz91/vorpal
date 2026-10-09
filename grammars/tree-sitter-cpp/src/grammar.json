@@ -169,6 +169,15 @@
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
+            "name": "_macro_function_definition"
+          },
+          "named": true,
+          "value": "function_definition"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
             "name": "_native_dll_linkage"
           },
           "named": true,
@@ -29246,6 +29255,40 @@
         ]
       }
     },
+    "_macro_function_definition": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_proven_function_macro"
+            },
+            "named": true,
+            "value": "identifier"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "arguments",
+          "content": {
+            "type": "SYMBOL",
+            "name": "argument_list"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "body",
+          "content": {
+            "type": "SYMBOL",
+            "name": "compound_statement"
+          }
+        }
+      ]
+    },
     "_cli_top_level_item": {
       "type": "CHOICE",
       "members": [
@@ -29419,6 +29462,15 @@
           },
           "named": true,
           "value": "preproc_ifdef"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_macro_function_definition"
+          },
+          "named": true,
+          "value": "function_definition"
         },
         {
           "type": "ALIAS",
@@ -33356,6 +33408,10 @@
     {
       "type": "SYMBOL",
       "name": "_proven_open_if_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_function_macro"
     }
   ],
   "inline": [

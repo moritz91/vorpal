@@ -151,3 +151,60 @@ fn included_range_offsets_are_absolute_original_bytes() {
   assert!(tree.root_node().to_sexp().contains("macro_statement"));
   assert!(parser.parse(&source, None).unwrap().root_node().has_error());
 }
+
+#[test]
+fn proven_function_prefixes_preserve_original_bodies_and_do_not_leak_roles() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// Grüße 日本語\nCHECK /* name */ (42) { body(); }\nvoid ordinary() { after(); }"
+      .replace('\n', newline);
+    let offset = source.find("CHECK").unwrap();
+    let sites = [CppProvenMacroSite {
+      offset: offset.try_into().unwrap(),
+      name: "CHECK".into(),
+      kind: CppProvenMacroKind::FunctionPrefix,
+    }];
+    std::thread::scope(|scope| {
+      for _ in 0..4 {
+        scope.spawn(|| {
+          with_cpp_proven_macro_sites(&sites, || {
+            let parsed = SupportLang::Cpp.grep(&source);
+            let root = parsed.root();
+            assert!(!root.has_error());
+            let owner = root
+              .dfs()
+              .find(|n| n.kind().as_ref() == "function_definition" && n.range().start == offset)
+              .unwrap();
+            assert_eq!(owner.field("name").unwrap().text(), "CHECK");
+            assert_eq!(owner.field("arguments").unwrap().text(), "(42)");
+            assert_eq!(owner.field("body").unwrap().text(), "{ body(); }");
+            with_cpp_statement_macros(&[], || {
+              assert!(SupportLang::Cpp.grep(&source).root().has_error())
+            });
+            let panic = std::panic::catch_unwind(|| {
+              with_cpp_proven_macro_sites::<()>(&[], || panic!("fixture"))
+            });
+            assert!(panic.is_err());
+            assert!(!SupportLang::Cpp.grep(&source).root().has_error());
+          });
+          assert!(SupportLang::Cpp.grep(&source).root().has_error());
+        });
+      }
+    });
+    for source in [
+      "void run() { CHECK(42) { body(); } }",
+      "CHECK(42) { missing() }",
+    ] {
+      let sites = [CppProvenMacroSite {
+        offset: source.find("CHECK").unwrap().try_into().unwrap(),
+        name: "CHECK".into(),
+        kind: CppProvenMacroKind::FunctionPrefix,
+      }];
+      assert!(
+        with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(source))
+          .root()
+          .has_error()
+      );
+    }
+  }
+}

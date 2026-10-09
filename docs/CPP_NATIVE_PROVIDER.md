@@ -165,9 +165,9 @@ Comments and literals are distinguished from operators. Invalid paste operands,
 UCNs, manufactured pragma identifiers, oversized parameter amplification and
 missing original do/while semicolons decline recovery. Metadata-only evidence
 still treats pasting effects as opaque; it cannot use native-only proof.
-Function-head/declaration generators still require separate context support.
+Declaration-list generators still require separate context support.
 
-The application, log and UI test files are clean. Four function-head diagnostics
+The application, log and UI test files are clean. Four nested SDL argument-macro diagnostics
 remain in the input tests; native-only proofs do not conceal them. The installed
 release and productive MCP were not changed.
 
@@ -198,5 +198,24 @@ streaming and Scan handoff use the same parser; native products remain nonreplay
 The isolated full Hades index now has 11 error-bearing files and 244 diagnostics
 (951 diagnostic bytes), down from the installed release's 15/378/951. All six
 `ALL_COMPONENT_TYPES(DISPATCH_*)` sites in `registry.cc` are clean. No Hades source
-or productive runtime was modified. This is distinct from function-head and
-template-specialization declaration generation, which remains next work.
+or productive runtime was modified. Template-specialization declaration generation remains separate work.
+
+## Native function-prefix generators
+
+An exact fresh expansion can also supply a complete function prefix followed by
+an original authored body, such as `TEST(name) { ... }`. The parent independently
+checks the physical definition, invocation arity, original top-level or namespace
+position, contiguous macro-origin token slice and a single complete function
+prefix. The scanner role is site-specific and cannot be borrowed inside a block.
+Numeric and identifier generator arguments preserve their original byte spans.
+
+Only the ephemeral proof contains the expanded function prefix. The original
+body is parsed directly and keeps its runtime calls and diagnostics. Its owner
+is anonymous: a name created by token pasting is not published as a name authored
+in the source. Ordinary same-name definitions after undef remain named owners.
+Nested, thread-local and panic-unwinding contexts restore the prior scanner role;
+default parsing and metadata-only parsing gain no generator authorization.
+
+The four input-test diagnostics involve `SDL_BUTTON_LEFT` inside `ASSERT`
+arguments, not `TEST` function heads. They require separate safe argument-expansion
+evidence; function-prefix support alone is not reported as clearing them.

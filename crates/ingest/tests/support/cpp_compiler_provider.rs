@@ -85,7 +85,15 @@ fn compiler_provider_process() {
   let Ok(header) = fs::read_to_string(&header_path) else {
     process::exit(8);
   };
-  let invocation = if mode.starts_with("x-generator") { "CHECK(DISPATCH)" } else if mode == "native-operators" { "CHECK(value)" } else { "CHECK(value())" };
+  let invocation = if mode.starts_with("x-generator") {
+    "CHECK(DISPATCH)"
+  } else if mode.starts_with("function-prefix") {
+    "CHECK(42)"
+  } else if mode == "native-operators" {
+    "CHECK(value)"
+  } else {
+    "CHECK(value())"
+  };
   let start = source.find(invocation).unwrap();
   let native = if fs::read_to_string(directory.join("native-only.h")).is_ok_and(|s| s == "changed")
   {
@@ -103,19 +111,66 @@ fn compiler_provider_process() {
       "definition":{"buffer":0,"nameOffset":header.find("CHECK").unwrap(),"end":header.trim_end().len(),"parameters":1}}],
     "expandedNames":["CHECK"],"calleeSites":[{"name":"CHECK","start":start}]
   });
+  if mode.starts_with("function-prefix") {
+    let tokens = vec!["void", "test_42", "(", ")"];
+    for key in ["nativeBefore", "nativeAfter", "observedTokens"] {
+      packet[key] = json!(tokens);
+    }
+    packet["observedTokenSites"] = json!(
+      tokens
+        .iter()
+        .map(|_| json!({"offset":start,"fromMacro":true}))
+        .collect::<Vec<_>>()
+    );
+    if mode == "function-prefix-origin" {
+      packet["observedTokenSites"][0]["fromMacro"] = json!(false);
+    }
+    if mode == "function-prefix-unclosed" {
+      for key in [
+        "nativeBefore",
+        "nativeAfter",
+        "observedTokens",
+        "observedTokenSites",
+      ] {
+        packet[key].as_array_mut().unwrap().pop();
+      }
+    }
+  }
   if mode.starts_with("x-generator") {
-    let tokens = vec!["if", "(", "ready", ")", "{", "first", "(", ")", ";", "}", "if", "(", "ready", ")", "{", "second", "(", ")", ";", "}"];
+    let tokens = vec![
+      "if", "(", "ready", ")", "{", "first", "(", ")", ";", "}", "if", "(", "ready", ")", "{",
+      "second", "(", ")", ";", "}",
+    ];
     packet["nativeBefore"] = json!(tokens);
     packet["nativeAfter"] = json!(tokens);
     packet["observedTokens"] = json!(tokens);
-    packet["observedTokenSites"] = json!(tokens.iter().map(|_| json!({"offset":start,"fromMacro":true})).collect::<Vec<_>>());
+    packet["observedTokenSites"] = json!(
+      tokens
+        .iter()
+        .map(|_| json!({"offset":start,"fromMacro":true}))
+        .collect::<Vec<_>>()
+    );
     packet["expandedNames"] = json!(["CHECK", "DISPATCH"]);
-    packet["expansions"][0]["definition"]["end"] = json!(header.lines().next().unwrap().trim_end().len());
-    if mode == "x-generator-offset" { packet["observedTokenSites"][0]["offset"] = json!(source.len()); }
-    if mode == "x-generator-origin" { packet["observedTokenSites"][0]["fromMacro"] = json!(false); }
-    if mode == "x-generator-length" { packet["observedTokenSites"].as_array_mut().unwrap().pop(); }
+    packet["expansions"][0]["definition"]["end"] =
+      json!(header.lines().next().unwrap().trim_end().len());
+    if mode == "x-generator-offset" {
+      packet["observedTokenSites"][0]["offset"] = json!(source.len());
+    }
+    if mode == "x-generator-origin" {
+      packet["observedTokenSites"][0]["fromMacro"] = json!(false);
+    }
+    if mode == "x-generator-length" {
+      packet["observedTokenSites"].as_array_mut().unwrap().pop();
+    }
     if mode == "x-generator-unclosed" {
-      for key in ["nativeBefore", "nativeAfter", "observedTokens", "observedTokenSites"] { packet[key].as_array_mut().unwrap().pop(); }
+      for key in [
+        "nativeBefore",
+        "nativeAfter",
+        "observedTokens",
+        "observedTokenSites",
+      ] {
+        packet[key].as_array_mut().unwrap().pop();
+      }
     }
   }
   if mode == "definitions" {

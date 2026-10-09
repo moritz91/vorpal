@@ -138,7 +138,10 @@ mod native {
   }
   #[derive(Deserialize)]
   #[serde(rename_all = "camelCase", deny_unknown_fields)]
-  struct TokenSite { offset: usize, from_macro: bool }
+  struct TokenSite {
+    offset: usize,
+    from_macro: bool,
+  }
 
   #[derive(Deserialize)]
   #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -468,6 +471,156 @@ mod native {
     Some(())
   }
 
+  fn function_prefix_sites(
+    packet: &Packet,
+    root: &crate::ParsedRoot,
+  ) -> Option<Vec<vorpal_language::CppProvenMacroSite>> {
+    use vorpal_core::tree_sitter::LanguageExt;
+    use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, SupportLang};
+    if packet.observed_token_sites.is_empty() {
+      return Some(Vec::new());
+    }
+    let node = root.root();
+    let mut candidates = std::collections::BTreeMap::new();
+    for owner in node
+      .dfs()
+      .filter(|n| n.kind().as_ref() == "function_definition")
+    {
+      if !owner
+        .parent()
+        .is_some_and(|n| matches!(n.kind().as_ref(), "translation_unit" | "declaration_list"))
+      {
+        continue;
+      }
+      let Some(declarator) = owner
+        .field("declarator")
+        .filter(|n| n.kind().as_ref() == "function_declarator")
+      else {
+        continue;
+      };
+      let Some(name) = declarator
+        .field("declarator")
+        .filter(|n| n.kind().as_ref() == "identifier" && n.range().start == owner.range().start)
+      else {
+        continue;
+      };
+      let Some(arguments) = declarator.field("parameters") else {
+        continue;
+      };
+      if !owner
+        .field("body")
+        .is_some_and(|n| n.kind().as_ref() == "compound_statement")
+      {
+        continue;
+      }
+      candidates.insert(name.range().start, (name.text().into_owned(), arguments));
+    }
+    // A literal argument cannot be mistaken for a raw function parameter.
+    // Preserve the exact top-level call and the immediately following authored
+    // body; only the fresh native prefix proof can join them into a definition.
+    for call in node
+      .dfs()
+      .filter(|n| n.kind().as_ref() == "call_expression")
+    {
+      let Some(error) = call
+        .parent()
+        .filter(|n| n.kind().as_ref() == "ERROR" && n.range() == call.range())
+      else {
+        continue;
+      };
+      let Some(parent) = error
+        .parent()
+        .filter(|n| matches!(n.kind().as_ref(), "translation_unit" | "declaration_list"))
+      else {
+        continue;
+      };
+      let next = parent.children().find(|n| {
+        n.is_named() && n.kind().as_ref() != "comment" && n.range().start >= error.range().end
+      });
+      if !next.is_some_and(|n| n.kind().as_ref() == "compound_statement") {
+        continue;
+      }
+      let Some(name) = call
+        .field("function")
+        .filter(|n| n.kind().as_ref() == "identifier")
+      else {
+        continue;
+      };
+      let Some(arguments) = call.field("arguments") else {
+        continue;
+      };
+      candidates.insert(name.range().start, (name.text().into_owned(), arguments));
+    }
+    let mut origins: std::collections::BTreeMap<usize, Vec<usize>> =
+      std::collections::BTreeMap::new();
+    for (i, site) in packet.observed_token_sites.iter().enumerate() {
+      origins.entry(site.offset).or_default().push(i);
+    }
+    let mut result = Vec::new();
+    for expansion in &packet.expansions {
+      let Some(anchor) = &expansion.definition else {
+        continue;
+      };
+      let Some((name, arguments)) = candidates.get(&expansion.start) else {
+        continue;
+      };
+      if name != &expansion.name || arguments.range().end != expansion.end {
+        continue;
+      }
+      crate::cpp_macro_recovery::validated_arguments(&arguments.text(), anchor.parameters)?;
+      let mut positions = origins.range(expansion.start..expansion.end);
+      let Some((&offset, indices)) = positions.next() else {
+        continue;
+      };
+      if offset != expansion.start || positions.next().is_some() {
+        return None;
+      }
+      let (Some(&first), Some(&last)) = (indices.first(), indices.last()) else {
+        continue;
+      };
+      if last - first + 1 != indices.len()
+        || indices.iter().any(|&i| {
+          let s = &packet.observed_token_sites[i];
+          !s.from_macro || s.offset != expansion.start
+        })
+      {
+        return None;
+      }
+      let mut prefix = String::new();
+      for token in &packet.observed_tokens[first..=last] {
+        if prefix.len().checked_add(token.len())?.checked_add(4)? > 4 * 1024 * 1024 {
+          return None;
+        }
+        prefix.push_str(token);
+        prefix.push(' ');
+      }
+      prefix.push_str("{}");
+      let parsed = SupportLang::Cpp.grep(&prefix);
+      let proof = parsed.root();
+      let children: Vec<_> = proof
+        .children()
+        .filter(|n| n.is_named() && n.kind().as_ref() != "comment")
+        .collect();
+      if proof.has_error()
+        || children.len() != 1
+        || children[0].kind().as_ref() != "function_definition"
+        || proof
+          .dfs()
+          .filter(|n| n.kind().as_ref() == "function_definition")
+          .count()
+          != 1
+      {
+        continue;
+      }
+      result.push(CppProvenMacroSite {
+        offset: u32::try_from(expansion.start).ok()?,
+        name: expansion.name.clone(),
+        kind: CppProvenMacroKind::FunctionPrefix,
+      });
+    }
+    Some(result)
+  }
+
   fn parse_without_context(
     config: &CompilerCommand,
     path: &Path,
@@ -513,8 +666,44 @@ mod native {
       .iter()
       .map(|b| (b.active.start, b.definition.clone()))
       .collect();
-    let (root, _, _, mut diagnostics) =
+    let (mut root, _, _, mut diagnostics) =
       crate::cpp_macro_recovery::parse_compiler_evidence(source, evidence);
+    let mut sites = function_prefix_sites(&packet, &root)?;
+    if !sites.is_empty() {
+      use vorpal_core::tree_sitter::LanguageExt;
+      use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite};
+      for node in root
+        .root()
+        .dfs()
+        .filter(|n| n.kind().as_ref() == "macro_statement")
+      {
+        let name = node.field("name")?;
+        let binding = bindings.get(&name.range().start)?;
+        let arguments = crate::cpp_macro_recovery::validated_arguments(
+          &node.field("arguments")?.text(),
+          binding.parameters,
+        )?;
+        let proof = binding
+          .replacement
+          .instantiate(&arguments.iter().map(String::as_str).collect::<Vec<_>>())?;
+        sites.push(CppProvenMacroSite {
+          offset: u32::try_from(name.range().start).ok()?,
+          name: name.text().into_owned(),
+          kind: if crate::cpp_macro_evidence::statement_accepts_else(&proof) {
+            CppProvenMacroKind::OpenIf
+          } else {
+            CppProvenMacroKind::Statement
+          },
+        });
+      }
+      sites.sort_by_key(|s| s.offset);
+      if sites.windows(2).any(|s| s[0].offset >= s[1].offset) {
+        return None;
+      }
+      root = vorpal_language::with_cpp_proven_macro_sites(&sites, || {
+        vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(source)
+      });
+    }
     let mut definition_sites = Vec::new();
     if packet.callee_sites.len() > 16384 {
       return None;
@@ -556,6 +745,14 @@ mod native {
     let mut omitted = Vec::new();
     let mut runtime_masks = std::collections::BTreeMap::new();
     for node in root.root().dfs() {
+      if node.kind().as_ref() == "function_definition"
+        && node
+          .field("name")
+          .is_some_and(|n| starts.contains(&n.range().start))
+      {
+        definition_sites.push(node.range());
+        omitted.push(node.field("arguments")?.range());
+      }
       if node.kind().as_ref() == "macro_statement" {
         let span = node.field("name")?.range().start..node.field("arguments")?.range().end;
         if !ranges.contains(&span) {

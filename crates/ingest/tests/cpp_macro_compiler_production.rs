@@ -6,6 +6,115 @@ use vorpal_ingest::{ExtractionEnv, OutlineExtractor, encode_product_into};
 
 const SOURCE: &str = "#include <unknown-sdk.h>\nvoid run() { CHECK(value())\nafter(); }\n#undef CHECK\nvoid CHECK(int);\nvoid ordinary() { CHECK(other()); }\nvoid value() {}\nvoid after() {}\nvoid other() {}\n";
 
+#[test]
+fn native_function_head_generators_retain_anonymous_original_body_boundaries() {
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "CHECK(42) { body(); }\n#undef CHECK\nvoid CHECK(int x) { ordinary(); }\nvoid following() { after(); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(x) void test_##x()\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "function-prefix-origin",
+      "function-prefix-unclosed",
+      "function-prefix",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "function-prefix",
+        "{mode}"
+      );
+      if mode == "function-prefix" {
+        assert!(!product.items.iter().any(|i| i.entry.name == "test_42"));
+        assert_eq!(
+          product
+            .items
+            .iter()
+            .filter(|i| i.entry.name == "CHECK")
+            .count(),
+          1
+        );
+        for name in ["body", "ordinary", "after"] {
+          let call = product
+            .refs
+            .iter()
+            .find(|r| r.kind == 0 && r.name == name)
+            .unwrap();
+          assert_eq!(
+            &source[call.start as usize..call.end as usize],
+            format!("{name}()")
+          );
+        }
+      }
+    }
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        product.source_size,
+        product.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(owned, streamed);
+    use vorpal_core::tree_sitter::LanguageExt;
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handed = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handed, &mut encoded);
+    assert_eq!(owned, encoded);
+    for damage in [
+      source.replace("body();", "body()"),
+      source.replace(
+        "CHECK(42) { body(); }",
+        "void invalid() { CHECK(42) { body(); } }",
+      ),
+    ] {
+      fs::write(&path, &damage).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &damage)
+          .unwrap()
+          .error_nodes
+          > 0,
+        "{damage}"
+      );
+    }
+    let separated = source.replace("CHECK(42)", "CHECK(42);");
+    fs::write(&path, &separated).unwrap();
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &separated)
+      .unwrap();
+    let raw = OutlineExtractor::new()
+      .unwrap()
+      .extract_product(path.to_str().unwrap(), &separated)
+      .unwrap();
+    assert_eq!(product.error_nodes, raw.error_nodes);
+    fs::write(&path, &source).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+  }
+}
 
 #[test]
 fn native_x_generators_use_exact_fresh_token_sites_in_direct_blocks() {

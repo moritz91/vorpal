@@ -603,7 +603,7 @@ rules['base_class_clause'] = decltype_base(rules['base_class_clause'])
 rules['decltype']['members'][2] = choice(symbol('expression'), symbol('comma_expression'))
 # Proof-backed statement names come only from a scoped external scanner context.
 # Without that context the new branch is unreachable, including ordinary calls.
-for name in ['_proven_statement_macro', '_proven_open_if_macro']:
+for name in ['_proven_statement_macro', '_proven_open_if_macro', '_proven_function_macro']:
     external = symbol(name)
     if external not in grammar['externals']:
         grammar['externals'].append(external)
@@ -620,6 +620,16 @@ open_if_macro_statement = {'type': 'PREC_RIGHT', 'value': 1, 'content': seq(
 rules['macro_statement'] = choice(closed_macro_statement, open_if_macro_statement)
 if symbol('macro_statement') not in rules['statement']['members']:
     rules['statement']['members'].append(symbol('macro_statement'))
+# A native-proven function-head generator retains its original name/arguments
+# and its original body. Alias the existing boundary kind without fabricating
+# an ordinary declarator or a generated identifier token in the source tree.
+rules['_macro_function_definition'] = seq(
+    {'type': 'FIELD', 'name': 'name', 'content': alias_rule('_proven_function_macro', 'identifier')},
+    {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')},
+    {'type': 'FIELD', 'name': 'body', 'content': symbol('compound_statement')})
+macro_function = alias_rule('_macro_function_definition', 'function_definition')
+if macro_function not in rules['_top_level_item']['members']:
+    rules['_top_level_item']['members'].append(macro_function)
 # The audited native cpuid helper uses a brace-delimited MSVC assembly block.
 # Admit its mov/cpuid instruction forms explicitly, not an opaque body token.
 # Operands and commas cannot cross lines: otherwise an incomplete mov could

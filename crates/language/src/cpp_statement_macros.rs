@@ -63,7 +63,7 @@ pub struct CppStatementMacroSite {
 struct Site {
   offset: u32,
   name: *const c_char,
-  open_if: bool,
+  kind: u8,
 }
 #[repr(C)]
 struct Sites {
@@ -106,6 +106,42 @@ pub fn with_cpp_statement_macro_sites<R>(
   sites: &[CppStatementMacroSite],
   parse: impl FnOnce() -> R,
 ) -> R {
+  let sites: Vec<_> = sites
+    .iter()
+    .map(|s| CppProvenMacroSite {
+      offset: s.offset,
+      name: s.name.clone(),
+      kind: if s.open_if {
+        CppProvenMacroKind::OpenIf
+      } else {
+        CppProvenMacroKind::Statement
+      },
+    })
+    .collect();
+  with_cpp_proven_macro_sites(&sites, parse)
+}
+
+/// The syntactic role independently proved for an exact native expansion site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CppProvenMacroKind {
+  Statement,
+  OpenIf,
+  FunctionPrefix,
+}
+
+#[derive(Debug, Clone)]
+pub struct CppProvenMacroSite {
+  pub offset: u32,
+  pub name: String,
+  pub kind: CppProvenMacroKind,
+}
+
+/// Scoped role-sensitive original sites. A function-prefix proof cannot become a
+/// statement proof, and neither proof context can leak into an ordinary parse.
+pub fn with_cpp_proven_macro_sites<R>(
+  sites: &[CppProvenMacroSite],
+  parse: impl FnOnce() -> R,
+) -> R {
   assert!(sites.windows(2).all(|pair| pair[0].offset < pair[1].offset));
   let names: Vec<_> = sites
     .iter()
@@ -127,7 +163,11 @@ pub fn with_cpp_statement_macro_sites<R>(
     .map(|(site, name)| Site {
       offset: site.offset,
       name: name.as_ptr(),
-      open_if: site.open_if,
+      kind: match site.kind {
+        CppProvenMacroKind::Statement => 0,
+        CppProvenMacroKind::OpenIf => 1,
+        CppProvenMacroKind::FunctionPrefix => 2,
+      },
     })
     .collect();
   let context = Sites {

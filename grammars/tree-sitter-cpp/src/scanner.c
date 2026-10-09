@@ -5,7 +5,7 @@
 #include <string.h>
 #include <wctype.h>
 
-enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO, PROVEN_OPEN_IF_MACRO };
+enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO, PROVEN_OPEN_IF_MACRO, PROVEN_FUNCTION_MACRO };
 
 // vorpal: scoped statement-macro proof context; never serialized into a tree.
 #if defined(_MSC_VER)
@@ -21,7 +21,7 @@ const char *tree_sitter_cpp_set_statement_macros(const char *names) {
 typedef struct {
     uint32_t offset;
     const char *name;
-    bool open_if;
+    uint8_t kind;
 } StatementMacroSite;
 typedef struct {
     const StatementMacroSite *sites;
@@ -110,7 +110,13 @@ static bool scan_statement_macro(TSLexer *lexer, const bool *valid_symbols) {
     if (!statement_spacing(lexer) || lexer->lookahead != '(') return false;
     if (site) {
         if (strlen(site->name) != length || memcmp(site->name, name, length)) return false;
-        enum TokenType kind = site->open_if ? PROVEN_OPEN_IF_MACRO : PROVEN_STATEMENT_MACRO;
+        enum TokenType kind;
+        switch (site->kind) {
+          case 0: kind = PROVEN_STATEMENT_MACRO; break;
+          case 1: kind = PROVEN_OPEN_IF_MACRO; break;
+          case 2: kind = PROVEN_FUNCTION_MACRO; break;
+          default: return false;
+        }
         if (!valid_symbols[kind]) return false;
         lexer->result_symbol = kind;
         return true;
@@ -232,7 +238,7 @@ bool tree_sitter_cpp_external_scanner_scan(void *payload, TSLexer *lexer, const 
         return false;
     }
 
-    if (valid_symbols[PROVEN_STATEMENT_MACRO] || valid_symbols[PROVEN_OPEN_IF_MACRO]) {
+    if (valid_symbols[PROVEN_STATEMENT_MACRO] || valid_symbols[PROVEN_OPEN_IF_MACRO] || valid_symbols[PROVEN_FUNCTION_MACRO]) {
         return scan_statement_macro(lexer, valid_symbols);
     }
 

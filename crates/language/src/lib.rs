@@ -25,7 +25,8 @@ mod cpp;
 mod cpp_statement_macros;
 #[cfg(feature = "tree-sitter-cpp")]
 pub use cpp_statement_macros::{
-  CppStatementMacroSite, with_cpp_statement_macro_kinds, with_cpp_statement_macro_sites,
+  CppStatementMacroSite, CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites,
+  with_cpp_statement_macro_kinds, with_cpp_statement_macro_sites,
   with_cpp_statement_macros,
 };
 mod csharp;

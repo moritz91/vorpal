@@ -4192,6 +4192,16 @@
     "type": "function_definition",
     "named": true,
     "fields": {
+      "arguments": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "argument_list",
+            "named": true
+          }
+        ]
+      },
       "body": {
         "multiple": false,
         "required": false,
@@ -4208,7 +4218,7 @@
       },
       "declarator": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "_declarator",
@@ -4224,6 +4234,16 @@
           },
           {
             "type": "operator_cast",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
             "named": true
           }
         ]
