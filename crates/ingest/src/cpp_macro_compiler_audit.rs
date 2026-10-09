@@ -14,7 +14,7 @@ use std::sync::Arc;
 use vorpal_core::tree_sitter::LanguageExt;
 use vorpal_language::SupportLang;
 
-use crate::cpp_macro_evidence::{Binding, Evidence, StatementMacro, statement_replacement};
+use crate::cpp_macro_evidence::{Binding, Evidence, StatementMacro, native_statement_replacement};
 
 /// A spelling comparison for a report adapter, not a compiler/cache proof.
 /// Native MSVC preprocessing can retain CRLF in a raw literal's spelling while
@@ -318,7 +318,7 @@ pub(crate) fn prepare_evidence(
     let template = templates
       .entry((anchor.buffer, anchor.name_offset))
       .or_insert_with(|| {
-        let replacement = statement_replacement(value, &parameters)?;
+        let replacement = native_statement_replacement(value, &parameters)?;
         Some(StatementMacro {
           name: name.to_owned(),
           parameters: parameters.len(),

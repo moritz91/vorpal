@@ -7,6 +7,151 @@ use vorpal_ingest::{ExtractionEnv, OutlineExtractor, encode_product_into};
 const SOURCE: &str = "#include <unknown-sdk.h>\nvoid run() { CHECK(value())\nafter(); }\n#undef CHECK\nvoid CHECK(int);\nvoid ordinary() { CHECK(other()); }\nvoid value() {}\nvoid after() {}\nvoid other() {}\n";
 
 #[test]
+fn fresh_native_stringification_and_pasting_keep_original_names_and_arguments() {
+    for newline in ["\n", "\r\n"] {
+        for pasted in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("main.cc");
+            let invocation = if pasted {
+                "CHECK(value)"
+            } else {
+                "CHECK(value())"
+            };
+            let source = format!("// Grüße 日本語\nvoid run() {{ {invocation}\nafter(); }}\n#undef CHECK\nvoid CHECK(int); void ordinary() {{ CHECK(other()); }}\nvoid following() {{ later(); }}\n").replace('\n', newline);
+            fs::write(&path, &source).unwrap();
+            let header = if pasted {
+                "#define CHECK(x) try { log(#x); test_##x(); } catch (...) {}\n"
+            } else {
+                "#define CHECK(x) { log(#x); sink(x); }\n"
+            };
+            fs::write(dir.path().join("proof.h"), header.replace('\n', newline)).unwrap();
+            if pasted {
+                fs::write(dir.path().join("mode"), "native-operators").unwrap();
+            }
+            let env = ExtractionEnv {
+                cpp_macro_compiler: Some(provider::command(dir.path(), &path)),
+                ..Default::default()
+            };
+            let product = env
+                .extractor()
+                .unwrap()
+                .extract_product(path.to_str().unwrap(), &source)
+                .unwrap();
+            assert_eq!(product.error_nodes, 0, "pasted={pasted}");
+            for name in ["after", "other", "later"] {
+                let call = product
+                    .refs
+                    .iter()
+                    .find(|r| r.kind == 0 && r.name == name)
+                    .unwrap();
+                assert_eq!(
+                    &source[call.start as usize..call.end as usize],
+                    format!("{name}()")
+                );
+            }
+            assert!(
+                !product
+                    .refs
+                    .iter()
+                    .any(|r| ["log", "sink", "test_value"].contains(&r.name.as_str()))
+            );
+            assert_eq!(
+                product
+                    .refs
+                    .iter()
+                    .filter(|r| r.kind == 0 && r.name == "value")
+                    .count(),
+                usize::from(!pasted)
+            );
+            assert_eq!(
+                product
+                    .refs
+                    .iter()
+                    .filter(|r| r.kind == 0 && r.name == "CHECK")
+                    .count(),
+                1
+            );
+            assert!(product.items.iter().any(|n| n.entry.name == "following"));
+            assert_eq!(fs::read_to_string(&path).unwrap(), source);
+            assert!(
+                OutlineExtractor::new()
+                    .unwrap()
+                    .extract_product(path.to_str().unwrap(), &source)
+                    .unwrap()
+                    .error_nodes
+                    > 0
+            );
+        }
+    }
+}
+
+#[test]
+fn stringification_alone_does_not_turn_argument_text_into_runtime_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    fs::write(&path, SOURCE).unwrap();
+    fs::write(
+        dir.path().join("proof.h"),
+        "#define CHECK(x) { log(#x); }\n",
+    )
+    .unwrap();
+    let product = OutlineExtractor::new()
+        .unwrap()
+        .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+        .unwrap()
+        .extract_product(path.to_str().unwrap(), SOURCE)
+        .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    assert!(
+        !product
+            .refs
+            .iter()
+            .any(|r| r.kind == 0 && r.name == "value")
+    );
+    assert!(
+        product
+            .refs
+            .iter()
+            .any(|r| r.kind == 0 && r.name == "after")
+    );
+    assert!(
+        product
+            .refs
+            .iter()
+            .any(|r| r.kind == 0 && r.name == "other")
+    );
+}
+
+#[test]
+fn native_operator_recovery_retains_missing_original_semicolons() {
+    for (header, invocation) in [
+        (
+            "#define CHECK(x) do { log(#x); test_##x(); } while(false)\n",
+            "CHECK(value)",
+        ),
+        (
+            "#define CHECK(x) { log(#x); test_##x(); }\n",
+            "CHECK(value)\n#undef CHECK\nCHECK(other())",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.cc");
+        let source = format!("void run() {{ {invocation}\nafter(); }}\n");
+        fs::write(&path, &source).unwrap();
+        fs::write(dir.path().join("proof.h"), header).unwrap();
+        fs::write(dir.path().join("mode"), "native-operators").unwrap();
+        let product = OutlineExtractor::new()
+            .unwrap()
+            .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+            .unwrap()
+            .extract_product(path.to_str().unwrap(), &source)
+            .unwrap();
+        assert!(product.error_nodes > 0, "{header}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), source);
+    }
+}
+
+#[test]
 fn fresh_compiler_products_keep_original_sites_and_never_authorize_replay() {
   for newline in ["\n", "\r\n"] {
     let dir = tempfile::tempdir().unwrap();

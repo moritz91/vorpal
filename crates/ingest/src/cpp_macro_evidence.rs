@@ -15,6 +15,10 @@ use std::sync::Arc;
 use vorpal_core::tree_sitter::LanguageExt;
 use vorpal_language::SupportLang;
 
+#[cfg(feature = "builtin-parser")]
+#[path = "cpp_macro_native_operators.rs"]
+mod native_operators;
+
 /// A definition with one complete statement, or a do/while requiring the
 /// invocation's original terminating semicolon.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,7 +35,20 @@ pub struct StatementMacro {
 pub(crate) struct StatementReplacement {
   source: String,
   substitutions: Vec<(Range<usize>, usize)>,
+  native_operators: Vec<NativeOperator>,
   pub(crate) requires_semicolon: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeOperator {
+  Stringify(Range<usize>, usize),
+  Paste(Range<usize>, Vec<NativePiece>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativePiece {
+  Parameter(usize),
+  Identifier(String),
 }
 
 impl StatementReplacement {
@@ -50,13 +67,17 @@ impl StatementReplacement {
     Some(parsed.root().dfs().filter(|n| n.children().next().is_none())
       .filter(|n| !n.ancestors().any(|p| matches!(p.kind().as_ref(),
         "sizeof_expression" | "alignof_expression" | "decltype" | "noexcept"
-        | "requires_expression" | "type_descriptor" | "static_assert_declaration")))
+        | "requires_expression" | "type_descriptor" | "static_assert_declaration"
+        | "string_literal" | "raw_string_literal" | "char_literal" | "comment")))
       .filter_map(|n| names.iter().position(|name| n.text().as_ref() == name))
       .collect())
   }
 
   #[cfg(feature = "builtin-parser")]
   pub(crate) fn instantiate(&self, arguments: &[&str]) -> Option<String> {
+    if !self.native_operators.is_empty() {
+      return native_operators::instantiate(self, arguments);
+    }
     // Bound repeated-parameter amplification independently of include limits.
     let mut size = self.source.len();
     for (_, parameter) in &self.substitutions {
@@ -1338,8 +1359,20 @@ pub(crate) fn statement_replacement(
   Some(StatementReplacement {
     source,
     substitutions,
+    native_operators: Vec::new(),
     requires_semicolon,
   })
+}
+
+/// Native-only operators require the independently matching fresh compiler
+/// stream. Metadata proof still declines pasting/stringification effects.
+#[cfg(feature = "builtin-parser")]
+pub(crate) fn native_statement_replacement(
+  replacement: &str,
+  parameters: &[String],
+) -> Option<StatementReplacement> {
+  statement_replacement(replacement, parameters)
+    .or_else(|| native_operators::prepare(replacement, parameters))
 }
 
 // Parse an opaque replacement only to identify possible effects, never to expand

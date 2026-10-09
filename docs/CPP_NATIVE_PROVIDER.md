@@ -150,3 +150,31 @@ Runtime argument edges require an evaluated parameter use in a proven statement
 replacement. Ignored/stringified/unevaluated arguments and unsupported expansions
 do not supply that evidence. Physical macro-supplied function/type names are not
 published as original named owners; ordinary names after undef remain intact.
+
+## Native stringification and token pasting
+
+Fresh native observations also support complete statement replacements using
+`#parameter` and identifier token-paste chains (`prefix ## parameter ## suffix`).
+This covers the test-call generator that stringifies its label and pastes a
+function name. Operator interpretation is confined to the ephemeral syntax proof;
+original source, macro/argument spans and product owners remain unchanged.
+Pasted targets and stringified text are not published as original runtime calls.
+An argument separately used in an evaluated expression retains its original call.
+
+Comments and literals are distinguished from operators. Invalid paste operands,
+UCNs, manufactured pragma identifiers, oversized parameter amplification and
+missing original do/while semicolons decline recovery. Metadata-only evidence
+still treats pasting effects as opaque; it cannot use native-only proof.
+This does not yet implement function-head/declaration or X-macro generators.
+
+The current isolated native Hades comparison reduces health from 15 to 12 files
+and 378 to 250 diagnostics, with 951 diagnostic bytes unchanged. The application,
+log and UI test files are clean; four function-head diagnostics remain in the
+input tests. The installed release and productive MCP were not changed.
+
+The glTF `gltf_io.cc`, `gltf_accessors.cc`, and `gltf_materials.cc` files are
+intentional textual include chunks assembled by `mesh_asset_parse.cc`, including
+across template/function boundaries. Their standalone diagnostics do not prove
+source corruption. Correct handling requires compilation-context and physical
+span provenance. Three Lua guide diagrams, by contrast, contain actual NUL and
+control bytes in the original Markdown. Those bytes are not parser generators.

@@ -85,7 +85,7 @@ fn compiler_provider_process() {
   let Ok(header) = fs::read_to_string(&header_path) else {
     process::exit(8);
   };
-  let invocation = "CHECK(value())";
+  let invocation = if mode == "native-operators" { "CHECK(value)" } else { "CHECK(value())" };
   let start = source.find(invocation).unwrap();
   let native = if fs::read_to_string(directory.join("native-only.h")).is_ok_and(|s| s == "changed")
   {
