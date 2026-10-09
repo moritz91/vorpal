@@ -5,15 +5,16 @@
 The current generator follow-up is documented in
 [CPP_NATIVE_PROVIDER.md](CPP_NATIVE_PROVIDER.md). Fresh native proofs cover
 statement lists, function prefixes, complete function/declaration lists,
-case/loop prefixes and numeric object macros inside statement arguments.
+case/loop prefixes, numeric object macros inside statement arguments and native
+object-like inline specifiers.
 The isolated Hades MCP is
-5 error-bearing files / 56 diagnostics / 596 diagnostic bytes; productive `.3`
+4 error-bearing files / 55 diagnostics / 593 diagnostic bytes; productive `.3`
 remains 15 / 378 / 951. All 41 state-storage definitions and 41 declarations are
 clean using physical-file projection in their genuine CMake Unity context.
 Missing/repeated visits and unsupported pragmas remain conservative boundaries;
 glTF chunks still need shared include context. All 24 `STBI__CASE` invocations
 are clean in an explicitly validated scalar stb implementation context;
-both `STBI__IDCT_1D` lists are also clean, leaving one stb diagnostic. SIMD contexts with differing compiler
+both `STBI__IDCT_1D` lists and `stbi_inline` are also clean. SIMD contexts with differing compiler
 token streams still decline. Physical trailing comments do not extend native
 replacement token endpoints; literal payload and `#`/`##` remain significant.
 The three Lua-guide diagrams contain physical control/NUL bytes. Their visual

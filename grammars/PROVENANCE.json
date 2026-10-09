@@ -96,10 +96,11 @@
       "Scoped exact invocation-site scanner context with a byte-offset capability supplied by the vendored runtime; TSLexer ABI and serialized scanner state are unchanged; standalone CLI requires no runtime symbol.",
       "Scoped native function-prefix generator proof retains original body and argument spans without publishing generated named owners.",
       "Scoped native complete function/declaration-list generator role: macro_declaration keeps original invocation and arguments, with no fabricated expanded names or bodies; scanner token is disabled without exact fresh proof.",
-      "Scoped native case/for-prefix generator role retains original invocation and authored body spans; native token agreement and direct switch context are required, with no fabricated expanded label or loop nodes."
+      "Scoped native case/for-prefix generator role retains original invocation and authored body spans; native token agreement and direct switch context are required, with no fabricated expanded label or loop nodes.",
+      "Scoped native object-like inline specifier role consumes only the exact original identifier; independently matched single native token and fresh physical definition are required, with no global identifier modifier rule."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:1ea50070c7667661",
+    "source_digest": "xxh3:5890b97c3972401f",
     "version": "0.23.4"
   },
   "tree-sitter-css": {

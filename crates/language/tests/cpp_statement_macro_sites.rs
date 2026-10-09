@@ -4,6 +4,41 @@ use vorpal_language::{
   with_cpp_statement_macro_sites, with_cpp_statement_macros,
 };
 
+#[test]
+fn proven_inline_specifiers_keep_authored_declarations_and_empty_context() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// α\nFORCE static unsigned int receive() { body(); return 1; }\nvoid ordinary() { FORCE(); }\n".replace('\n', newline);
+    let sites = [CppProvenMacroSite {
+      offset: source.find("FORCE").unwrap().try_into().unwrap(),
+      name: "FORCE".into(),
+      kind: CppProvenMacroKind::InlineSpecifier,
+    }];
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    let parsed = with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&source));
+    assert!(!parsed.root().has_error());
+    let specifier = parsed
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "storage_class_specifier" && n.text() == "FORCE")
+      .unwrap();
+    assert_eq!(&source[specifier.range()], "FORCE");
+    let call = parsed
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "call_expression" && n.text() == "FORCE()")
+      .unwrap();
+    assert_eq!(&source[call.range()], "FORCE()");
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    let bad = source.replace("body();", "body()");
+    assert!(
+      with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&bad))
+        .root()
+        .has_error()
+    );
+  }
+}
+
 fn site(source: &str, needle: &str, open_if: bool) -> CppStatementMacroSite {
   CppStatementMacroSite {
     offset: source.find(needle).unwrap().try_into().unwrap(),

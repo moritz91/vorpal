@@ -165,6 +165,8 @@ mod native {
     expansions: Vec<Site>,
     #[serde(default)]
     literal_arguments: Vec<Site>,
+    #[serde(default)]
+    specifier_macros: Vec<Site>,
     expanded_names: BTreeSet<String>,
     callee_sites: Vec<Callee>,
   }
@@ -651,6 +653,91 @@ mod native {
       }
     }
     Some(())
+  }
+
+  fn inline_specifier_sites(
+    packet: &Packet,
+    source: &str,
+  ) -> Option<Vec<vorpal_language::CppProvenMacroSite>> {
+    use vorpal_core::tree_sitter::LanguageExt;
+    use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, SupportLang};
+    if packet.specifier_macros.len() > 16384 {
+      return None;
+    }
+    if packet.specifier_macros.is_empty() {
+      return Some(Vec::new());
+    }
+    let mut origins: std::collections::BTreeMap<usize, Vec<usize>> =
+      std::collections::BTreeMap::new();
+    for (i, site) in packet.observed_token_sites.iter().enumerate() {
+      origins.entry(site.offset).or_default().push(i);
+    }
+    let mut definitions = std::collections::BTreeMap::new();
+    let mut sites = Vec::new();
+    for site in &packet.specifier_macros {
+      let anchor = site.definition.as_ref()?;
+      if anchor.parameters != 0
+        || site.start.checked_add(site.name.len())? != site.end
+        || source.get(site.start..site.end)? != site.name
+        || !packet.expanded_names.contains(&site.name)
+        || !packet
+          .callee_sites
+          .iter()
+          .any(|c| c.start == site.start && c.name == site.name)
+        || !packet.expansions.iter().any(|e| {
+          e.start == site.start
+            && e.end == site.end
+            && e.name == site.name
+            && e.definition.is_none()
+        })
+      {
+        return None;
+      }
+      let buffer = packet.definitions.get(anchor.buffer)?;
+      let value = definitions
+        .entry((
+          anchor.buffer,
+          anchor.name_offset,
+          anchor.end,
+          site.name.clone(),
+        ))
+        .or_insert_with(|| {
+          let parsed = SupportLang::Cpp.grep(&buffer.source);
+          let definition = parsed.root().dfs().find(|n| {
+            n.kind().as_ref() == "preproc_def"
+              && n
+                .field("name")
+                .is_some_and(|n| n.range().start == anchor.name_offset && n.text() == site.name)
+          })?;
+          let value = definition.field("value")?;
+          let text = value.text();
+          let length = crate::cpp_macro_evidence::replacement_token_end(&text)?;
+          if value.range().start.checked_add(length)? != anchor.end {
+            return None;
+          }
+          let text = text.get(..length)?.trim();
+          matches!(text, "inline" | "__forceinline" | "__inline").then(|| text.to_owned())
+        })
+        .as_ref()?;
+      let mut offsets = origins.range(site.start..site.end);
+      let (&offset, indices) = offsets.next()?;
+      if offsets.next().is_some()
+        || offset != site.start
+        || indices.len() != 1
+        || !packet.observed_token_sites[indices[0]].from_macro
+        || packet.observed_tokens.get(indices[0])? != value
+      {
+        return None;
+      }
+      // Object modifiers consume only their original name; calls/arguments and
+      // declaration bodies remain ordinary source syntax under an exact site.
+      sites.push(CppProvenMacroSite {
+        offset: u32::try_from(site.start).ok()?,
+        name: site.name.clone(),
+        kind: CppProvenMacroKind::InlineSpecifier,
+      });
+    }
+    Some(sites)
   }
 
   fn function_prefix_sites(
@@ -1160,6 +1247,7 @@ mod native {
     let mut sites = function_prefix_sites(&packet, &root)?;
     sites.extend(declaration_list_sites(&packet, &root)?);
     sites.extend(case_loop_prefix_sites(&packet, &root)?);
+    sites.extend(inline_specifier_sites(&packet, source)?);
     if !sites.is_empty() {
       use vorpal_core::tree_sitter::LanguageExt;
       use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite};
@@ -1189,6 +1277,17 @@ mod native {
       }
       sites.sort_by_key(|s| s.offset);
       if sites.windows(2).any(|s| s[0].offset >= s[1].offset) {
+        return None;
+      }
+      if sites.iter().any(|s| {
+        s.name.is_empty()
+          || s.name.len() > 128
+          || !s
+            .name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+          || !s.name.as_bytes()[0].is_ascii_alphabetic() && !s.name.starts_with('_')
+      }) {
         return None;
       }
       root = vorpal_language::with_cpp_proven_macro_sites(&sites, || {

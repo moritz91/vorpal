@@ -326,3 +326,23 @@ exact invocation and a direct block position. Real operators continuing the call
 and control-arm/member contexts do not qualify. The original source is reparsed
 under the exact site proof, preserving following assignments and missing
 semicolons. Expanded declarations/calls acquire no fabricated original spans.
+
+### Native inline specifiers
+
+The optional `specifierMacros` packet field proves object-like modifiers such as
+`stbi_inline`. Only a fresh physical zero-parameter definition containing exactly
+`inline`, `__forceinline` or `__inline` qualifies. The parent requires an exact
+original identifier span, a non-nested anchored expansion and exactly one matching
+macro-origin token. Stale definitions, extra tokens, wrong offsets/origins and
+function-like macros decline. The scoped `InlineSpecifier` role uses the existing
+`storage_class_specifier` kind, without globally treating identifiers as keywords.
+Authored function types, names, bodies, calls and syntax errors retain their spans.
+Ordinary same-name calls after undef remain ordinary calls; default parsing has
+no specifier authorization. Owned, streaming and Scan agree; native replay stays
+disabled. Older providers may omit the field.
+
+The isolated normal native MCP now reports **4 error-bearing files / 55 diagnostics
+/ 593 diagnostic bytes**. The explicitly validated scalar stb header is completely
+clean. Catch2 and three textual glTF include chunks remain. Productive `.3` and
+the Hades checkout are unchanged. Windows/Linux regressions and native MSVC
+positive/negative controls pass; differing SIMD compiler streams still decline.

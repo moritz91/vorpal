@@ -199,7 +199,7 @@ def main():
     before, directives = native_tokens(before_file, "before")
     after, after_directives = native_tokens(after_file, "after")
     records = [r for r in rows if r["kind"] == "macro"]
-    definitions, buffers, expansions, callees, literal_arguments = [], {}, [], {}, []
+    definitions, buffers, expansions, callees, literal_arguments, specifier_macros = [], {}, [], {}, [], []
     for record in records:
         begin, end = record["begin"], record.get("end_exclusive", {})
         if begin["nested"] or not begin.get("path") or not end.get("path"):
@@ -215,7 +215,9 @@ def main():
         anchor = None
         literal = (not record.get("function_like") and len(record.get("replacement_tokens", [])) == 1
                    and record["replacement_tokens"][0][:1].isdigit())
-        if (record.get("function_like") or literal) and definition.get("path") and definition_end.get("path"):
+        specifier = (not record.get("function_like") and record.get("replacement_tokens") in
+                     [["inline"], ["__forceinline"], ["__inline"]])
+        if (record.get("function_like") or literal or specifier) and definition.get("path") and definition_end.get("path"):
             header = Path(definition["path"]).resolve()
             if header.is_file() and Path(definition_end["path"]).resolve() == header:
                 data = header.read_bytes()
@@ -229,6 +231,8 @@ def main():
                           "end": definition_end["offset"], "parameters": record["parameters"]}
         if literal and anchor is not None:
             literal_arguments.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
+        if specifier and anchor is not None:
+            specifier_macros.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
         expansions.append({"name": record["name"], "start": start, "end": stop,
                            "definition": anchor if record.get("function_like") else None})
     outer = []
@@ -244,6 +248,8 @@ def main():
                 and outer[index]["start"] < record["start"]
                 and record["end"] <= outer[index]["end"])
     literal_arguments = [r for r in literal_arguments if in_argument(r)]
+    outer_sites = {(r["name"], r["start"], r["end"]) for r in outer if r["definition"] is None}
+    specifier_macros = [r for r in specifier_macros if (r["name"], r["start"], r["end"]) in outer_sites]
     assert source.read_bytes() == original and Path(args.plan).read_bytes() == plan_bytes
     assert translation_unit.read_bytes() == translation_unit_bytes
     assert all(Path(b["path"]).read_bytes() == b["source"].encode() for b in definitions)
@@ -258,6 +264,7 @@ def main():
                                      for r in rows if r["kind"] == "root_token"],
               "nativeDirectives": sorted(set(directives + after_directives)),
               "definitions": definitions, "expansions": outer, "literalArguments": literal_arguments,
+              "specifierMacros": specifier_macros,
               "expandedNames": sorted({r["name"] for r in records}), "calleeSites": list(callees.values())}
     encoded = json.dumps(packet, ensure_ascii=False).encode()
     if len(encoded) > 32 * 1024 * 1024:

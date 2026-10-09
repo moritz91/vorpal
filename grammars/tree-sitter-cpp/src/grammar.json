@@ -5285,6 +5285,10 @@
         {
           "type": "STRING",
           "value": "thread_local"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_proven_inline_specifier_macro"
         }
       ]
     },
@@ -33530,6 +33534,10 @@
     {
       "type": "SYMBOL",
       "name": "_proven_case_loop_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_inline_specifier_macro"
     }
   ],
   "inline": [

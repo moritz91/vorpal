@@ -7,6 +7,126 @@ use vorpal_ingest::{ExtractionEnv, OutlineExtractor, encode_product_into};
 const SOURCE: &str = "#include <unknown-sdk.h>\nvoid run() { CHECK(value())\nafter(); }\n#undef CHECK\nvoid CHECK(int);\nvoid ordinary() { CHECK(other()); }\nvoid value() {}\nvoid after() {}\nvoid other() {}\n";
 
 #[test]
+fn native_inline_specifiers_keep_authored_function_types_and_calls() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "CHECK static unsigned int receive() { body(); return 1; }\n#undef CHECK\nvoid ordinary() { CHECK(other()); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(dir.path().join("proof.h"), "#define CHECK __forceinline\n").unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "inline-specifier-origin",
+      "inline-specifier-anchor",
+      "inline-specifier-offset",
+      "inline-specifier-extra",
+      "inline-specifier",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "inline-specifier",
+        "{mode}: {}",
+        product.error_nodes
+      );
+    }
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    let function = product
+      .items
+      .iter()
+      .find(|i| i.entry.name == "receive")
+      .unwrap();
+    assert_eq!(
+      &source[function.entry.range.byte_offset.clone()],
+      "CHECK static unsigned int receive() { body(); return 1; }"
+    );
+    for name in ["body", "other"] {
+      let call = product
+        .refs
+        .iter()
+        .find(|r| r.kind == 0 && r.name == name)
+        .unwrap();
+      assert_eq!(
+        &source[call.start as usize..call.end as usize],
+        format!("{name}()")
+      );
+    }
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "CHECK")
+        .count(),
+      1
+    );
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        product.source_size,
+        product.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handed = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handed, &mut encoded);
+    assert_eq!(owned, encoded);
+    let bad = source.replace("body();", "body()");
+    fs::write(&path, &bad).unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &bad)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK() __forceinline\n",
+    )
+    .unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    fs::write(dir.path().join("proof.h"), "#define CHECK int\n").unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    assert_eq!(
+      extractor.extraction_identity_for_path(path.to_str().unwrap()),
+      None
+    );
+  }
+}
+
+#[test]
 fn native_array_statement_lists_preserve_following_assignments_and_errors() {
   use vorpal_core::tree_sitter::LanguageExt;
   for newline in ["\n", "\r\n"] {

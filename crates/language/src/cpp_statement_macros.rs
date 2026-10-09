@@ -129,6 +129,7 @@ pub enum CppProvenMacroKind {
   FunctionPrefix,
   DeclarationList,
   CaseLoopPrefix,
+  InlineSpecifier,
 }
 
 #[derive(Debug, Clone)]
@@ -171,6 +172,7 @@ pub fn with_cpp_proven_macro_sites<R>(
         CppProvenMacroKind::FunctionPrefix => 2,
         CppProvenMacroKind::DeclarationList => 3,
         CppProvenMacroKind::CaseLoopPrefix => 4,
+        CppProvenMacroKind::InlineSpecifier => 5,
       },
     })
     .collect();

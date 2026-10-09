@@ -85,7 +85,9 @@ fn compiler_provider_process() {
   let Ok(header) = fs::read_to_string(&header_path) else {
     process::exit(8);
   };
-  let invocation = if mode.starts_with("literal-argument") {
+  let invocation = if mode.starts_with("inline-specifier") {
+    "CHECK"
+  } else if mode.starts_with("literal-argument") {
     "CHECK(value() + BUTTON)"
   } else if mode == "array-generator-call" {
     "CHECK(data[index()])"
@@ -121,6 +123,34 @@ fn compiler_provider_process() {
       "definition":{"buffer":0,"nameOffset":header.find("CHECK").unwrap(),"end":header.trim_end().len(),"parameters":1}}],
     "expandedNames":["CHECK"],"calleeSites":[{"name":"CHECK","start":start}]
   });
+  if mode.starts_with("inline-specifier") {
+    let tokens = if mode == "inline-specifier-extra" {
+      vec!["__forceinline", "int"]
+    } else {
+      vec!["__forceinline"]
+    };
+    for key in ["nativeBefore", "nativeAfter", "observedTokens"] {
+      packet[key] = json!(tokens);
+    }
+    packet["observedTokenSites"] = json!(
+      tokens
+        .iter()
+        .map(|_| json!({"offset":start,"fromMacro":true}))
+        .collect::<Vec<_>>()
+    );
+    packet["expansions"][0]["definition"] = Value::Null;
+    packet["specifierMacros"] = json!([{"name":"CHECK","start":start,"end":start+5,
+      "definition":{"buffer":0,"nameOffset":header.find("CHECK").unwrap(),"end":header.trim_end().len(),"parameters":0}}]);
+    if mode == "inline-specifier-origin" {
+      packet["observedTokenSites"][0]["fromMacro"] = json!(false);
+    }
+    if mode == "inline-specifier-anchor" {
+      packet["specifierMacros"][0]["definition"]["end"] = json!(header.len() + 1);
+    }
+    if mode == "inline-specifier-offset" {
+      packet["specifierMacros"][0]["start"] = json!(source.len());
+    }
+  }
   if mode.starts_with("literal-argument") {
     let literal_start = source[start..].find("BUTTON").unwrap() + start;
     packet["expansions"][0]["definition"]["end"] =
