@@ -118,7 +118,7 @@ pub(crate) struct SnapRef {
 #[derive(Debug, Clone)]
 pub(crate) enum SnapPending {
   Ready(SnapRef),
-  TypeUse { from: u32, name: Snip, start: u32, end: u32 },
+  TypeUse { from: u32, name: Snip, start: u32, end: u32, lexical_scope: Option<u32> },
   ImplUse { from: u32, name: Snip, start: u32, end: u32 },
 }
 
@@ -163,11 +163,12 @@ impl SnapPending {
           .collect(),
         call_shape: r.call_shape,
       }),
-      Pending::TypeUse { from, name, start, end } => SnapPending::TypeUse {
+      Pending::TypeUse { from, name, start, end, lexical_scope } => SnapPending::TypeUse {
         from: from.raw() as u32,
         name: Snip::capture(name, src),
         start: *start,
         end: *end,
+        lexical_scope: *lexical_scope,
       },
       Pending::ImplUse { from, name, start, end } => SnapPending::ImplUse {
         from: from.raw() as u32,
@@ -212,11 +213,15 @@ impl SnapPending {
           .collect::<Option<Vec<_>>>()?,
         call_shape: r.call_shape,
       }),
-      SnapPending::TypeUse { from, name, start, end } => Pending::TypeUse {
+      SnapPending::TypeUse { from, name, start, end, lexical_scope } => Pending::TypeUse {
         from: vorpal_kg::NodeId::new(u64::from(remap(*from)?)),
         name: name.resolve(src, shift)?,
         start: move_pos(*start)?,
         end: move_pos(*end)?,
+        lexical_scope: match lexical_scope {
+          Some(scope) => Some(move_pos(*scope)?),
+          None => None,
+        },
       },
       SnapPending::ImplUse { from, name, start, end } => Pending::ImplUse {
         from: vorpal_kg::NodeId::new(u64::from(remap(*from)?)),
@@ -961,4 +966,25 @@ int main(void) {
     let last = src.len();
     assert_eq!(lines.position(src, last), SourcePosition { line: 2, column: 1 });
   }
+
+  #[test]
+  fn type_use_snapshot_preserves_and_shifts_anonymous_scope() {
+    let source = "HEAD(x) { Shared object; }";
+    let pending = Pending::TypeUse {
+      from: vorpal_kg::NodeId::new(0),
+      name: Cow::Borrowed(&source[10..16]),
+      start: 10,
+      end: 16,
+      lexical_scope: Some(0),
+    };
+    let snapshot = SnapPending::capture(&pending, source);
+    let shifted = format!("// preface\n{source}");
+    let Some(Pending::TypeUse { start, end, lexical_scope, name, .. }) =
+      snapshot.resolve(&shifted, 11, &Some)
+    else { panic!("type-use snapshot must resolve"); };
+    assert_eq!((start, end, lexical_scope), (21, 27, Some(11)));
+    assert_eq!(name, "Shared");
+    assert!(snapshot.resolve(source, -1, &Some).is_none());
+  }
+
 }

@@ -358,6 +358,10 @@
         "named": true
       },
       {
+        "type": "conditional_split_if_statement",
+        "named": true
+      },
+      {
         "type": "continue_statement",
         "named": true
       },
@@ -391,6 +395,10 @@
       },
       {
         "type": "macro_statement",
+        "named": true
+      },
+      {
+        "type": "ms_asm_statement",
         "named": true
       },
       {
@@ -590,6 +598,21 @@
     }
   },
   {
+    "type": "abstract_managed_handle_declarator",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "type_qualifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "abstract_parenthesized_declarator",
     "named": true,
     "fields": {},
@@ -777,6 +800,18 @@
         },
         {
           "type": "macro_type_argument",
+          "named": true
+        },
+        {
+          "type": "objc_message_expression",
+          "named": true
+        },
+        {
+          "type": "objc_selector_expression",
+          "named": true
+        },
+        {
+          "type": "objc_string_literal",
           "named": true
         },
         {
@@ -1090,6 +1125,18 @@
             "named": true
           },
           {
+            "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
+            "named": true
+          },
+          {
+            "type": "objc_string_literal",
+            "named": true
+          },
+          {
             "type": "preproc_defined",
             "named": true
           }
@@ -1210,6 +1257,18 @@
             "named": true
           },
           {
+            "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
+            "named": true
+          },
+          {
+            "type": "objc_string_literal",
+            "named": true
+          },
+          {
             "type": "preproc_defined",
             "named": true
           }
@@ -1257,6 +1316,10 @@
         "types": [
           {
             "type": "expression",
+            "named": true
+          },
+          {
+            "type": "operator_name",
             "named": true
           },
           {
@@ -1832,6 +1895,18 @@
           {
             "type": "expression",
             "named": true
+          },
+          {
+            "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
+            "named": true
+          },
+          {
+            "type": "objc_string_literal",
+            "named": true
           }
         ]
       }
@@ -1875,6 +1950,189 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "conditional_function_body",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "alias_declaration",
+          "named": true
+        },
+        {
+          "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_linkage_specification",
+          "named": true
+        },
+        {
+          "type": "declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "linkage_specification",
+          "named": true
+        },
+        {
+          "type": "namespace_alias_definition",
+          "named": true
+        },
+        {
+          "type": "namespace_definition",
+          "named": true
+        },
+        {
+          "type": "preproc_call",
+          "named": true
+        },
+        {
+          "type": "preproc_def",
+          "named": true
+        },
+        {
+          "type": "preproc_function_def",
+          "named": true
+        },
+        {
+          "type": "preproc_if",
+          "named": true
+        },
+        {
+          "type": "preproc_ifdef",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "statement",
+          "named": true
+        },
+        {
+          "type": "static_assert_declaration",
+          "named": true
+        },
+        {
+          "type": "template_declaration",
+          "named": true
+        },
+        {
+          "type": "template_instantiation",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "type_specifier",
+          "named": true
+        },
+        {
+          "type": "using_declaration",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "conditional_function_definition",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "conditional_function_body",
+            "named": true
+          }
+        ]
+      },
+      "prefixes": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "preproc_if",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "conditional_function_prefix",
+    "named": true,
+    "fields": {
+      "declarator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "function_declarator",
+            "named": true
+          }
+        ]
+      },
+      "language": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_specifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "attribute_declaration",
+          "named": true
+        },
+        {
+          "type": "attribute_specifier",
+          "named": true
+        },
+        {
+          "type": "ms_declspec_modifier",
+          "named": true
+        },
+        {
+          "type": "storage_class_specifier",
+          "named": true
+        },
+        {
+          "type": "type_qualifier",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -2110,6 +2368,10 @@
           "named": true
         },
         {
+          "type": "conditional_function_definition",
+          "named": true
+        },
+        {
           "type": "conditional_linkage_close",
           "named": true
         },
@@ -2239,6 +2501,237 @@
         },
         {
           "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "conditional_logical_expression",
+    "named": true,
+    "fields": {
+      "left": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "preproc_if",
+          "named": true
+        },
+        {
+          "type": "preproc_ifdef",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "conditional_return_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "preproc_if",
+          "named": true
+        },
+        {
+          "type": "preproc_ifdef",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "conditional_split_if_statement",
+    "named": true,
+    "fields": {
+      "close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "preproc_split_if_close",
+            "named": true
+          }
+        ]
+      },
+      "open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "preproc_split_if_open",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "alias_declaration",
+          "named": true
+        },
+        {
+          "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_linkage_specification",
+          "named": true
+        },
+        {
+          "type": "declaration",
+          "named": true
+        },
+        {
+          "type": "function_definition",
+          "named": true
+        },
+        {
+          "type": "linkage_specification",
+          "named": true
+        },
+        {
+          "type": "namespace_alias_definition",
+          "named": true
+        },
+        {
+          "type": "namespace_definition",
+          "named": true
+        },
+        {
+          "type": "preproc_call",
+          "named": true
+        },
+        {
+          "type": "preproc_def",
+          "named": true
+        },
+        {
+          "type": "preproc_function_def",
+          "named": true
+        },
+        {
+          "type": "preproc_if",
+          "named": true
+        },
+        {
+          "type": "preproc_ifdef",
+          "named": true
+        },
+        {
+          "type": "preproc_include",
+          "named": true
+        },
+        {
+          "type": "statement",
+          "named": true
+        },
+        {
+          "type": "static_assert_declaration",
+          "named": true
+        },
+        {
+          "type": "template_declaration",
+          "named": true
+        },
+        {
+          "type": "template_instantiation",
+          "named": true
+        },
+        {
+          "type": "type_definition",
+          "named": true
+        },
+        {
+          "type": "type_specifier",
+          "named": true
+        },
+        {
+          "type": "using_declaration",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "conditional_storage_modifier",
+    "named": true,
+    "fields": {
+      "preproc_condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "binary_expression",
+            "named": true
+          },
+          {
+            "type": "call_expression",
+            "named": true
+          },
+          {
+            "type": "char_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "number_literal",
+            "named": true
+          },
+          {
+            "type": "parenthesized_expression",
+            "named": true
+          },
+          {
+            "type": "preproc_defined",
+            "named": true
+          },
+          {
+            "type": "unary_expression",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "ms_declspec_modifier",
+          "named": true
+        },
+        {
+          "type": "sdk_call_modifier",
+          "named": true
+        },
+        {
+          "type": "storage_class_specifier",
+          "named": true
+        },
+        {
+          "type": "type_qualifier",
           "named": true
         }
       ]
@@ -2499,7 +2992,15 @@
           "named": true
         },
         {
+          "type": "conditional_storage_modifier",
+          "named": true
+        },
+        {
           "type": "explicit_function_specifier",
+          "named": true
+        },
+        {
+          "type": "ms_call_modifier",
           "named": true
         },
         {
@@ -2538,6 +3039,10 @@
           "named": true
         },
         {
+          "type": "conditional_function_definition",
+          "named": true
+        },
+        {
           "type": "conditional_linkage_specification",
           "named": true
         },
@@ -2559,6 +3064,10 @@
         },
         {
           "type": "namespace_definition",
+          "named": true
+        },
+        {
+          "type": "objc_protocol_declaration",
           "named": true
         },
         {
@@ -2626,6 +3135,10 @@
       "types": [
         {
           "type": "auto",
+          "named": true
+        },
+        {
+          "type": "comma_expression",
           "named": true
         },
         {
@@ -2903,6 +3416,18 @@
         {
           "type": "expression",
           "named": true
+        },
+        {
+          "type": "objc_message_expression",
+          "named": true
+        },
+        {
+          "type": "objc_selector_expression",
+          "named": true
+        },
+        {
+          "type": "objc_string_literal",
+          "named": true
         }
       ]
     }
@@ -2946,6 +3471,18 @@
           },
           {
             "type": "initializer_list",
+            "named": true
+          },
+          {
+            "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
+            "named": true
+          },
+          {
+            "type": "objc_string_literal",
             "named": true
           }
         ]
@@ -3093,6 +3630,10 @@
           {
             "type": "expression",
             "named": true
+          },
+          {
+            "type": "objc_message_expression",
+            "named": true
           }
         ]
       },
@@ -3110,6 +3651,10 @@
           },
           {
             "type": "field_identifier",
+            "named": true
+          },
+          {
+            "type": "operator_name",
             "named": true
           },
           {
@@ -3674,6 +4219,10 @@
             "named": true
           },
           {
+            "type": "managed_handle_declarator",
+            "named": true
+          },
+          {
             "type": "operator_cast",
             "named": true
           }
@@ -4087,6 +4636,18 @@
           {
             "type": "initializer_list",
             "named": true
+          },
+          {
+            "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
+            "named": true
+          },
+          {
+            "type": "objc_string_literal",
+            "named": true
           }
         ]
       }
@@ -4382,6 +4943,16 @@
     "type": "macro_statement",
     "named": true,
     "fields": {
+      "alternative": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "else_clause",
+            "named": true
+          }
+        ]
+      },
       "arguments": {
         "multiple": false,
         "required": true,
@@ -4426,6 +4997,95 @@
         },
         {
           "type": "type_specifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "managed_handle_declarator",
+    "named": true,
+    "fields": {
+      "declarator": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "function_declarator",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "type_qualifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "ms_asm_instruction",
+    "named": true,
+    "fields": {
+      "destination": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "opcode": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "cpuid",
+            "named": false
+          },
+          {
+            "type": "mov",
+            "named": false
+          }
+        ]
+      },
+      "source": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "number_literal",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "ms_asm_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "ms_asm_instruction",
           "named": true
         }
       ]
@@ -4698,6 +5358,170 @@
     "fields": {}
   },
   {
+    "type": "objc_message_expression",
+    "named": true,
+    "fields": {
+      "argument": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          },
+          {
+            "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
+            "named": true
+          },
+          {
+            "type": "objc_string_literal",
+            "named": true
+          }
+        ]
+      },
+      "receiver": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          },
+          {
+            "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
+            "named": true
+          },
+          {
+            "type": "objc_string_literal",
+            "named": true
+          }
+        ]
+      },
+      "selector": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "objc_method_declaration",
+    "named": true,
+    "fields": {
+      "parameter": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameter_type": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "type_descriptor",
+            "named": true
+          }
+        ]
+      },
+      "return_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_descriptor",
+            "named": true
+          }
+        ]
+      },
+      "selector": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "objc_protocol_declaration",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "objc_method_declaration",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "objc_selector_expression",
+    "named": true,
+    "fields": {
+      "selector": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "objc_string_literal",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string_literal",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "offsetof_expression",
     "named": true,
     "fields": {
@@ -4819,6 +5643,10 @@
           {
             "type": "expression",
             "named": true
+          },
+          {
+            "type": "initializer_list",
+            "named": true
           }
         ]
       },
@@ -4904,6 +5732,14 @@
           },
           {
             "type": "_declarator",
+            "named": true
+          },
+          {
+            "type": "abstract_managed_handle_declarator",
+            "named": true
+          },
+          {
+            "type": "managed_handle_declarator",
             "named": true
           }
         ]
@@ -5272,10 +6108,21 @@
   {
     "type": "preproc_defined",
     "named": true,
-    "fields": {},
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
     "children": {
       "multiple": false,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "identifier",
@@ -5362,6 +6209,10 @@
           "named": true
         },
         {
+          "type": "conditional_function_definition",
+          "named": true
+        },
+        {
           "type": "conditional_linkage_specification",
           "named": true
         },
@@ -5407,6 +6258,10 @@
         },
         {
           "type": "namespace_definition",
+          "named": true
+        },
+        {
+          "type": "objc_protocol_declaration",
           "named": true
         },
         {
@@ -5514,6 +6369,10 @@
           "named": true
         },
         {
+          "type": "conditional_function_definition",
+          "named": true
+        },
+        {
           "type": "conditional_linkage_specification",
           "named": true
         },
@@ -5559,6 +6418,10 @@
         },
         {
           "type": "namespace_definition",
+          "named": true
+        },
+        {
+          "type": "objc_protocol_declaration",
           "named": true
         },
         {
@@ -5619,7 +6482,28 @@
   {
     "type": "preproc_else",
     "named": true,
-    "fields": {},
+    "fields": {
+      "declaration": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "conditional_function_prefix",
+            "named": true
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      }
+    },
     "children": {
       "multiple": true,
       "required": false,
@@ -5634,6 +6518,10 @@
         },
         {
           "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_function_definition",
           "named": true
         },
         {
@@ -5682,6 +6570,10 @@
         },
         {
           "type": "namespace_definition",
+          "named": true
+        },
+        {
+          "type": "objc_protocol_declaration",
           "named": true
         },
         {
@@ -5834,6 +6726,50 @@
             "named": true
           }
         ]
+      },
+      "declaration": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "conditional_function_prefix",
+            "named": true
+          }
+        ]
+      },
+      "left": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "operator": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "&&",
+            "named": false
+          },
+          {
+            "type": "||",
+            "named": false
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
       }
     },
     "children": {
@@ -5850,6 +6786,10 @@
         },
         {
           "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_function_definition",
           "named": true
         },
         {
@@ -5898,6 +6838,10 @@
         },
         {
           "type": "namespace_definition",
+          "named": true
+        },
+        {
+          "type": "objc_protocol_declaration",
           "named": true
         },
         {
@@ -5977,12 +6921,46 @@
           }
         ]
       },
+      "left": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
       "name": {
         "multiple": false,
         "required": true,
         "types": [
           {
             "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "operator": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "&&",
+            "named": false
+          },
+          {
+            "type": "||",
+            "named": false
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
             "named": true
           }
         ]
@@ -6002,6 +6980,10 @@
         },
         {
           "type": "concept_definition",
+          "named": true
+        },
+        {
+          "type": "conditional_function_definition",
           "named": true
         },
         {
@@ -6050,6 +7032,10 @@
         },
         {
           "type": "namespace_definition",
+          "named": true
+        },
+        {
+          "type": "objc_protocol_declaration",
           "named": true
         },
         {
@@ -6148,6 +7134,192 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "preproc_split_if_close",
+    "named": true,
+    "fields": {
+      "first_branch": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "else_clause",
+            "named": true
+          },
+          {
+            "type": "expression_statement",
+            "named": true
+          },
+          {
+            "type": "}",
+            "named": false
+          }
+        ]
+      },
+      "preproc_condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "binary_expression",
+            "named": true
+          },
+          {
+            "type": "call_expression",
+            "named": true
+          },
+          {
+            "type": "char_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "number_literal",
+            "named": true
+          },
+          {
+            "type": "parenthesized_expression",
+            "named": true
+          },
+          {
+            "type": "preproc_defined",
+            "named": true
+          },
+          {
+            "type": "unary_expression",
+            "named": true
+          }
+        ]
+      },
+      "second_branch": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "else_clause",
+            "named": true
+          },
+          {
+            "type": "expression_statement",
+            "named": true
+          },
+          {
+            "type": "}",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "preproc_split_if_open",
+    "named": true,
+    "fields": {
+      "condition": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "condition_clause",
+            "named": true
+          }
+        ]
+      },
+      "first_branch": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "constexpr",
+            "named": false
+          },
+          {
+            "type": "declaration",
+            "named": true
+          },
+          {
+            "type": "expression_statement",
+            "named": true
+          },
+          {
+            "type": "if",
+            "named": false
+          },
+          {
+            "type": "{",
+            "named": false
+          }
+        ]
+      },
+      "preproc_condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "binary_expression",
+            "named": true
+          },
+          {
+            "type": "call_expression",
+            "named": true
+          },
+          {
+            "type": "char_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "number_literal",
+            "named": true
+          },
+          {
+            "type": "parenthesized_expression",
+            "named": true
+          },
+          {
+            "type": "preproc_defined",
+            "named": true
+          },
+          {
+            "type": "unary_expression",
+            "named": true
+          }
+        ]
+      },
+      "second_branch": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "constexpr",
+            "named": false
+          },
+          {
+            "type": "declaration",
+            "named": true
+          },
+          {
+            "type": "expression_statement",
+            "named": true
+          },
+          {
+            "type": "if",
+            "named": false
+          },
+          {
+            "type": "{",
+            "named": false
+          }
+        ]
+      }
     }
   },
   {
@@ -6405,11 +7577,31 @@
           "named": true
         },
         {
+          "type": "conditional_logical_expression",
+          "named": true
+        },
+        {
+          "type": "conditional_return_expression",
+          "named": true
+        },
+        {
           "type": "expression",
           "named": true
         },
         {
           "type": "initializer_list",
+          "named": true
+        },
+        {
+          "type": "objc_message_expression",
+          "named": true
+        },
+        {
+          "type": "objc_selector_expression",
+          "named": true
+        },
+        {
+          "type": "objc_string_literal",
           "named": true
         }
       ]
@@ -7217,6 +8409,10 @@
           "named": true
         },
         {
+          "type": "conditional_function_definition",
+          "named": true
+        },
+        {
           "type": "conditional_linkage_specification",
           "named": true
         },
@@ -7423,6 +8619,10 @@
         "types": [
           {
             "type": "_abstract_declarator",
+            "named": true
+          },
+          {
+            "type": "abstract_managed_handle_declarator",
             "named": true
           }
         ]
@@ -8068,6 +9268,18 @@
     "named": false
   },
   {
+    "type": "@",
+    "named": false
+  },
+  {
+    "type": "@catch",
+    "named": false
+  },
+  {
+    "type": "@try",
+    "named": false
+  },
+  {
     "type": "L\"",
     "named": false
   },
@@ -8361,6 +9573,10 @@
     "named": false
   },
   {
+    "type": "cpuid",
+    "named": false
+  },
+  {
     "type": "decltype",
     "named": false
   },
@@ -8382,6 +9598,10 @@
   },
   {
     "type": "else",
+    "named": false
+  },
+  {
+    "type": "end",
     "named": false
   },
   {
@@ -8438,6 +9658,10 @@
   },
   {
     "type": "long",
+    "named": false
+  },
+  {
+    "type": "mov",
     "named": false
   },
   {
@@ -8501,6 +9725,10 @@
     "named": false
   },
   {
+    "type": "optional",
+    "named": false
+  },
+  {
     "type": "or",
     "named": false
   },
@@ -8533,6 +9761,10 @@
     "named": false
   },
   {
+    "type": "protocol",
+    "named": false
+  },
+  {
     "type": "public",
     "named": false
   },
@@ -8549,6 +9781,10 @@
     "named": false
   },
   {
+    "type": "required",
+    "named": false
+  },
+  {
     "type": "requires",
     "named": false
   },
@@ -8558,6 +9794,10 @@
   },
   {
     "type": "return",
+    "named": false
+  },
+  {
+    "type": "selector",
     "named": false
   },
   {

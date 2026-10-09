@@ -132,7 +132,11 @@ impl<'i> SymbolTable<'i> {
       return;
     }
     let Some((owner, member)) = name.rsplit_once("::") else { return; };
-    if member.is_empty() || member.contains('<') || member.contains('>') { return; }
+    // Angle punctuation is part of these exact operator names, not a template
+    // specialization. Keep all other angle-bearing member aliases excluded.
+    let angle_operator = matches!(member.strip_prefix("operator").map(str::trim),
+      Some("<" | ">" | "<<" | ">>" | "<=" | ">=" | "<=>" | "<<=" | ">>="));
+    if member.is_empty() || ((member.contains('<') || member.contains('>')) && !angle_operator) { return; }
     let key = if referenced_only { interner.peek(member) } else { Some(interner.intern(member)) };
     if let Some(key) = key {
       let owner = owner.rsplit("::").next().unwrap_or(owner);

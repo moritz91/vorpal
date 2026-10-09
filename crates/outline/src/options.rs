@@ -83,7 +83,10 @@ impl OutlineExtractorOptions {
   pub fn retain_rule<L>(&self, rule: &SerializableOutlineRule<L>) -> bool {
     match rule {
       SerializableOutlineRule::Item(item) => {
-        matches_symbol_type(item.common.symbol_type, self.symbol_types.as_deref())
+        // A potential anonymous match is also a traversal boundary. Retain it
+        // through output filters; keep_item still filters emitted named entries.
+        !matches!(item.anonymous, None | Some(SerializablePredicate::Literal(false)))
+          || matches_symbol_type(item.common.symbol_type, self.symbol_types.as_deref())
           && self
             .imports
             .matches_predicate(item.is_import.as_ref(), false)

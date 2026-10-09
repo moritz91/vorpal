@@ -32,7 +32,7 @@ use crate::protocol::{Handler, RpcError, decorate_tools, default_record_format};
 /// `<src>` (§7.5): queries revalidate lazily whenever the watch reports possible changes, so
 /// the steady-state freshness check is one atomic load — no walk, no stats — while answers
 /// stay as fresh as an explicit re-index. Custom index locations (no derivable source root)
-/// keep the explicit-`index`-tool behavior unchanged.
+/// keep the explicit-`index`-tool behavior unless a launcher supplies their source root.
 /// Which tool subset this daemon serves. Slimmer surfaces mean fewer tokens of tool schema
 /// per agent turn and a smaller blast radius for read-only deployments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -105,6 +105,8 @@ pub struct Server {
   /// an answer from the pinned graph that produced its ids.
   kg_dir: Option<PathBuf>,
   watch: Option<SourceWatch>,
+  /// Canonical source root supplied by the launcher/registry or default layout.
+  source_root: Option<PathBuf>,
   /// Result sets of the structural tools, kept for paging (see `page_key`).
   structural_pages: PageCache<crate::tools::StructuralHit>,
   rule_pages: PageCache<crate::tools::RuleHit>,
@@ -133,6 +135,9 @@ pub struct Server {
   /// finally spawns — so an edit burst costs at most one wasted warm, and the newest
   /// generation always ends up warm.
   warm: Option<std::thread::JoinHandle<()>>,
+  /// Scope-table warming also heals lexical postings, so these tasks can write
+  /// artifacts. Keep their handles through shutdown instead of detaching them.
+  scope_warms: Vec<std::thread::JoinHandle<()>>,
   warm_pending: bool,
   /// When the pending warm was first asked for, and the running warm with its stop signal.
   /// A re-warm spawns only once the tree has been quiet since the last commit (see
@@ -427,7 +432,7 @@ impl Handler for Server {
         items
           .iter()
           .filter_map(|root| root.get("uri").and_then(Value::as_str))
-          .filter_map(|uri| uri.strip_prefix("file://").map(PathBuf::from))
+          .filter_map(|uri| url::Url::parse(uri).ok()?.to_file_path().ok())
           .collect()
       })
       .unwrap_or_default();
@@ -449,18 +454,16 @@ impl Server {
     let Some(source_root) = self.source_root() else {
       return;
     };
-    let root_str = source_root.to_string_lossy().into_owned();
     let mut inside: Vec<String> = Vec::new();
     for root in roots {
       let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.clone());
-      let spelled = root.to_string_lossy();
-      if spelled.as_ref() == root_str || root_str.starts_with(&format!("{spelled}/")) {
+      if source_root.starts_with(&root) {
         // A root at or above the tree: the whole tree is in play.
         inside.clear();
         break;
       }
-      if let Some(rel) = spelled.strip_prefix(&format!("{root_str}/")) {
-        inside.push(rel.to_string());
+      if let Ok(rel) = root.strip_prefix(&source_root) {
+        inside.push(rel.to_string_lossy().into_owned());
       }
     }
     if inside.is_empty() {
@@ -524,10 +527,34 @@ generation they were read from.";
 
 impl Drop for Server {
   fn drop(&mut self) {
+    // Stop observation and cancel optional work first. Join directly: the normal
+    // reap/adoption paths can start successor tasks, which shutdown must not do.
+    self.watch.take();
+    if let Some(run) = &self.warm_run {
+      run.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     if let Some(handle) = self.canonicalizing.take() {
       let _ = handle.join();
     }
     if let Some(handle) = self.persisting.take() {
+      let _ = handle.join();
+    }
+    if let Some(handle) = self.rebuilding.take() {
+      let _ = handle.join();
+    }
+    if let Some(handle) = self.warm.take() {
+      let _ = handle.join();
+    }
+    if let Some(run) = self.warm_run.take() {
+      let _ = run.handle.join();
+    }
+    if let Some(handle) = self.overlay_building.take() {
+      let _ = handle.join();
+    }
+    if let Some(handle) = self.live_ann_task.take() {
+      let _ = handle.join();
+    }
+    for handle in self.scope_warms.drain(..) {
       let _ = handle.join();
     }
   }
@@ -553,7 +580,31 @@ impl Server {
     env: ExtractionEnv,
     watch_rebuild: bool,
   ) -> Self {
-    let watch = watch_root(&index_dir).and_then(|src| SourceWatch::start(&src));
+    Self::with_profile_env_rebuild_source(index_dir, profile, env, watch_rebuild, None)
+  }
+
+  /// Serve an external index against a source root authorized by the launcher or
+  /// enrolled registry. Missing/unusable explicit roots remain unwatched; they
+  /// never fall back to a different tree inferred from the index directory.
+  pub fn with_profile_env_rebuild_source(
+    index_dir: PathBuf,
+    profile: Profile,
+    mut env: ExtractionEnv,
+    watch_rebuild: bool,
+    source_root: Option<PathBuf>,
+  ) -> Self {
+    let source_root = source_root
+      .or_else(|| watch_root(&index_dir))
+      .and_then(|src| src.canonicalize().ok())
+      .filter(|src| src.is_dir());
+    let watch = source_root.as_deref().and_then(SourceWatch::start);
+    if watch.is_some() && env.cpp_macro_include_roots.is_some() {
+      env.cpp_macro_freshness = Some(Arc::new(
+        vorpal_ingest::cpp_macro_freshness::MacroFreshness::default(),
+      ));
+    } else {
+      env.cpp_macro_freshness = None;
+    }
     // Boot-time warm: if the persisted index exists with a stale (or absent) vector tier,
     // start building it now instead of on the first semantic search. The generation must be
     // resolved first — artifacts live in `gen/<id>/`, never at the index root. When the
@@ -572,7 +623,11 @@ impl Server {
         let _ = vorpal_index::warm_ann_with(&warm_dir, vorpal_index::WarmOptions { text_index: true, ..Default::default() });
       }));
     }
-    let supervisor = Supervisor::discover();
+    let supervisor = if env.cpp_macro_include_roots.is_some() || env.cpp_macro_compiler.is_some() {
+      Supervisor::without_child()
+    } else {
+      Supervisor::discover()
+    };
     // Proactive freshness (D1) is a serve-loop concern now: the protocol loop calls
     // [`Server::tick`] between requests, which drives the SAME retained freshness path
     // queries use. The original stateless worker thread was a second committer — its
@@ -594,6 +649,7 @@ impl Server {
       dirty_since: None,
       proactive,
       warm,
+      scope_warms: Vec::new(),
       warm_pending: false,
       warm_requested_at: None,
       warm_run: None,
@@ -613,6 +669,7 @@ impl Server {
       last_sweep_cost: None,
       live_ann_discard_task: false,
       watch,
+      source_root,
       structural_pages: PageCache::default(),
       rule_pages: PageCache::default(),
       scope: None,
@@ -628,15 +685,7 @@ impl Server {
     // scope file table (and searcher) now, so a name query, a `scope` call, or a scoped
     // query before any generation-bound tool pays for neither.
     if generation.join("nodes.vseg").exists() || generation.join(vorpal_kg::NODES_TOC).is_file() {
-      let index_dir = server.index_dir.clone();
-      std::thread::spawn(move || {
-        // The lexical tier first: every name query pays for its absence (the scan over
-        // all names), a scope file table only the scoped ones.
-        if autowarm_enabled() {
-          let _ = vorpal_index::heal_postings(&index_dir);
-        }
-        let _ = vorpal_index::prewarm_scope_table(&index_dir);
-      });
+      server.spawn_scope_warm();
     }
     server
   }
@@ -1181,13 +1230,29 @@ impl Server {
     self.kg_dir = Some(dir);
     // The generation's scope file table (and searcher) warm in the background, so the
     // first scoped query after a commit pays neither.
+    self.spawn_scope_warm();
+  }
+
+  fn spawn_scope_warm(&mut self) {
+    // Reap completed jobs without waiting on the query path or retaining one
+    // completed handle per generation for the daemon's entire lifetime.
+    let mut i = 0;
+    while i < self.scope_warms.len() {
+      if self.scope_warms[i].is_finished() {
+        let _ = self.scope_warms.swap_remove(i).join();
+      } else {
+        i += 1;
+      }
+    }
     let index_dir = self.index_dir.clone();
-    std::thread::spawn(move || {
+    self.scope_warms.push(std::thread::spawn(move || {
+      // Lexical healing writes postings; even a scope-only reader must finish
+      // before the caller can safely remove or replace this index directory.
       if autowarm_enabled() {
         let _ = vorpal_index::heal_postings(&index_dir);
       }
       let _ = vorpal_index::prewarm_scope_table(&index_dir);
-    });
+    }));
   }
 
   /// Act on a finished canonicalization (see [`CanonicalizeOutcome`]) — shared by the
@@ -1349,7 +1414,28 @@ impl Server {
 
   fn ensure_fresh(&mut self) -> Result<(), String> {
     self.advance_background();
-    self.refresh(false)
+    if self.env.cpp_macro_compiler.is_some() {
+      // Native dependencies may be invisible to the observer and source watcher.
+      // Never serve a previous capture as current, including a quiet MCP query.
+      let watch = self.watch.as_ref().ok_or("native C++ recovery requires an authorized source root for query revalidation")?;
+      watch.mark_dirty();
+    }
+    // Source-watch silence says nothing about external, ignored or missing
+    // include candidates. Observe exact proof inputs even on a quiet query.
+    if let Some(freshness) = &self.env.cpp_macro_freshness
+      && freshness.has_changed()
+      && let Some(watch) = &self.watch {
+      watch.mark_dirty();
+    }
+    self.refresh(false)?;
+    if let Some(freshness) = &self.env.cpp_macro_freshness {
+      freshness.finish_refresh();
+      if freshness.has_changed() {
+        if let Some(watch) = &self.watch { watch.mark_dirty(); }
+        return Err("C++ macro inputs changed during revalidation; retry the query".to_owned());
+      }
+    }
+    Ok(())
   }
 
   /// The freshness path proper. `background: false` is the query path — any full pipeline
@@ -1370,7 +1456,12 @@ impl Server {
       return Ok(());
     };
     let mut backstop = false;
-    if self.kg.is_some() && !watch.take_dirty() {
+    // Consume startup dirt even before a graph is loaded. Short-circuiting this
+    // through kg.is_some() leaves the initial flag armed after the first build,
+    // so the next quiet opt-in query needlessly runs the entire pipeline again.
+    // Events arriving during that build still re-arm the atomic flag normally.
+    let dirty = watch.take_dirty();
+    if self.kg.is_some() && !dirty {
       // Liveness backstop: a clean flag is necessary-condition evidence ONLY while the
       // OS channel is actually delivering — and FSEvents can defer delivery beyond any
       // deadline with no error and no overflow flag (event-trace-proven on a loaded
@@ -1427,6 +1518,9 @@ impl Server {
     // complete capture is empty — and an empty hint set would route to the probe
     // short-circuit, not the sweep this entry exists to run.
     let hints = if backstop { None } else { watch.take_changes() };
+    if let Some(freshness) = &self.env.cpp_macro_freshness {
+      freshness.begin_refresh();
+    }
     // Decision telemetry (VORPAL_PHASE_TRACE): which freshness tier a dirty pass takes is
     // the first question every daemon-latency investigation asks — stamp the input.
     match &hints {
@@ -1974,6 +2068,8 @@ impl Server {
     // product pack, ANN sidecars) rather than the served in-memory graph — they wait for an
     // in-flight background persist so their generation pin exists. The navigation and
     // pattern tools keep serving from the sealed graph at full speed during the window.
+    // Edge navigation carries occurrence sites, so it needs the evidence family
+    // attached by pin_served_generation even when the sealed graph already has edges.
     const GENERATION_BOUND: &[&str] = &[
       "index",
       "search",
@@ -1988,6 +2084,12 @@ impl Server {
       "why",
       "compare_generations",
       "impact",
+      "callers",
+      "callees",
+      "references",
+      "importers",
+      "implementors",
+      "type_users",
     ];
     if GENERATION_BOUND.contains(&tool) {
       self.reap_persist(true);
@@ -2045,6 +2147,9 @@ impl Server {
         // An explicit rebuild is a commit: drain the proactive rebuild first so commits
         // stay single-file (its generation lands, then this one supersedes it).
         self.reap_rebuilding(true);
+        if let Some(freshness) = &self.env.cpp_macro_freshness {
+          freshness.begin_refresh();
+        }
         // Optional embedding-tier selection: written to the index ROOT before the build,
         // because the selection file is the single cross-process truth every warm reads
         // (in-daemon or child indexer alike). Absent = keep the existing selection.
@@ -2095,6 +2200,9 @@ impl Server {
         let dir = vorpal_kg::resolve_index_dir(&self.index_dir);
         self.kg = Some(Arc::new(Kg::load(&dir).map_err(|err| err.to_string())?));
         self.kg_dir = Some(dir);
+        if let Some(freshness) = &self.env.cpp_macro_freshness {
+          freshness.finish_refresh();
+        }
         // An explicit rebuild moved the committed tree with no change-set capture: the
         // overlay cannot be trusted to match — retire it and rebuild from the new generation.
         // The live ANN tier goes with it (lifecycle law 5): this commit carried no eid-churn
@@ -3171,7 +3279,7 @@ impl Server {
       .watch
       .as_ref()
       .map(|watch| watch.src().to_path_buf())
-      .or_else(|| watch_root(&self.index_dir))?;
+      .or_else(|| self.source_root.clone())?;
     Some(std::fs::canonicalize(&root).unwrap_or(root))
   }
 
@@ -3304,9 +3412,9 @@ impl Server {
       if self.radius.files.contains(path) {
         continue;
       }
-      let dir = match root.as_deref().and_then(|root| path.strip_prefix(root)).and_then(|rel| rel.strip_prefix('/')) {
-        Some(rel) => rel.split_once('/').map_or(".", |(first, _)| first).to_string(),
-        None => path.rsplit_once('/').map_or("", |(dir, _)| dir).to_string(),
+      let dir = match root.as_deref().and_then(|root| path.strip_prefix(root)).and_then(|rel| rel.strip_prefix(std::path::is_separator)) {
+        Some(rel) => rel.split_once(std::path::is_separator).map_or(".", |(first, _)| first).to_string(),
+        None => path.rsplit_once(std::path::is_separator).map_or("", |(dir, _)| dir).to_string(),
       };
       self.radius.dirs.insert(dir);
       self.radius.files.insert(path.to_string());
@@ -3873,5 +3981,276 @@ mod warm_and_reconcile_policy_tests {
     assert!(reconcile_due(hour, hour, Some(Duration::from_secs(300)), false, false, Some(Duration::from_secs(10))));
     assert!(reconcile_due(hour, hour, None, false, false, None));
     assert!(reconcile_due(hour, hour, Some(Duration::from_secs(1)), true, false, Some(RECONCILE_DEADLINE)));
+  }
+}
+
+
+#[cfg(test)]
+mod pending_call_site_tests {
+  use super::*;
+
+  #[test]
+  fn graph_sites_wait_for_the_served_graphs_evidence_commit() {
+    for relation in ["callees", "callers"] {
+      let root = std::env::temp_dir().join(format!(
+        "vorpal-pending-sites-{}-{relation}",
+        std::process::id()
+      ));
+      let src = root.join("src");
+      let out = root.join("index");
+      std::fs::create_dir_all(&src).unwrap();
+      std::fs::write(src.join("calls.cc"), "#define CHECK(x) if (x) { consume(x); }\nvoid run() { CHECK(target()) else after(); }\nvoid after() {}\nvoid target() {}\n").unwrap();
+      let env = ExtractionEnv {
+        cpp_macro_include_roots: Some(vec![]),
+        ..Default::default()
+      };
+      let build = vorpal_index::build_index_live(&src, &out, None, &env).unwrap();
+      let kg = build.kg.unwrap();
+      assert!(!kg.has_evidence());
+      let pending = build.pending.unwrap();
+      // Hold the actual artifact commit: the graph exists, its evidence does not.
+      let (release, wait) = std::sync::mpsc::channel();
+      let mut server = Server::with_profile_env_rebuild(out, Profile::Full, env, false);
+      server.kg = Some(kg);
+      server.persisting = Some(std::thread::spawn(move || {
+        wait.recv().unwrap();
+        pending.persist()
+      }));
+      let (_, nodes) = server
+        .run_tool("node", &json!({"name":"run"}))
+        .unwrap_or_else(|e| panic!("{}", e.message));
+      assert_eq!(
+        nodes["total"], 1,
+        "node navigation still serves before persistence"
+      );
+      assert!(!server.kg.as_ref().unwrap().has_evidence());
+      let name = if relation == "callees" {
+        "run"
+      } else {
+        "after"
+      };
+      let (reply, receive) = std::sync::mpsc::channel();
+      let query = std::thread::spawn(move || {
+        let response = server.run_tool(
+          "graph",
+          &json!({"relation":relation,"name":name,"format":"lean"}),
+        );
+        reply.send(response.map_err(|e| e.message)).unwrap();
+        server
+      });
+      let early = receive
+        .recv_timeout(std::time::Duration::from_millis(100))
+        .ok();
+      release.send(()).unwrap();
+      let (_, data) = early.unwrap_or_else(|| receive.recv().unwrap()).unwrap();
+      let mut server = query.join().unwrap();
+      let rows = data["records"].as_array().unwrap();
+      assert_eq!(rows.len(), if relation == "callees" { 2 } else { 1 });
+      for row in rows {
+        assert_eq!(
+          row["site"], "void run() { CHECK(target()) else after(); }",
+          "{data}"
+        );
+        assert_eq!(row["site_line"], 2, "{data}");
+      }
+      server.reap_persist(true);
+      drop(server);
+      std::fs::remove_dir_all(root).unwrap();
+    }
+  }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+  use super::*;
+
+  #[test]
+  fn shutdown_waits_for_every_owned_background_task() {
+    // No index exists, so construction cannot launch real warming jobs. Each
+    // probe stands in for a writer held just before its final artifact write.
+    let root = std::env::temp_dir().join(format!(
+      "vorpal-shutdown-{}-{}",
+      std::process::id(),
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut server = Server::with_profile_env_rebuild(
+      root.join("index"),
+      Profile::Full,
+      ExtractionEnv::default(),
+      false,
+    );
+    let mut releases = Vec::new();
+    macro_rules! probe {
+      ($name:literal, $result:expr) => {{
+        let (release, wait) = std::sync::mpsc::channel();
+        releases.push(release);
+        let artifact = root.join($name);
+        std::thread::spawn(move || {
+          wait.recv().unwrap();
+          std::fs::write(artifact, b"finished").unwrap();
+          $result
+        })
+      }};
+    }
+    server.canonicalizing = Some(probe!("canonicalize", None));
+    server.persisting = Some(probe!("persist", Err("probe".into())));
+    server.rebuilding = Some(probe!("rebuild", false));
+    server.warm = Some(probe!("boot-warm", ()));
+    let cancel: vorpal_index::WarmCancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let warm_cancel = cancel.clone();
+    server.warm_run = Some(WarmRun {
+      handle: probe!("warm", {
+        assert!(warm_cancel.load(std::sync::atomic::Ordering::Relaxed));
+        vorpal_index::WarmOutcome::Cancelled
+      }),
+      cancel,
+      preemptible: false,
+    });
+    server.overlay_building = Some(probe!("overlay", Err("probe".into())));
+    server.live_ann_task = Some(probe!(
+      "live-ann",
+      Err(vorpal_index::live_ann::AdoptDecline { curable: false })
+    ));
+    server.scope_warms.push(probe!("boot-scope", ()));
+    server.scope_warms.push(probe!("commit-scope", ()));
+    let (started, start) = std::sync::mpsc::channel();
+    let (finished, finish) = std::sync::mpsc::channel();
+    let shutdown = std::thread::spawn(move || {
+      started.send(()).unwrap();
+      drop(server);
+      finished.send(()).unwrap();
+    });
+    start.recv().unwrap();
+    let mut returned_early = false;
+    for release in releases {
+      returned_early |= finish
+        .recv_timeout(std::time::Duration::from_millis(50))
+        .is_ok();
+      release.send(()).unwrap();
+    }
+    shutdown.join().unwrap();
+    assert!(
+      !returned_early,
+      "Server dropped while an owned background writer was still blocked"
+    );
+    for name in [
+      "canonicalize",
+      "persist",
+      "rebuild",
+      "boot-warm",
+      "warm",
+      "overlay",
+      "live-ann",
+      "boot-scope",
+      "commit-scope",
+    ] {
+      assert_eq!(std::fs::read(root.join(name)).unwrap(), b"finished");
+    }
+    std::fs::remove_dir_all(root).unwrap();
+  }
+}
+
+#[cfg(test)]
+mod explicit_source_tests {
+  use super::*;
+
+  #[test]
+  fn first_watched_query_consumes_startup_dirt_without_rebuilding_quiet_queries() {
+    for recovery in [false, true] {
+      for external in [false, true] {
+        let root = std::env::temp_dir().join(format!(
+          "vorpal-startup-dirt-{}-{}",
+          std::process::id(),
+          std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+        ));
+        let src = root.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+          src.join("calls.cc"),
+          "void run() { target(); }\nvoid target() {}\n",
+        )
+        .unwrap();
+        let index = if external {
+          root.join("index")
+        } else {
+          src.join(".vorpal/index")
+        };
+        let env = ExtractionEnv {
+          cpp_macro_include_roots: recovery.then(Vec::new),
+          ..Default::default()
+        };
+        vorpal_index::build_index_env(&src, &index, Default::default(), Default::default(), &env)
+          .unwrap();
+        let mut server =
+          Server::with_profile_env_rebuild_source(index, Profile::Full, env, false, Some(src));
+        assert!(server.watch.as_ref().unwrap().peek_dirty());
+        server
+          .run_tool("health", &json!({}))
+          .unwrap_or_else(|e| panic!("{}", e.message));
+        assert!(
+          !server.watch.as_ref().unwrap().peek_dirty(),
+          "the first refresh must consume the startup gap"
+        );
+        let builds = server.hinted_rebuilds;
+        for _ in 0..2 {
+          server
+            .run_tool("health", &json!({}))
+            .unwrap_or_else(|e| panic!("{}", e.message));
+          assert_eq!(
+            server.hinted_rebuilds, builds,
+            "quiet queries must not launch a second pipeline"
+          );
+        }
+        // Subsequent changes still re-arm the same freshness path.
+        server.watch.as_ref().unwrap().mark_dirty();
+        server
+          .run_tool("health", &json!({}))
+          .unwrap_or_else(|e| panic!("{}", e.message));
+        assert!(!server.watch.as_ref().unwrap().peek_dirty());
+        drop(server);
+        let _ = std::fs::remove_dir_all(root);
+      }
+    }
+  }
+
+  #[test]
+  fn missing_explicit_root_never_falls_back_to_another_layout_root() {
+    let root = std::env::temp_dir().join(format!(
+      "vorpal-explicit-root-{}-{}",
+      std::process::id(),
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let index = root.join(".vorpal/index");
+    assert!(watch_root(&index).is_some());
+    let server = Server::with_profile_env_rebuild_source(
+      index,
+      Profile::Full,
+      ExtractionEnv::default(),
+      false,
+      Some(root.join("missing")),
+    );
+    assert!(server.watch.is_none());
+    assert!(server.source_root().is_none());
+    let rootless = Server::with_profile_env_rebuild_source(
+      root.join("external-index"),
+      Profile::Full,
+      ExtractionEnv::default(),
+      false,
+      None,
+    );
+    assert!(rootless.watch.is_none());
+    assert!(rootless.source_root().is_none());
+    std::fs::remove_dir_all(root).unwrap();
   }
 }

@@ -27,9 +27,32 @@ use vorpal_lang_registry::SgLang;
 use vorpal_language::SupportLang;
 use vorpal_resolve::{RefForm, RefKind};
 
+/// Product capture policy, independent of the parser and near-clone token seed.
+/// Increment when reference semantics change without a grammar or rule change.
+pub(crate) const REFERENCE_CAPTURE_VERSION: u32 = 2;
+
 type SgNode<'t> = Node<'t, StrDoc<SgLang>>;
 /// The walk's node type, exported for the typefacts capture module (same doc, same lifetime).
 pub(crate) type SgNodeAlias<'t> = SgNode<'t>;
+
+// A returnless bare namespace head has no evidenced function/type-argument meaning.
+pub(crate) fn untyped_cpp_namespace_function(node: &SgNodeAlias<'_>) -> bool {
+  *node.lang() == SgLang::Builtin(SupportLang::Cpp)
+    && node.kind().as_ref() == "function_definition"
+    && node.field("type").is_none()
+    && node.field("declarator").is_some_and(|declarator| {
+      declarator.kind().as_ref() == "function_declarator"
+        && declarator
+          .field("declarator")
+          .is_some_and(|name| name.kind().as_ref() == "identifier")
+    })
+    && !node.ancestors().any(|parent| {
+      matches!(
+        parent.kind().as_ref(),
+        "class_specifier" | "struct_specifier" | "union_specifier"
+      )
+    })
+}
 
 /// One extracted reference, file-locally attributed: `from` indexes the file's local
 /// definition layout (see `local_layout`). Deliberately path-free — the enclosing file's path
@@ -1791,6 +1814,7 @@ pub(crate) struct RawRequest<'t> {
 /// A walk emission awaiting the post-pass: definite references pass through in visit order;
 /// type-use candidates wait for the complete binder set (a `type_parameters` declaration may
 /// be visited after uses of its binder, so the shadow filter can only run once the walk ends).
+#[derive(Clone)]
 pub(crate) enum Pending<'t> {
   Ready(RawRef<'t>),
   TypeUse {
@@ -1798,6 +1822,8 @@ pub(crate) enum Pending<'t> {
     name: Cow<'t, str>,
     start: u32,
     end: u32,
+    // Anonymous C++ bodies share a graph owner, but not a lexical dedup domain.
+    lexical_scope: Option<u32>,
   },
   // (span accessors for the walk-reuse containment check live below the enum)
   /// An `implements` candidate awaiting the post-pass (from, name) first-wins dedup —
@@ -1812,6 +1838,21 @@ pub(crate) enum Pending<'t> {
 }
 
 impl Pending<'_> {
+  fn owner(&self) -> NodeId {
+    match self {
+      Self::Ready(r) => r.from,
+      Self::TypeUse { from, .. } | Self::ImplUse { from, .. } => *from,
+    }
+  }
+
+  fn with_owner(mut self, owner: NodeId) -> Self {
+    match &mut self {
+      Self::Ready(r) => r.from = owner,
+      Self::TypeUse { from, .. } | Self::ImplUse { from, .. } => *from = owner,
+    }
+    self
+  }
+
   /// The emitting node's byte span — walk reuse verifies every fresh row lands inside
   /// the dirty region with these.
   pub(crate) fn start(&self) -> u32 {
@@ -1918,12 +1959,14 @@ pub(crate) fn walk_reference_tree<'t>(
   mut signer: Option<&mut crate::signature::Signer>,
 ) {
   let spec = &*resolved.spec;
+  let cpp_conditions = *scope.lang() == SgLang::Builtin(SupportLang::Cpp);
   let binders = &mut walk.binders;
   let pending = &mut walk.pending;
   // Definition-head calls suppressed by a SkipDefinition rule (`def foo(x)` → `foo(x)`).
   // Emitter and consumer are parent/child within one subtree, so per-walk state suffices
   // even when a regional caller walks dirty subtrees one call at a time.
   let mut suppressed: HashSet<usize> = HashSet::new();
+  let mut conditional_owners: Vec<(Range<usize>, NodeId, Vec<NodeId>)> = Vec::new();
   let mut span_cursor = SpanCursor::new(def_spans);
   // Explicit ancestor stack, driven by the walk's own depth (a truncate + push per node):
   // every parent the handlers consult reads from this stack instead of `Node::parent`,
@@ -1940,6 +1983,9 @@ pub(crate) fn walk_reference_tree<'t>(
   };
   for (node, depth) in PreWithDepth::new(&scope) {
     ancestors.truncate(base + depth);
+    let first_pending = pending.len();
+    conditional_owners.retain(|(body, _, _)| node.range().start < body.end);
+
     // Near-clone signatures (v16) read every leaf token — anonymous ones included —
     // before the named-only dispatch below.
     if let Some(signer) = signer.as_deref_mut() {
@@ -1950,6 +1996,14 @@ pub(crate) fn walk_reference_tree<'t>(
         break 'dispatch;
       }
       let kind_id = node.kind_id();
+      if cpp_conditions
+        && node.kind().as_ref() == "conditional_function_definition"
+        && let Some((body, owners)) = conditional_function_owners(&node, def_spans)
+        && let Some(enclosing) = span_cursor.enclosing(body.start)
+      {
+        conditional_owners.push((body, enclosing, owners));
+      }
+
       if let Some(facts) = typefacts {
         if let Some(bind) = facts.arm(kind_id) {
           crate::typefacts::capture_at(bind, &node, bindings);
@@ -1989,10 +2043,67 @@ pub(crate) fn walk_reference_tree<'t>(
           pending,
         ),
         Chain::Call(idx) => {
-          // SAL metadata and decltype operands are unevaluated declaration contexts.
+          // Declaration metadata and preprocessor conditions are not runtime
+          // calls. Conditional nodes can also contain real runtime bodies, so
+          // suppress their condition field rather than their entire subtree.
+          let call_range = node.range();
           if ancestors.iter().any(|ancestor| {
-            matches!(ancestor.kind().as_ref(), "sdk_parameter_annotation" | "decltype")
+            let kind = ancestor.kind();
+            if matches!(kind.as_ref(), "sdk_parameter_annotation" | "decltype") {
+              return true;
+            }
+            if !cpp_conditions {
+              return false;
+            }
+            let field = match kind.as_ref() {
+              "conditional_storage_modifier" => return true,
+              "conditional_if_statement" | "conditional_linkage_open" | "conditional_linkage_close"
+              | "preproc_split_if_open" | "preproc_split_if_close" => "preproc_condition",
+              "preproc_if" | "preproc_elif" => "condition",
+              _ => return false,
+            };
+            ancestor.field(field).is_some_and(|condition| {
+              let range = condition.range();
+              range.start <= call_range.start && call_range.end <= range.end
+            })
           }) {
+            break 'dispatch;
+          }
+          if cpp_conditions && node.kind().as_ref() == "call_expression"
+            && ambiguous_cpp_callee(&node)
+          {
+            break 'dispatch;
+          }
+          // An explicit operator name cannot be a declaration-generating macro.
+          // Recovery may reinterpret a typed operator signature as a call with
+          // damaged arguments. Decline that ambiguous call and its argument-call
+          // rows; keep the original syntax errors and intact operator calls.
+          if cpp_conditions
+            && std::iter::once(&node).chain(ancestors.iter()).any(|call| {
+              call.kind().as_ref() == "call_expression"
+                && call.field("function").is_some_and(|callee| {
+                  callee.kind().as_ref() == "operator_name"
+                })
+                && call.field("arguments").is_some_and(|arguments| {
+                  arguments.has_error()
+                    && (call.node_id() == node.node_id()
+                      || arguments.range().start <= call_range.start
+                        && call_range.end <= arguments.range().end)
+                })
+            })
+          {
+            break 'dispatch;
+          }
+          // A direct C++ type argument cannot be an ordinary runtime argument.
+          // Suppress only this callee, retaining calls inside its value arguments.
+          // Nested metadata calls must not suppress their enclosing runtime call.
+          if node.kind().as_ref() == "call_expression"
+            && node.field("arguments").is_some_and(|arguments| {
+              arguments
+                .children()
+                .any(|argument| argument.kind().as_ref() == "macro_type_argument")
+            })
+          {
             break 'dispatch;
           }
           let cspec = &spec.calls[idx as usize];
@@ -2082,8 +2193,55 @@ pub(crate) fn walk_reference_tree<'t>(
         }
       }
     }
+
+    // Duplicate the shared body's candidate rows BEFORE binder/type dedup. This
+    // preserves both alternatives, their original call sites and branch-local
+    // parameter metadata without choosing a preprocessor condition. Imports
+    // stay file-attributed; independently enclosed definitions keep their owner.
+    if pending.len() > first_pending
+      && let Some((_, enclosing, owners)) = conditional_owners.iter().find(|(body, _, _)| {
+        body.start <= node.range().start && node.range().end <= body.end
+      })
+    {
+      let emitted = pending.split_off(first_pending);
+      for reference in emitted {
+        let import = matches!(&reference, Pending::Ready(r) if r.kind == RefKind::Import);
+        if !import && reference.owner() == *enclosing {
+          for owner in owners {
+            pending.push(reference.clone().with_owner(*owner));
+          }
+        } else {
+          pending.push(reference);
+        }
+      }
+    }
     ancestors.push(node);
   }
+}
+
+/// Match the two original definition fragments to the shared body. Custom
+/// outline rules that omit either head decline attribution rather than guessing.
+fn conditional_function_owners(
+  definition: &SgNode<'_>,
+  def_spans: &[(Range<usize>, NodeId)],
+) -> Option<(Range<usize>, Vec<NodeId>)> {
+  let body = definition.field("body")?.range();
+  let prefixes = definition.field("prefixes")?;
+  let heads: Vec<_> = prefixes
+    .dfs()
+    .filter(|n| n.kind().as_ref() == "conditional_function_prefix")
+    .collect();
+  if heads.len() != 2 {
+    return None;
+  }
+  let owners: Option<Vec<_>> = heads
+    .iter()
+    .map(|head| {
+      let span = head.range();
+      def_spans.iter().find(|(range, _)| *range == span).map(|(_, id)| *id)
+    })
+    .collect();
+  Some((body, owners?))
 }
 
 /// The finalize half of [`extract_references_with_facts`]: the file-global laws — binder
@@ -2101,8 +2259,9 @@ pub(crate) fn finalize_references<'t>(walk: RefWalk<'t>, out: &mut Vec<RawRef<'t
   // deduplication itself allocates nothing.
   let mut seen_impls: HashSet<(u64, Cow<'t, str>)> = HashSet::new();
   // Post-pass in visit order: binder-shadowed type uses drop; survivors dedup per
-  // (enclosing definition, name) — the same outcome the two-walk version produced.
-  let mut seen_types: HashSet<(u64, Cow<'t, str>)> = HashSet::new();
+  // (enclosing definition, anonymous body, name). Anonymous bodies must not
+  // consume each other's rows or a later file-scope use of the same type.
+  let mut seen_types: HashSet<(u64, Option<u32>, Cow<'t, str>)> = HashSet::new();
   for entry in pending {
     match entry {
       Pending::Ready(reference) => out.push(reference),
@@ -2111,11 +2270,12 @@ pub(crate) fn finalize_references<'t>(walk: RefWalk<'t>, out: &mut Vec<RawRef<'t
         name,
         start,
         end,
+        lexical_scope,
       } => {
         let shadowed = binders
           .iter()
           .any(|(scope, binder)| *binder == name && scope.contains(&(start as usize)));
-        if !shadowed && seen_types.insert((from.raw(), name.clone())) {
+        if !shadowed && seen_types.insert((from.raw(), lexical_scope, name.clone())) {
           out.push(RawRef::plain(from, name, RefKind::Type, start, end));
         }
       }
@@ -2140,6 +2300,62 @@ pub(crate) fn finalize_references<'t>(walk: RefWalk<'t>, out: &mut Vec<RawRef<'t
 /// `selector_expression.operand`, C/C++ `field_expression.argument`,
 /// C# `member_access_expression.expression`, Python `attribute.object`).
 const RECEIVER_FIELDS: &[&str] = &["value", "object", "operand", "argument", "expression"];
+
+// An incomplete recovered C++ head is not evidence of a runtime target.
+// Caller dispatch declines only this head, retaining original argument calls.
+fn ambiguous_cpp_callee(call: &SgNode<'_>) -> bool {
+  call.field("function").is_some_and(|callee| {
+    if callee.has_error() {
+      return true;
+    }
+    if callee.kind().as_ref() != "identifier" {
+      return false;
+    }
+    let Some(parent) = call.parent() else {
+      return false;
+    };
+    let Some(prefix) = call.prev_all().find(|n| n.kind().as_ref() != "comment") else {
+      return false;
+    };
+    let type_leaf = |n: &SgNode<'_>| {
+      matches!(
+        n.kind().as_ref(),
+        "identifier" | "type_identifier" | "namespace_identifier" | "primitive_type"
+      )
+    };
+    let loose_type = if prefix.is_error() {
+      let children: Vec<_> = prefix.children().collect();
+      children.len() == 1 && type_leaf(&children[0]) && prefix.text().trim() == children[0].text()
+    } else {
+      parent.is_error() && type_leaf(&prefix)
+    };
+    if !loose_type || prefix.range().end == call.range().start {
+      return false;
+    }
+    // Only actual comment nodes and whitespace may separate the type
+    // fragment from the callee. An actual operator between fragments
+    // rules out this declaration ambiguity; no source text is masked.
+    let text = parent.text();
+    let origin = parent.range().start;
+    let mut end = prefix.range().end;
+    for comment in parent.children().filter(|n| {
+      n.kind().as_ref() == "comment"
+        && prefix.range().end <= n.range().start
+        && n.range().end <= call.range().start
+    }) {
+      if !text[end - origin..comment.range().start - origin]
+        .bytes()
+        .all(|b| b.is_ascii_whitespace())
+      {
+        return false;
+      }
+      end = comment.range().end;
+    }
+    text[end - origin..call.range().start - origin]
+      .bytes()
+      .all(|b| b.is_ascii_whitespace())
+  })
+}
 
 /// Classify a call's syntactic form and extract its qualifier evidence (§3.3):
 /// - a static path (`Kg::load`) yields `Static` + the path's final namespace segment;
@@ -2405,6 +2621,22 @@ fn stage_type_use<'t>(
       return;
     }
   }
+  // The parameter-shaped tokens of an unexpanded declaration macro can be
+  // values or generated names; they do not prove type references.
+  if ancestors
+    .iter()
+    .rev()
+    .find(|parent| parent.kind().as_ref() == "function_definition")
+    .is_some_and(|function| {
+      untyped_cpp_namespace_function(function)
+        && function
+          .field("declarator")
+          .and_then(|declarator| declarator.field("parameters"))
+          .is_some_and(|parameters| parameters.range().contains(&node.range().start))
+    })
+  {
+    return;
+  }
   let range = node.range();
   let (Some(name), Some(from)) = (callee_name(node), span_cursor.enclosing(range.start)) else {
     return;
@@ -2412,11 +2644,17 @@ fn stage_type_use<'t>(
   if spec.type_placeholders.iter().any(|t| t.as_str() == name.as_ref()) {
     return;
   }
+  let lexical_scope = ancestors
+    .iter()
+    .rev()
+    .find(|ancestor| untyped_cpp_namespace_function(ancestor))
+    .map(|function| function.range().start as u32);
   pending.push(Pending::TypeUse {
     from,
     name,
     start: range.start as u32,
     end: range.end as u32,
+    lexical_scope,
   });
 }
 
@@ -2977,6 +3215,11 @@ const DESCEND_KINDS: &[&str] = &[
 fn callee_name<'t>(node: &SgNode<'t>) -> Option<Cow<'t, str>> {
   let kind_cow = node.kind();
   let kind = kind_cow.as_ref();
+  // C++ names the operator itself, including its punctuation. Descending to an
+  // identifier child would lose a literal-operator prefix or invent another name.
+  if kind == "operator_name" {
+    return Some(node.text());
+  }
   // Pointer-to-member calls select a runtime value, not a statically named method.
   if kind == "field_expression"
     && node.field("operator").is_some_and(|op| matches!(op.text().as_ref(), ".*" | "->*"))

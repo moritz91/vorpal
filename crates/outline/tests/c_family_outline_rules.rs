@@ -418,3 +418,271 @@ fn c_last_definition_with_body_damage_is_not_a_swallow() {
   assert!(report.is_empty());
   assert_eq!(items[1].entry.range.byte_offset.end, source.trim_end().len());
 }
+
+#[test]
+fn cpp_member_templates_keep_method_kinds_and_enclosing_access() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  common::assert_outline_snapshot(
+    SupportLang::Cpp,
+    RULES,
+    r#"
+struct DefaultPublic {
+  DefaultPublic() {}
+  ~DefaultPublic() {}
+  template<class T> int choose(T) { return 1; }
+  template<class T> int declared(T);
+  int (*callback)(int);
+  int (*filtered)(int predicate(int));
+  int* (*pointerFiltered)(int callback(int));
+  int (*factory())(int predicate(int));
+  template<class T> int (*create(T))(int predicate(int));
+private:
+  template<class T> int hidden(T) { return 0; }
+};
+class Labeled {
+  template<class T> int hidden(T) { return 0; }
+public:
+  template<class T> Labeled(T) {}
+  template<class T> int visible(T) { return 1; }
+protected:
+  template<class T> int guarded(T);
+};
+"#,
+    r#"
+- Struct item exported DefaultPublic
+  - Constructor public DefaultPublic
+  - Constructor public ~DefaultPublic
+  - Method public choose
+  - Method public declared
+  - Field public callback
+  - Field public filtered
+  - Field public pointerFiltered
+  - Method public factory
+  - Method public create
+  - Method private hidden
+- Class item exported Labeled
+  - Method private hidden
+  - Constructor public Labeled
+  - Method public visible
+  - Method private guarded
+"#,
+  );
+}
+
+#[test]
+fn cpp_friend_definitions_are_functions_and_prototypes_are_not_members() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  let lf = r#"
+struct Stream {};
+struct Other { Other(); };
+class Column {
+  friend void inspect(Column&);
+  friend Other::Other();
+  friend class Peer;
+  inline friend Stream& operator<<(Stream& os, Column const& col) { work(); return os; }
+  inline friend int visit(Column const& col) { return work(); }
+  friend int* pointer(Column& col) { return nullptr; }
+  template<typename T> friend T echo(T value) { return value; }
+  friend void local() { struct Local { void nested() { work(); } }; work(); }
+public:
+  int size() const { return count(); }
+};
+int ordinary() { return work(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    common::assert_outline_snapshot(
+      SupportLang::Cpp,
+      RULES,
+      &source,
+      r#"
+- Struct item exported Stream
+- Struct item exported Other
+  - Constructor public Other
+- Class item exported Column
+  - Method public size
+- Function item exported ordinary
+- Function item exported operator<<
+- Function item exported visit
+- Function item exported pointer
+- Function item exported echo
+- Function item exported local
+"#,
+    );
+  }
+}
+
+#[test]
+fn cpp_constructor_names_must_match_their_enclosing_type() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  let lf = "#define DECLARE_STORAGE(Type) int* storage();\nstruct Holder {\n Holder();\n ~Holder();\n int* getter() { return value(); }\n DECLARE_STORAGE(Item);\n};\nHolder::Holder() { work(); }\nHolder::~Holder() { cleanup(); }\nvoid following() { after(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    common::assert_outline_snapshot(
+      SupportLang::Cpp,
+      RULES,
+      &source,
+      r#"
+- Macro item exported DECLARE_STORAGE
+- Struct item exported Holder
+  - Constructor public Holder
+  - Constructor public ~Holder
+  - Method public getter
+- Function item exported Holder::Holder
+- Function item exported Holder::~Holder
+- Function item exported following
+"#,
+    );
+  }
+  // A known type name is not a constructor of a different enclosing class.
+  common::assert_outline_snapshot(
+    SupportLang::Cpp,
+    RULES,
+    "struct Other {}; struct Holder { Other(); Holder(); ~Holder(); };",
+    "- Struct item exported Other\n- Struct item exported Holder\n  - Constructor public Holder\n  - Constructor public ~Holder\n",
+  );
+}
+
+#[test]
+fn cpp_specialized_and_nested_constructors_keep_the_injected_class_name() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  let lf = "template<class T> struct Box { Box(); ~Box(); };\ntemplate<class T> struct Box<T*> { Box() { work(); } ~Box(); };\ntemplate<> struct Box<void> { template<class T> Box(T value) { work(); } ~Box(); };\nstruct Outer { Outer(); struct Inner { Inner(); ~Inner(); Outer(); }; };\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    common::assert_outline_snapshot(
+      SupportLang::Cpp,
+      RULES,
+      &source,
+      r#"
+- Struct item exported Box
+  - Constructor public Box
+  - Constructor public ~Box
+- Struct item exported Box<T*>
+  - Constructor public Box
+  - Constructor public ~Box
+- Struct item exported Box<void>
+  - Constructor public Box
+  - Constructor public ~Box
+- Struct item exported Outer
+  - Constructor public Outer
+  - Struct private Inner
+"#,
+    );
+  }
+}
+
+#[test]
+fn cpp_constructor_matcher_stops_at_the_nearest_class() {
+  use vorpal_language::LanguageExt;
+  use vorpal_outline::extractor::{MemberExtractor, SerializableOutlineRule, parse_outline_rules};
+  use vorpal_outline::options::OutlineEntryDetail;
+  let rules =
+    parse_outline_rules::<SupportLang>(include_str!("../src/default_rules/cpp.yml")).unwrap();
+  let rule = rules
+    .into_iter()
+    .find(|r| r.common().id == "cpp-member-constructor")
+    .unwrap();
+  let SerializableOutlineRule::Member(rule) = rule else {
+    panic!("member rule")
+  };
+  let matcher =
+    MemberExtractor::try_from(rule, &Default::default(), OutlineEntryDetail::Signature).unwrap();
+  let source = "struct Outer { Outer(); struct Inner { Inner(); Outer(); }; };";
+  let parsed = SupportLang::Cpp.grep(source);
+  let matches: Vec<_> = parsed
+    .root()
+    .dfs()
+    .filter_map(|node| matcher.match_node(&node))
+    .map(|node| node.get_node().text().into_owned())
+    .collect();
+  assert_eq!(matches, ["Outer();", "Inner();"]);
+}
+
+#[test]
+fn cpp_qualified_class_definitions_keep_only_the_terminal_constructor_name() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  let lf = "struct Outer { struct Inner; };\nstruct Outer::Inner { Inner(); ~Inner(); Outer(); };\nnamespace ns { template<class T> struct Box { struct Nested; }; }\ntemplate<class T> struct ns::Box<T>::Nested { Nested(); ~Nested(); Box(); T(); };\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    common::assert_outline_snapshot(
+      SupportLang::Cpp,
+      RULES,
+      &source,
+      r#"
+- Struct item exported Outer
+  - Struct private Inner
+- Struct item exported Outer::Inner
+  - Constructor public Inner
+  - Constructor public ~Inner
+- Module item exported ns
+- Struct item exported Box
+  - Struct private Nested
+- Struct item exported ns::Box<T>::Nested
+  - Constructor public Nested
+  - Constructor public ~Nested
+"#,
+    );
+  }
+}
+
+#[test]
+fn cpp_unexpanded_macro_heads_do_not_become_functions_or_constructors() {
+  const RULES: &str = include_str!("../src/default_rules/cpp.yml");
+  let lf = "#define TEST(name) void test_##name()\n#define DECLARE_STORAGE(Type) int* storage();\nstruct Holder {\n Holder();\n ~Holder();\n int* getter() { return value(); }\n DECLARE_STORAGE(Item);\n};\nTEST(originalTest) { use(); }\n#undef TEST\nvoid TEST(int value) { use(); }\nHolder::Holder() { work(); }\nHolder::~Holder() { cleanup(); }\nvoid following() { after(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    common::assert_outline_snapshot(
+      SupportLang::Cpp,
+      RULES,
+      &source,
+      r#"
+- Macro item exported TEST
+- Macro item exported DECLARE_STORAGE
+- Struct item exported Holder
+  - Constructor public Holder
+  - Constructor public ~Holder
+  - Method public getter
+- Function item exported TEST
+- Function item exported Holder::Holder
+- Function item exported Holder::~Holder
+- Function item exported following
+"#,
+    );
+  }
+  // A constructor name from an outer type cannot validate a nested foreign head.
+  common::assert_outline_snapshot(
+    SupportLang::Cpp,
+    RULES,
+    "struct Other {}; struct Holder { Other(); Holder(); ~Holder(); };",
+    "- Struct item exported Other\n- Struct item exported Holder\n  - Constructor public Holder\n  - Constructor public ~Holder\n",
+  );
+}
+
+#[test]
+fn anonymous_cpp_bodies_remain_boundaries_through_output_filters() {
+  use vorpal_language::LanguageExt;
+  use vorpal_outline::{
+    combined_extractor::CombinedExtractors, extractor::parse_outline_rules, model::SymbolType,
+    options::OutlineExtractorOptions,
+  };
+  let source = "struct Global {};\nGENERATE(one) { struct Local {}; }\nvoid real() { struct AlsoLocal {}; }\nstruct Following {};\n";
+  for text in [source.to_owned(), source.replace('\n', "\r\n")] {
+    for symbol_types in [None, Some(vec![SymbolType::Struct])] {
+      let rules =
+        parse_outline_rules::<SupportLang>(include_str!("../src/default_rules/cpp.yml")).unwrap();
+      let combined = CombinedExtractors::try_from_rules(
+        rules,
+        OutlineExtractorOptions {
+          symbol_types,
+          ..Default::default()
+        },
+        &Default::default(),
+      )
+      .unwrap();
+      let parsed = SupportLang::Cpp.grep(&text);
+      let items: Vec<_> = combined.extract(parsed.root()).collect();
+      assert!(items.iter().any(|i| i.entry.name == "Global"));
+      assert!(items.iter().any(|i| i.entry.name == "Following"));
+      assert!(
+        !items
+          .iter()
+          .any(|i| matches!(i.entry.name.as_ref(), "GENERATE" | "Local" | "AlsoLocal"))
+      );
+    }
+  }
+}

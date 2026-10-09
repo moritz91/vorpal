@@ -76,6 +76,7 @@ libc = "0.2"
 alloc-ledger = ["vorpal-kg/alloc-ledger", "vorpal-index/alloc-ledger"]
 
 [dev-dependencies]
+vorpal-ingest.workspace = true
 assert_cmd = "2.0.14"
 predicates = "3.1.0"
 tempfile = "3.10.1"

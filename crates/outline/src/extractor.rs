@@ -146,6 +146,10 @@ pub struct SerializableItemRule<L> {
   /// global declaration now sits inside.
   #[serde(default)]
   pub recovery_only: Option<bool>,
+  /// Match and preserve the item's traversal boundary without emitting a named
+  /// entity. Transparent and swallow-recovery traversal retain their semantics.
+  /// Useful when syntax proves a body but not the name of its generated owner.
+  pub anonymous: Option<SerializablePredicate>,
 }
 
 /// Member extractor for direct child structure under an item.
@@ -350,7 +354,16 @@ impl OutlinePredicate {
     match self {
       Self::Literal(value) => *value,
       Self::CppAccess => {
-        let node = node_match.get_node();
+        let mut node = node_match.get_node().clone();
+        // The access label belongs to the class-body template wrapper, not to
+        // its nested declaration. Stop at other owners rather than inheriting
+        // a surrounding class's visibility into a nested class.
+        while let Some(parent) = node.parent() {
+          if parent.kind().as_ref() != "template_declaration" {
+            break;
+          }
+          node = parent;
+        }
         if let Some(label) = node.prev_all().find(|s| s.kind().as_ref() == "access_specifier") {
           return label.text().trim().trim_end_matches(':') == "public";
         }
@@ -389,6 +402,7 @@ pub struct ItemExtractor<L: Language> {
   pub swallow_recovery: bool,
   /// See [`SerializableItemRule::recovery_only`].
   pub recovery_only: bool,
+  anonymous: OutlinePredicate,
 }
 
 impl<L: Language> ItemExtractor<L> {
@@ -406,6 +420,7 @@ impl<L: Language> ItemExtractor<L> {
       transparent,
       swallow_recovery,
       recovery_only,
+      anonymous,
     } = item;
     let member_of = member_of
       .as_deref()
@@ -414,6 +429,7 @@ impl<L: Language> ItemExtractor<L> {
     let common = ExtractorCommon::try_from(common, globals, detail)?;
     let is_import = common.compile_predicate(is_import, false)?;
     let is_exported = common.compile_predicate(is_exported, true)?;
+    let anonymous = common.compile_predicate(anonymous, false)?;
     Ok(Self {
       common,
       is_import,
@@ -423,6 +439,7 @@ impl<L: Language> ItemExtractor<L> {
       transparent: transparent.unwrap_or(false),
       swallow_recovery: swallow_recovery.unwrap_or(false),
       recovery_only: recovery_only.unwrap_or(false),
+      anonymous,
     })
   }
 
@@ -457,6 +474,10 @@ impl<L: Language> ItemExtractor<L> {
       is_exported: self.is_exported.evaluate(node_match),
       members,
     }
+  }
+
+  pub fn is_anonymous<D: Doc>(&self, matched: &mut NodeMatch<D>) -> bool {
+    self.anonymous.evaluate(matched)
   }
 
   /// The resolved owner name for `memberOf` items — `None` when the rule declares no
@@ -950,6 +971,7 @@ name: member
       transparent: None,
       swallow_recovery: None,
       recovery_only: None,
+      anonymous: None,
       common: SerializableOutlineCommon {
         id: "ts-function".into(),
         language: SupportLang::TypeScript,

@@ -21,7 +21,7 @@ use vorpal_language::SupportLang;
 
 /// Bump on ANY semantic change to the capture tables below — it folds into the extraction
 /// identity, so stale products can never replay into a build with different capture rules.
-pub const TYPEFACTS_VERSION: u64 = 5;
+pub const TYPEFACTS_VERSION: u64 = 6;
 pub(crate) const CPP_ALIAS_PREFIX: &str = "\u{1}cpp-alias:";
 
 /// Where a binding's type knowledge came from — persisted with the product, mapped onto the
@@ -332,6 +332,7 @@ const CPP_TF: TypeSpec = TypeSpec {
     BindSpec { kind: "parameter_declaration", origin: BindOrigin::Param, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
     BindSpec { kind: "field_declaration", origin: BindOrigin::Field, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
     BindSpec { kind: "function_definition", origin: BindOrigin::Return, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
+    BindSpec { kind: "conditional_function_prefix", origin: BindOrigin::Return, name_field: "declarator", type_field: Some("type"), value_field: None, mode: BindMode::CppDeclarator },
   ],
 };
 

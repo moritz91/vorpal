@@ -412,7 +412,7 @@ pub fn verify_extraction(extractor: &OutlineExtractor) -> Result<(), String> {
 
 /// Extract one canary and compare against its floors.
 fn check_canary(extractor: &OutlineExtractor, canary: &Canary) -> Result<(), String> {
-  let product = extractor.extract_product(canary.path, canary.source);
+  let product = extractor.extract_canary_product(canary.path, canary.source);
   let (items, refs) = product
     .as_ref()
     .map(|p| (p.items.len(), p.refs.len()))
@@ -538,7 +538,7 @@ pub fn verify_env_extraction(
     return Ok(());
   }
   for canary in canaries {
-    let Some(product) = extractor.extract_product(&canary.path, &canary.source) else {
+    let Some(product) = extractor.extract_canary_product(&canary.path, &canary.source) else {
       return Err(format!(
         "extraction self-check failed for dynamic language '{}': canary '{}' produced no \
          product — the language is not extractable in this environment (missing rules/spec, or \

@@ -12,9 +12,14 @@
 //! Content-hash skip (§3.4) is the incremental spine: unchanged file bytes are never re-parsed.
 //! A single [`Ingestor`] is a single-writer-per-shard sink (§7.5); scale-out shards it by path.
 
+pub mod cpp_directive_audit;
 pub mod cpp_macro_evidence;
+pub mod cpp_macro_freshness;
+pub mod cpp_macro_compiler;
 #[cfg(feature = "builtin-parser")]
 pub mod cpp_macro_recovery;
+#[cfg(feature = "builtin-parser")]
+pub mod cpp_macro_compiler_audit;
 mod tree_cache;
 mod walk_reuse;
 mod manifest;
@@ -67,6 +72,12 @@ pub struct ExtractionEnv {
   /// Opt-in proof-backed C++ statement recovery. `Some([])` enables local
   /// quoted includes; additional roots are searched in the given order.
   pub cpp_macro_include_roots: Option<Vec<std::path::PathBuf>>,
+  /// Trusted fresh native compiler driver. No compiler products replay; watched
+  /// MCP queries must refresh through this exact environment every time.
+  pub cpp_macro_compiler: Option<cpp_macro_compiler::CompilerCommand>,
+  /// Optional ephemeral input observations for a running MCP server. These do
+  /// not change extraction identity or serialize proof into products.
+  pub cpp_macro_freshness: Option<std::sync::Arc<cpp_macro_freshness::MacroFreshness>>,
 }
 
 /// One dynamic language's extraction canary: `source` is extracted as `path` and must yield at
@@ -92,6 +103,7 @@ impl ExtractionEnv {
       && self.canaries.is_empty()
       && self.injection_config.is_none()
       && self.cpp_macro_include_roots.is_none()
+      && self.cpp_macro_compiler.is_none()
   }
 
   /// The extractor this environment describes. Languages named by the sources must already be
@@ -102,8 +114,15 @@ impl ExtractionEnv {
       &self.ref_spec_sources,
       self.injection_config.as_ref(),
     )?;
-    match &self.cpp_macro_include_roots {
-      Some(roots) => extractor.with_cpp_macro_recovery(roots),
+    let extractor = match &self.cpp_macro_include_roots {
+      Some(roots) => extractor.with_cpp_macro_recovery(roots).map(|mut extractor| {
+        extractor.cpp_macro_freshness = self.cpp_macro_freshness.clone();
+        extractor
+      }),
+      None => Ok(extractor),
+    }?;
+    match &self.cpp_macro_compiler {
+      Some(command) => extractor.with_cpp_macro_compiler(command.clone()),
       None => Ok(extractor),
     }
   }
@@ -221,8 +240,8 @@ pub fn grammar_generation_for(lang: SgLang) -> Option<u64> {
 }
 
 /// The full extraction-identity a product is keyed on: its language's grammar generation folded
-/// with the outline-rule digest that extracted it. A change to *either* — the parser or the
-/// extraction rules — yields a different identity, so the stale product re-parses. Returns `None`
+/// with the rules and capture-policy versions that extracted it. Changes to parser, rules
+/// or capture semantics re-key stale products without changing the near-clone seed. Returns `None`
 /// when the path maps to no supported language.
 pub fn extraction_identity_for_path(path: &str, rules_digest: u64) -> Option<u64> {
   grammar_digest_for_path(path).map(|g| extraction_identity(g, rules_digest))
@@ -231,18 +250,19 @@ pub fn extraction_identity_for_path(path: &str, rules_digest: u64) -> Option<u64
 /// Combine a grammar digest and a rules digest into one product-identity digest (order-fixed
 /// xxh3, so it never accidentally cancels the way a XOR could).
 pub fn extraction_identity(grammar_digest: u64, rules_digest: u64) -> u64 {
-  // Five identity inputs: the grammar generation, the rules digest, the typefacts table
-  // version, the signature scheme version — editing capture semantics re-keys products
+  // Six identity inputs: the grammar generation, the rules digest, the typefacts table
+  // version, signature and reference capture versions — editing semantics re-keys products
   // with no format bump — and the product format version itself, so a format bump on an
   // UNCHANGED tree still moves the manifest's stamp: the whole-tree fast path declines and
   // the tree rebuilds once (rebuild is the migration). Before this fold a bump that only
   // added a section (v21 cuts) left unchanged trees serving the old shape indefinitely.
-  let mut buf = [0u8; 32];
+  let mut buf = [0u8; 36];
   buf[..8].copy_from_slice(&grammar_digest.to_le_bytes());
   buf[8..16].copy_from_slice(&rules_digest.to_le_bytes());
   buf[16..24].copy_from_slice(&typefacts::TYPEFACTS_VERSION.to_le_bytes());
   buf[24..28].copy_from_slice(&signature::SIGNATURE_VERSION.to_le_bytes()[..4]);
-  buf[28..].copy_from_slice(&product::PRODUCT_FORMAT_VERSION.to_le_bytes());
+  buf[28..32].copy_from_slice(&product::PRODUCT_FORMAT_VERSION.to_le_bytes());
+  buf[32..].copy_from_slice(&references::REFERENCE_CAPTURE_VERSION.to_le_bytes());
   xxhash_rust::xxh3::xxh3_64(&buf)
 }
 
@@ -302,4 +322,36 @@ pub fn canonical_language(name: &str) -> Option<String> {
 /// The canonical language name `path` maps to by extension, or `None` for unsupported paths.
 pub fn language_name_of(path: &str) -> Option<String> {
   vorpal_lang_registry::from_path(std::path::Path::new(path)).map(|lang| lang.to_string())
+}
+
+#[cfg(all(test, feature = "builtin-parser"))]
+mod extraction_identity_tests {
+  use vorpal_core::Language;
+  #[test]
+  fn reference_capture_migrates_legacy_products_without_changing_parser_seed() {
+    for path in ["capture.cc", "capture.rs"] {
+      let grammar = super::grammar_digest_for_path(path).unwrap();
+      let rules = super::OutlineExtractor::new().unwrap().rules_digest();
+      // The pre-reference-policy cache contract used exactly these 32 bytes.
+      let mut legacy = [0u8; 32];
+      legacy[..8].copy_from_slice(&grammar.to_le_bytes());
+      legacy[8..16].copy_from_slice(&rules.to_le_bytes());
+      legacy[16..24].copy_from_slice(&super::typefacts::TYPEFACTS_VERSION.to_le_bytes());
+      legacy[24..28].copy_from_slice(&super::signature::SIGNATURE_VERSION.to_le_bytes()[..4]);
+      legacy[28..].copy_from_slice(&super::product::PRODUCT_FORMAT_VERSION.to_le_bytes());
+      assert_ne!(
+        super::extraction_identity(grammar, rules),
+        xxhash_rust::xxh3::xxh3_64(&legacy)
+      );
+      assert_eq!(
+        super::extraction_identity_for_path(path, rules),
+        Some(super::extraction_identity(grammar, rules))
+      );
+      let lang = super::SgLang::from_path(path).unwrap();
+      assert_eq!(
+        super::grammar_generation_for(lang),
+        vorpal_lang_registry::grammar_digest(lang)
+      );
+    }
+  }
 }

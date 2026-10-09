@@ -2,6 +2,161 @@ use std::path::Path;
 use vorpal_ingest::cpp_macro_evidence::{audit, audit_with_roots};
 
 #[test]
+fn literal_pack_and_warning_pragmas_require_unexpanded_tokens() {
+  let positives = [
+    "pack()",
+    "pack(push)",
+    "pack(pop)",
+    "pack(8)",
+    "pack(push, 16)",
+    "warning(push)",
+    "warning(pop)",
+    "warning(push, 0)",
+    "warning(disable: 4100 4996)",
+    "pack ( push , 1 )",
+  ];
+  for argument in positives {
+    for guard in [false, true] {
+      let pragma = format!("#pragma {argument}\n");
+      let pragma = if guard {
+        format!("#ifdef PLATFORM\n{pragma}#endif\n")
+      } else {
+        pragma
+      };
+      let lf =
+        format!("#define CHECK(x) {{ sink(x); }}\n{pragma}void run() {{ CHECK(value()) }}\n");
+      for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+        assert!(
+          audit(Path::new("pragmas.cc"), &source)
+            .at("CHECK", source.rfind("CHECK(value())").unwrap())
+            .is_some(),
+          "{source}"
+        );
+      }
+    }
+  }
+  for argument in [
+    "pack(push, named)",
+    "pack(pop, label)",
+    "pack(push, 3)",
+    "warning(push, LEVEL)",
+    "warning(disable: WARNINGS)",
+    "warning(disable: 4100, 4996)",
+    "warning(push, 5)",
+    "warning(push) trailing",
+    "war ning(push)",
+    "warning(disable: 4 100)",
+    "warning(disable: 4100) __pragma(pop_macro(\"CHECK\"))",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ sink(x); }}\n#pragma {argument}\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    assert!(
+      audit(Path::new("pragmas.cc"), &source)
+        .at("CHECK", source.rfind("CHECK(value())").unwrap())
+        .is_none(),
+      "{source}"
+    );
+  }
+  for keyword in ["pack", "push", "pop", "warning", "disable"] {
+    let source = format!(
+      "#define {keyword} HIDDEN\n#define CHECK(x) {{ sink(x); }}\n#pragma pack(push, 1)\n#pragma pack(pop)\n#pragma warning(disable: 4100)\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    assert!(
+      audit(Path::new("pragmas.cc"), &source)
+        .at("CHECK", source.rfind("CHECK(value())").unwrap())
+        .is_none(),
+      "{keyword}"
+    );
+  }
+}
+
+#[test]
+fn complete_directive_metadata_survives_unexpanded_guarded_declarations() {
+  let declaration = "#define SDK_BEGIN namespace sdk {\n#define SDK_END }\n#if defined(ENABLE)\nSDK_BEGIN\nextern const int variable;\nSDK_END\n#endif\n";
+  let lf =
+    format!("#define CHECK(x) {{ sink(x); }}\n{declaration}void run() {{ CHECK(value()) }}\n");
+  let nested = lf.replace(
+    "SDK_END\n#endif",
+    "#ifdef INNER\n#define UNRELATED 1 /* fragment */ + 2\n#else\n#define UNRELATED 3\n#endif\nSDK_END\n#endif",
+  );
+  for source in [
+    lf.clone(),
+    lf.replace('\n', "\r\n"),
+    nested.clone(),
+    nested.replace('\n', "\r\n"),
+  ] {
+    let evidence = audit(Path::new("metadata.cc"), &source);
+    let offset = source.rfind("CHECK(value())").unwrap();
+    let definition = evidence
+      .at("CHECK", offset)
+      .expect("intact metadata must preserve the entering definition");
+    assert_eq!(
+      source[definition.definition_span.clone()].trim_end(),
+      "#define CHECK(x) { sink(x); }"
+    );
+  }
+  for malformed in [
+    declaration.replace("defined(ENABLE)", "EXPANDING"),
+    declaration.replace("#endif", ""),
+    declaration.replace("#endif", "#else junk;\n#endif"),
+    declaration.replace("#endif", "#else\n#else\n#endif"),
+    declaration.replace("#endif", "#elif EXPANDING\n#endif"),
+    declaration.replace("#endif", "#endif\n#endif"),
+    declaration.replace(
+      "SDK_END\n#endif",
+      "#ifdef INNER\n#undef CHECK\n#endif\nSDK_END\n#endif",
+    ),
+    declaration.replace("SDK_END\n#endif", "#if EXPANDING\n#endif\nSDK_END\n#endif"),
+    declaration.replace(
+      "SDK_END\n#endif",
+      "#define CHECK(x) { other(x); }\nSDK_END\n#endif",
+    ),
+    declaration.replace(
+      "SDK_END\n#endif",
+      "#pragma warning(push, LEVEL)\nSDK_END\n#endif",
+    ),
+    declaration.replace("SDK_END\n#endif", "#undef CHECK\nSDK_END\n#endif"),
+    declaration.replace(
+      "SDK_END\n#endif",
+      "#pragma pop_macro(\"CHECK\")\nSDK_END\n#endif",
+    ),
+    declaration.replace(
+      "SDK_END\n#endif",
+      "#include <missing-proof.h>\nSDK_END\n#endif",
+    ),
+  ] {
+    let source =
+      format!("#define CHECK(x) {{ sink(x); }}\n{malformed}void run() {{ CHECK(value()) }}\n");
+    let evidence = audit(Path::new("metadata.cc"), &source);
+    assert!(
+      evidence
+        .at("CHECK", source.rfind("CHECK(value())").unwrap())
+        .is_none(),
+      "{malformed}"
+    );
+  }
+}
+
+#[test]
+fn uncanonicalized_macro_names_cannot_claim_effect_free_intervals() {
+  for name in ["α", "\\u03B1", "$restore"] {
+    let source = format!(
+      "#define CHECK(x) {{ sink(x); }}\n#define {name} 0\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    let evidence = audit(Path::new("unicode.cc"), &source);
+    assert!(
+      evidence.bindings.is_empty(),
+      "{name}: {:?}",
+      evidence.bindings
+    );
+  }
+  let source =
+    "#define CHECK(x) { sink(x, \"α\", R\"(\\u03B1)\"); /* α */ }\nvoid run() { CHECK(value()) }\n";
+  assert_eq!(audit(Path::new("unicode.cc"), source).bindings.len(), 1);
+}
+
+#[test]
 fn statement_definitions_have_original_spans_and_ordered_lifetimes() {
   let source = "before();\n#define CHECK(x) if (!(x)) { throw failure(); }\nCHECK(argument())\n#undef CHECK\nCHECK(later())\n";
   let evidence = audit(Path::new("proof.cc"), source);
@@ -27,6 +182,10 @@ fn only_complete_statement_replacements_are_evidence() {
 #define EXPR(x) function(x)
 #define DEFINE(x) void function_##x()
 #define LOOP(x) do { function(x); } while (false)
+#define WHILE(x) while (x) { function(x); }
+#define FOR(x) for (; x;) { function(x); }
+#define NESTED(x) { void local() { sink(x); } }
+#define METHOD(x) { struct Local { void local() { sink(x); } }; }
 #define BROKEN(x) if (x) { function(x)
 #define COMPLETE(x) if (x) { function(x); }
 #define SAFE(x) try { function(x); } catch (...) { failure(); }
@@ -41,7 +200,7 @@ void run() {}
       .iter()
       .map(|b| b.definition.name.as_str())
       .collect::<Vec<_>>(),
-    vec!["COMPLETE", "SAFE"]
+    vec!["LOOP", "WHILE", "FOR", "COMPLETE", "SAFE"]
   );
 }
 
@@ -84,11 +243,79 @@ fn comments_and_continuations_keep_original_definition_bytes() {
   }
 }
 
+#[test]
+fn conditional_definedness_groups_preserve_only_unaffected_entering_definitions() {
+  let definition = "#define CHECK(x) { function(x); }\n";
+  for group in [
+    "#ifdef PLATFORM\nstruct Windows {};\n#else\nstruct Other {};\n#endif\n",
+    "#ifndef PLATFORM\n#ifdef DEBUG\nstruct Debug {};\n#endif\n#endif\n",
+    "#ifdef PLATFORM\n#define OTHER(x) { other(x); }\n#endif\n",
+  ] {
+    let source = format!("{definition}{group}CHECK(argument())\n");
+    let evidence = audit(Path::new("proof.cc"), &source);
+    let old = evidence
+      .at("CHECK", source.find("CHECK(argument").unwrap())
+      .unwrap();
+    assert_eq!(old.definition_span, 0..definition.len());
+    assert!(evidence.at("OTHER", source.len() - 1).is_none());
+  }
+  for group in [
+    "#ifdef PLATFORM\n#undef CHECK\n#endif\n",
+    "#ifndef PLATFORM\n#else\n#define CHECK(x) { other(x); }\n#endif\n",
+    "#ifdef PLATFORM\n#pragma pop_macro(\"CHECK\")\n#endif\n",
+    "#ifdef PLATFORM\n#if EXPAND()\nstruct Other {};\n#endif\n#endif\n",
+    "#ifdef PLATFORM\nstruct Other {};\n",
+  ] {
+    let source = format!("{definition}{group}CHECK(argument())\n");
+    assert!(
+      audit(Path::new("proof.cc"), &source)
+        .at("CHECK", source.find("CHECK(argument").unwrap())
+        .is_none(),
+      "{group}"
+    );
+  }
+}
+
+#[test]
+fn conditional_includes_track_all_branches_and_cannot_introduce_definitions() {
+  let fixture = Fixture::new();
+  let first = fixture.0.join("first.h");
+  let second = fixture.0.join("second.h");
+  std::fs::write(&first, "struct First {};\n#define NEW(x) { other(x); }\n").unwrap();
+  std::fs::write(&second, "struct Second {};\n").unwrap();
+  let source = "#define CHECK(x) { function(x); }\n#ifdef PLATFORM\n#include \"first.h\"\n#else\n#include \"second.h\"\n#endif\nCHECK(argument())\n";
+  let path = fixture.0.join("proof.cc");
+  let before = audit(&path, source);
+  assert!(
+    before
+      .at("CHECK", source.find("CHECK(argument").unwrap())
+      .is_some()
+  );
+  assert!(before.bindings.iter().all(|b| b.definition.name != "NEW"));
+  assert_eq!(before.dependencies.len(), 2);
+  std::fs::write(&second, "#undef CHECK\n").unwrap();
+  let changed = audit(&path, source);
+  assert!(
+    changed
+      .at("CHECK", source.find("CHECK(argument").unwrap())
+      .is_none()
+  );
+  assert_ne!(before.dependency_identity(), changed.dependency_identity());
+  std::fs::remove_file(&second).unwrap();
+  let missing = audit(&path, source);
+  assert!(
+    missing
+      .at("CHECK", source.find("CHECK(argument").unwrap())
+      .is_none()
+  );
+  assert!(missing.dependencies.iter().any(|d| d.digest.is_none()));
+}
+
 struct Fixture(std::path::PathBuf);
 impl Fixture {
   fn new() -> Self {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let path = std::env::temp_dir().join(format!(
+    let path = physical_temp_dir().join(format!(
       "vorpal-macro-evidence-{}-{}",
       std::process::id(),
       NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -278,4 +505,567 @@ fn file_symlinks_do_not_prove_a_different_quoted_include_directory() {
     .bindings
     .is_empty()
   );
+}
+
+#[test]
+fn only_definite_pragma_once_visits_skip_repeated_header_effects() {
+  let fixture = Fixture::new();
+  let header = fixture.0.join("once.h");
+  let path = fixture.0.join("run.cc");
+  std::fs::write(&header, "#pragma once\n#undef CHECK\n").unwrap();
+  let source =
+    "#include \"once.h\"\n#define CHECK(x) { effect(x); }\n#include \"once.h\"\nCHECK(value())\n";
+  let evidence = audit(&path, source);
+  assert!(
+    evidence
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_some()
+  );
+  assert_eq!(evidence.dependencies.len(), 1);
+  let identity = evidence.dependency_identity();
+  for source in [
+    "#ifdef PLATFORM\n#include \"once.h\"\n#endif\n#define CHECK(x) { effect(x); }\n#include \"once.h\"\nCHECK(value())\n",
+    "#include \"outer.h\"\n#define CHECK(x) { effect(x); }\n#include \"once.h\"\nCHECK(value())\n",
+  ] {
+    std::fs::write(
+      fixture.0.join("outer.h"),
+      "#ifdef PLATFORM\n#include \"once.h\"\n#endif\n",
+    )
+    .unwrap();
+    assert!(
+      audit(&path, source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none()
+    );
+  }
+  for replacement in [
+    "#undef CHECK\n",
+    "#ifdef PLATFORM\n#pragma once\n#endif\n#undef CHECK\n",
+  ] {
+    std::fs::write(&header, replacement).unwrap();
+    let changed = audit(&path, source);
+    assert_ne!(identity, changed.dependency_identity());
+    assert!(
+      changed
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none()
+    );
+  }
+}
+
+#[test]
+fn definite_once_breaks_guarded_recursion_but_not_unguarded_cycles() {
+  let fixture = Fixture::new();
+  let path = fixture.0.join("run.cc");
+  let header = fixture.0.join("once.h");
+  let source = "#include \"once.h\"\nCHECK(value())\n";
+  std::fs::write(
+    &header,
+    "#pragma once\n#define CHECK(x) { effect(x); }\n#include \"once.h\"\n",
+  )
+  .unwrap();
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_some()
+  );
+  std::fs::write(
+    &header,
+    "#define CHECK(x) { effect(x); }\n#include \"once.h\"\n#pragma once\n",
+  )
+  .unwrap();
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+}
+
+#[test]
+fn possible_once_visits_cannot_claim_later_redefinitions_execute() {
+  let fixture = Fixture::new();
+  let header = fixture.0.join("once.h");
+  let path = fixture.0.join("run.cc");
+  let source = "#ifdef PLATFORM\n#include \"once.h\"\n#endif\n#define CHECK(x) ordinary(x)\n#include \"once.h\"\nCHECK(value())\n";
+  std::fs::write(&header, "#pragma once\n#define CHECK(x) { effect(x); }\n").unwrap();
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+  // The same uncertainty applies to a pragma inside the header's own branch.
+  std::fs::write(
+    &header,
+    "#ifdef PLATFORM\n#pragma once\n#endif\n#define CHECK(x) { effect(x); }\n",
+  )
+  .unwrap();
+  let source =
+    "#include \"once.h\"\n#define CHECK(x) ordinary(x)\n#include \"once.h\"\nCHECK(value())\n";
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+}
+
+#[test]
+fn possibly_skipped_outer_headers_do_not_mark_nested_once_as_definite() {
+  let fixture = Fixture::new();
+  let path = fixture.0.join("run.cc");
+  std::fs::write(
+    fixture.0.join("outer.h"),
+    "#pragma once\n#ifdef PLATFORM\n#include \"inner.h\"\n#endif\n",
+  )
+  .unwrap();
+  std::fs::write(fixture.0.join("inner.h"), "#pragma once\n#undef CHECK\n").unwrap();
+  let source = "#ifdef FIRST\n#include \"outer.h\"\n#endif\n#include \"outer.h\"\n#define CHECK(x) { effect(x); }\n#include \"inner.h\"\nCHECK(value())\n";
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+  // Alternative branches still cannot establish a definite nested visit.
+  std::fs::write(
+    fixture.0.join("outer.h"),
+    "#pragma once\n#ifdef PLATFORM\nstruct First {};\n#else\n#include \"inner.h\"\n#endif\n",
+  )
+  .unwrap();
+  assert!(
+    audit(&path, source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+}
+
+#[test]
+fn nonexpanding_conditions_preserve_only_unchanged_entering_definitions() {
+  for condition in [
+    "0",
+    "1",
+    "defined(PLATFORM)",
+    "defined PLATFORM",
+    "defined(A) && !defined(B)",
+    "(0 || defined(A)) && 1",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#elif !defined(OTHER) || 0\nstruct Second {{}};\n#else\nstruct Third {{}};\n#endif\nCHECK(value())\n"
+    );
+    let evidence = audit(Path::new("proof.cc"), &source);
+    assert!(
+      evidence
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_some(),
+      "{condition}"
+    );
+    let changed = source.replace("struct Second {};", "#undef CHECK");
+    assert!(
+      audit(Path::new("proof.cc"), &changed)
+        .at("CHECK", changed.find("CHECK(value").unwrap())
+        .is_none(),
+      "possible undef: {condition}"
+    );
+  }
+  for condition in [
+    "UNKNOWN",
+    "UNKNOWN()",
+    "1 / 0",
+    "defined(A) && UNKNOWN",
+    "2147483648",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#endif\nCHECK(value())\n"
+    );
+    assert!(
+      audit(Path::new("proof.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none(),
+      "{condition}"
+    );
+  }
+}
+
+#[test]
+fn literal_condition_branches_do_not_promote_new_definitions_or_skip_effects() {
+  for condition in ["0", "1", "defined(PLATFORM)", "0x10 != 020"] {
+    let source =
+      format!("#if {condition}\n#define NEW(x) {{ effect(x); }}\n#endif\nNEW(value())\n");
+    assert!(audit(Path::new("proof.cc"), &source).bindings.is_empty());
+    let source = format!(
+      "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#elif UNKNOWN\nstruct Second {{}};\n#endif\nCHECK(value())\n"
+    );
+    assert!(
+      audit(Path::new("proof.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none()
+    );
+  }
+}
+
+#[test]
+fn nonexpanding_condition_includes_track_even_literal_inactive_branches() {
+  let fixture = Fixture::new();
+  let first = fixture.0.join("first.h");
+  let second = fixture.0.join("second.h");
+  std::fs::write(&first, "struct First {};\n").unwrap();
+  std::fs::write(&second, "struct Second {};\n").unwrap();
+  let source = "#define CHECK(x) { effect(x); }\n#if 0\n#include \"first.h\"\n#else\n#include \"second.h\"\n#endif\nCHECK(value())\n";
+  let path = fixture.0.join("proof.cc");
+  let before = audit(&path, source);
+  assert!(
+    before
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_some()
+  );
+  assert_eq!(before.dependencies.len(), 2);
+  std::fs::write(&first, "#undef CHECK\n").unwrap();
+  let changed = audit(&path, source);
+  assert_ne!(before.dependency_identity(), changed.dependency_identity());
+  assert!(
+    changed
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none(),
+    "the audit must not evaluate #if 0"
+  );
+}
+
+#[test]
+fn opaque_include_or_directive_effects_prevent_later_proof_restarts() {
+  for boundary in [
+    "#include \"unknown.h\"",
+    "#pragma push_macro(\"CHECK\")",
+    "#if UNKNOWN\nstruct First {};\n#endif",
+    "#if defined(PLATFORM)\n#pragma push_macro(\"CHECK\")\n#endif",
+    "#ifdef PLATFORM\n#unknown effect\n#endif",
+  ] {
+    let source =
+      format!("{boundary}\n#define CHECK(x) {{ effect(x); }}\nRESTORE();\nCHECK(value())\n");
+    assert!(
+      audit(Path::new("proof.cc"), &source).bindings.is_empty(),
+      "{boundary}"
+    );
+  }
+}
+
+#[cfg(any(unix, windows))]
+fn make_directory_alias(target: &std::path::Path, alias: &std::path::Path) {
+  #[cfg(unix)]
+  std::os::unix::fs::symlink(target, alias).unwrap();
+  #[cfg(windows)]
+  {
+    let result = std::process::Command::new("cmd")
+      .args(["/d", "/c", "mklink", "/J"])
+      .arg(alias)
+      .arg(target)
+      .output()
+      .unwrap();
+    assert!(
+      result.status.success(),
+      "{}",
+      String::from_utf8_lossy(&result.stderr)
+    );
+  }
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn directory_aliases_cannot_change_quoted_include_proofs() {
+  let fixture = Fixture::new();
+  let real = fixture.0.join("real");
+  let headers = real.join("headers");
+  std::fs::create_dir_all(&headers).unwrap();
+  let alias = fixture.0.join("alias");
+  make_directory_alias(&headers, &alias);
+  std::fs::write(headers.join("proof.h"), "#include \"../detail.h\"\n").unwrap();
+  std::fs::write(real.join("detail.h"), "#define CHECK(x) { effect(x); }\n").unwrap();
+  std::fs::write(
+    fixture.0.join("detail.h"),
+    "#define CHECK(x) expression(x)\n",
+  )
+  .unwrap();
+  let source = "#include \"alias/proof.h\"\nCHECK(value())\n";
+  let evidence = audit(&fixture.0.join("run.cc"), source);
+  assert!(evidence.bindings.is_empty());
+  assert!(
+    evidence
+      .dependencies
+      .iter()
+      .any(|d| d.path.ends_with("alias/proof.h") && d.digest.is_none())
+  );
+  let rooted = audit_with_roots(
+    &fixture.0.join("run.cc"),
+    "#include <proof.h>\nCHECK(value())\n",
+    std::slice::from_ref(&alias),
+  );
+  assert!(rooted.bindings.is_empty());
+  assert_eq!(
+    rooted.include_roots.as_slice(),
+    std::slice::from_ref(&alias),
+    "root spelling must not erase the alias"
+  );
+  let direct = "#define CHECK(x) { effect(x); }\nCHECK(value())\n";
+  assert!(
+    audit(&alias.join("run.cc"), direct).bindings.is_empty(),
+    "source parent aliases are also rejected"
+  );
+  // The alias is removed directly; no recursive operation follows its target.
+  #[cfg(windows)]
+  std::fs::remove_dir(&alias).unwrap();
+  #[cfg(unix)]
+  std::fs::remove_file(&alias).unwrap();
+}
+
+// Some platforms spell their temp directory through a system symlink. Ordinary
+// fixtures use the physical path; alias tests create their own explicit redirects.
+fn physical_temp_dir() -> std::path::PathBuf {
+  let path = std::env::temp_dir();
+  #[cfg(unix)]
+  {
+    path.canonicalize().unwrap_or(path)
+  }
+  #[cfg(not(unix))]
+  {
+    path
+  }
+}
+
+#[test]
+fn split_runtime_guards_remain_opaque_macro_evidence_boundaries() {
+  let source = "#define CHECK(x) { sink(x); }\nvoid split() {\n#ifdef PLATFORM\nif (first()) {\n#else\nif (second()) {\n#endif\nshared();\n#ifdef PLATFORM\n} else { fallback(); }\n#else\n} else { fallback(); }\n#endif\n}\nvoid run() { CHECK(value()) }\n";
+  let evidence = audit(Path::new("guards.cc"), source);
+  assert!(
+    evidence
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_none()
+  );
+}
+
+#[test]
+fn literal_macro_stack_pragmas_only_invalidate_the_named_binding() {
+  let source = "#define CHECK(x) { use(x); }\n#pragma push_macro(\"OTHER\")\n#pragma pop_macro(\"OTHER\")\nvoid run() { CHECK(value()) }\n";
+  let evidence = audit(Path::new("stack.cc"), source);
+  assert!(
+    evidence
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_some()
+  );
+  assert!(evidence.macro_names.contains("OTHER"));
+  for argument in [
+    "pop_macro(\"CHECK\")",
+    "pop_macro(NAME)",
+    "pop_macro(\"\\u0043HECK\")",
+    "warning(push, LEVEL)",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ use(x); }}\n#pragma {argument}\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    assert!(
+      audit(Path::new("stack.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none(),
+      "{argument}"
+    );
+  }
+  let source = "#define CHECK(x) { use(x); }\n#ifdef PLATFORM\n#pragma pop_macro(\"OTHER\")\n#endif\nvoid run() { CHECK(value()) }\n";
+  assert!(
+    audit(Path::new("stack.cc"), source)
+      .at("CHECK", source.find("CHECK(value").unwrap())
+      .is_some()
+  );
+}
+
+#[test]
+fn literal_push_preserves_only_the_already_proven_definition() {
+  for push in [
+    "#pragma push_macro(\"CHECK\")\n",
+    "#if defined(PLATFORM)\n#pragma push_macro(\"CHECK\")\n#endif\n",
+    "#if 0\n#pragma push_macro(\"CHECK\")\n#endif\n",
+  ] {
+    let lf = format!(
+      "#define CHECK(x) {{ sink(x); }}\n{push}void run() {{ CHECK(value()) }}\n#pragma pop_macro(\"CHECK\")\n"
+    );
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let evidence = audit(Path::new("saved.cc"), &source);
+      let definition = evidence
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .unwrap();
+      assert_eq!(
+        &source[definition.definition_span.clone()],
+        "#define CHECK(x) { sink(x); }\n".replace(
+          '\n',
+          if source.contains("\r\n") {
+            "\r\n"
+          } else {
+            "\n"
+          }
+        )
+      );
+      assert!(evidence.macro_names.contains("CHECK"));
+      assert!(evidence.at("CHECK", source.len() - 1).is_none());
+    }
+  }
+  // Saving a name supplies no new definition, and popping it supplies no proof
+  // of restoration. Keep the old fail-closed boundary for later definitions.
+  for middle in [
+    "#undef CHECK\n#define CHECK(x) { other(x); }\n",
+    "#pragma pop_macro(\"CHECK\")\n",
+    "#pragma pop_macro(\"CHECK\")\n#define CHECK(x) { sink(x); }\n",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ sink(x); }}\n#pragma push_macro(\"CHECK\")\n{middle}void run() {{ CHECK(value()) }}\n"
+    );
+    assert!(
+      audit(Path::new("saved.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none(),
+      "{middle}"
+    );
+  }
+  for operation in ["push_macro", "pop_macro"] {
+    for conditional in [false, true] {
+      let pragma = format!("#pragma {operation}(\"OTHER\")\n");
+      let pragma = if conditional {
+        format!("#if defined(PLATFORM)\n{pragma}#endif\n")
+      } else {
+        pragma
+      };
+      let source = format!(
+        "#define CHECK(x) {{ sink(x); }}\n#define {operation}(name) pop_macro(\"CHECK\")\n{pragma}void run() {{ CHECK(value()) }}\n"
+      );
+      assert!(
+        audit(Path::new("aliased.cc"), &source)
+          .at("CHECK", source.find("CHECK(value").unwrap())
+          .is_none()
+      );
+    }
+  }
+}
+
+#[test]
+fn unused_pragma_replacements_have_no_effect_but_invoked_wrappers_remain_opaque() {
+  let definitions = "#define DIRECT() __pragma(pop_macro(\"CHECK\"))\n#define PORTABLE() _Pragma(\"pop_macro(\\\"CHECK\\\")\")\n#define ALIAS DIRECT\n#define WRAPPER() ALIAS()\n#define CHECK(x) { sink(x); }\n";
+  for use_site in ["", "// WRAPPER()\n", "const char* text = \"PORTABLE()\";\n"] {
+    let source = format!("{definitions}{use_site}void run() {{ CHECK(value()) }}\n");
+    assert!(
+      audit(Path::new("unused.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_some(),
+      "{source}"
+    );
+  }
+  for use_site in [
+    "DIRECT();",
+    "PORTABLE();",
+    "WRAPPER();",
+    "ALIAS();",
+    "#ifdef PLATFORM\nWRAPPER();\n#endif",
+    "#undef DIRECT\nDIRECT();",
+  ] {
+    let source = format!("{definitions}{use_site}\nvoid run() {{ CHECK(value()) }}\n");
+    assert!(
+      audit(Path::new("invoked.cc"), &source).bindings.is_empty(),
+      "{source}"
+    );
+  }
+}
+
+#[test]
+fn bounded_literal_conditions_preserve_all_branch_effects() {
+  let safe = [
+    "2",
+    "0x10 == 020",
+    "0b10 < 3",
+    "2147483647 >= 2",
+    "(~0 & 3) != 0",
+    "2 <= 3",
+    "defined(A) ^ defined(B)",
+  ];
+  for condition in safe {
+    for newline in ["\n", "\r\n"] {
+      let source = format!("#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#elif 0x10 <= 16\nstruct Second {{}};\n#endif\nvoid run() {{ CHECK(value()) }}\n").replace('\n', newline);
+      assert!(
+        audit(Path::new("literal.cc"), &source)
+          .at("CHECK", source.find("CHECK(value").unwrap())
+          .is_some(),
+        "{condition}"
+      );
+      let changed = source.replace("struct Second {};", "#undef CHECK");
+      assert!(
+        audit(Path::new("literal.cc"), &changed)
+          .at("CHECK", changed.find("CHECK(value").unwrap())
+          .is_none(),
+        "{condition}"
+      );
+    }
+  }
+  for condition in [
+    "UNKNOWN == 2",
+    "defined(A) && UNKNOWN",
+    "1 / 0",
+    "1 % 0",
+    "1 << 32",
+    "2147483647 + 1",
+    "2147483648",
+    "0x80000000",
+    "08",
+    "2U",
+    "1.0",
+    "1'000",
+    "'x'",
+    "F(2)",
+    "2 ? 1 : 0",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#endif\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    assert!(
+      audit(Path::new("literal.cc"), &source)
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .is_none(),
+      "{condition}"
+    );
+  }
+}
+
+#[test]
+fn complete_control_statement_replacements_do_not_accept_body_prefixes() {
+  for replacement in [
+    "while (v) { sink(v); }",
+    "for (; v;) { sink(v); }",
+    "for (auto item : v) { sink(item); }",
+    "switch (v) { case 1: sink(v); break; default: break; }",
+    "while (v) if (v) sink(v);",
+    "for (; v;) if (v) sink(v);",
+  ] {
+    for newline in ["\n", "\r\n"] {
+      let source = format!("#define CHECK(v) {replacement}\nvoid run() {{ CHECK(value()) }}\n")
+        .replace('\n', newline);
+      let evidence = audit(Path::new("controls.cc"), &source);
+      let definition = evidence
+        .at("CHECK", source.find("CHECK(value").unwrap())
+        .unwrap();
+      assert_eq!(definition.parameters, 1);
+      assert_eq!(
+        &source[definition.definition_span.clone()],
+        format!("#define CHECK(v) {replacement}{newline}")
+      );
+    }
+  }
+  for replacement in [
+    "while (v)",
+    "for (; v;)",
+    "for (auto item : v)",
+    "switch (v)",
+    "case 1: for (; v;)",
+    "while () {}",
+    "for (; v;) { sink(v) }",
+    "switch (v) { case 1: sink(v) }",
+    "while (v) {}; after();",
+  ] {
+    let source =
+      format!("#define CHECK(v) {replacement}\nvoid run() {{ CHECK(value()) {{ after(); }} }}\n");
+    assert!(
+      audit(Path::new("prefix.cc"), &source).bindings.is_empty(),
+      "{replacement}"
+    );
+  }
 }

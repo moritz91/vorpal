@@ -3,6 +3,433 @@ use std::path::Path;
 use vorpal_ingest::cpp_macro_recovery::audit_recovery;
 
 #[test]
+fn opaque_large_sources_keep_raw_products_and_missing_include_dependencies() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let nonce = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_nanos();
+  let dir = physical_temp_dir().join(format!(
+    "vorpal-opaque-proof-{}-{nonce}",
+    std::process::id()
+  ));
+  std::fs::create_dir_all(&dir).unwrap();
+  let path = dir.join("opaque.cc");
+  let default = OutlineExtractor::new().unwrap();
+  let recovery = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for newline in ["\n", "\r\n"] {
+    let mut source = "#include \"proof.h\"\nvoid run() {\n".to_owned();
+    for i in 0..256 {
+      source.push_str(&format!(
+        "/* CHECK(hidden({i})) */ const char* text{i} = R\"tag(CHECK(ignored()))tag\";\n"
+      ));
+    }
+    source.push_str("CHECK(value())\nafter();\n}\nvoid following() { later(); }\n");
+    let source = source.replace('\n', newline);
+    let path = path.to_str().unwrap();
+    let mut ordinary = default.extract_product(path, &source).unwrap();
+    let declined = recovery.extract_product(path, &source).unwrap();
+    assert!(declined.error_nodes > 0);
+    ordinary.grammar_digest = declined.grammar_digest;
+    let mut ordinary_bytes = Vec::new();
+    let mut declined_bytes = Vec::new();
+    encode_product_into(&ordinary, &mut ordinary_bytes);
+    encode_product_into(&declined, &mut declined_bytes);
+    assert_eq!(ordinary_bytes, declined_bytes);
+    let before = audit_recovery(Path::new(path), &source, &[]);
+    assert!(before.eligible_names.is_empty());
+    assert!(before.context_errors.is_empty());
+
+    std::fs::write(dir.join("proof.h"), "#define CHECK(v) { sink(v); }\n").unwrap();
+    let proven = recovery.extract_product(path, &source).unwrap();
+    let after = audit_recovery(Path::new(path), &source, &[]);
+    assert_ne!(before.dependency_identity, after.dependency_identity);
+    assert_eq!(after.eligible_names, ["CHECK"]);
+    assert_eq!(proven.error_nodes, 0);
+    for name in ["value", "after", "later"] {
+      let call = proven
+        .refs
+        .iter()
+        .find(|r| r.kind == 0 && r.name == name)
+        .unwrap();
+      assert_eq!(
+        &source[call.start as usize..call.end as usize],
+        format!("{name}()")
+      );
+    }
+    assert!(
+      !proven
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && ["CHECK", "sink", "hidden", "ignored"].contains(&r.name.as_str()))
+    );
+    std::fs::remove_file(dir.join("proof.h")).unwrap();
+  }
+  std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn literal_diagnostic_pragmas_preserve_macro_arguments_and_following_functions() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  let lf = "#pragma pack(push, 1)\n#pragma warning(push, 1)\n#pragma warning(disable: 4100 4996)\n#define CHECK(x) { sink(x); }\nvoid run() { CHECK(value()) }\n#pragma warning(pop)\n#pragma pack(pop)\nvoid following() { after(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("pragmas.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.macro_spans.len(), 1);
+    assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+    assert!(report.functions.iter().any(|name| name == "following"));
+    for name in ["value", "after"] {
+      let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+    assert!(
+      !report
+        .calls
+        .iter()
+        .any(|(n, _)| matches!(n.as_str(), "CHECK" | "pack" | "warning"))
+    );
+    let product = extractor.extract_product("pragmas.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("pragmas.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    assert!(
+      OutlineExtractor::new()
+        .unwrap()
+        .extract_product("pragmas.cc", &source)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    let unsafe_source = source.replace("warning(push, 1)", "warning(push, LEVEL)");
+    assert!(audit_recovery(Path::new("pragmas.cc"), &unsafe_source, &[]).has_error);
+  }
+}
+
+#[test]
+fn sdk_declaration_errors_do_not_mask_intact_include_metadata_or_header_errors() {
+  use std::fs;
+  use vorpal_core::Language;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_language::LanguageExt;
+  let nonce = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_nanos();
+  let root = std::env::temp_dir().join(format!(
+    "vorpal-guarded-metadata-{}-{nonce}",
+    std::process::id()
+  ));
+  fs::create_dir_all(&root).unwrap();
+  let header = root.join("sdk.h");
+  let safe = "#define SDK_BEGIN namespace sdk {\n#define SDK_END }\n#if defined(ENABLE)\nSDK_BEGIN\nextern const int variable;\nSDK_END\n#endif\n";
+  let source =
+    "#define CHECK(x) { sink(x); }\n#include \"sdk.h\"\nvoid run() { CHECK(value()) after(); }\n";
+  let path = root.join("run.cc");
+  fs::write(&path, source).unwrap();
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for contents in [safe.to_owned(), safe.replace('\n', "\r\n")] {
+    fs::write(&header, &contents).unwrap();
+    let report = audit_recovery(&path, source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.macro_spans.len(), 1);
+    for name in ["value", "after"] {
+      let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(path.to_str().unwrap(), source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw = vorpal_lang_registry::SgLang::from_path(&path)
+      .unwrap()
+      .grep(source);
+    assert!(raw.root().has_error());
+    let handoff = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut scanned = Vec::new();
+    encode_product_into(&handoff, &mut scanned);
+    assert_eq!(owned, scanned);
+    // The original header's unsupported C++ namespace macros are still diagnosed.
+    assert!(
+      extractor
+        .extract_product(header.to_str().unwrap(), &contents)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+  }
+  fs::write(&header, safe.replace("defined(ENABLE)", "EXPANDING")).unwrap();
+  assert!(audit_recovery(&path, source, &[]).has_error);
+  fs::write(&header, safe).unwrap();
+  assert!(!audit_recovery(&path, source, &[]).has_error);
+  fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn statement_recovery_cannot_admit_namespace_or_linkage_compounds() {
+  use vorpal_ingest::OutlineExtractor;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for enclosing in ["namespace scope", "extern \"C\""] {
+    let lf = format!(
+      "#define CHECK(x) {{ sink(x); }}\n{enclosing} {{ CHECK(value()) }}\nvoid after() {{ real(); }}\n"
+    );
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("scope.cc"), &source, &[]);
+      assert!(report.has_error, "{report:?}");
+      assert!(report.eligible_names.is_empty(), "{report:?}");
+      assert_eq!(report.context_errors.len(), 1, "{report:?}");
+      assert_eq!(&source[report.context_errors[0].clone()], "CHECK(value())");
+      assert!(report.functions.iter().any(|name| name == "after"));
+      assert!(
+        extractor
+          .extract_product("scope.cc", &source)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+    let source = format!(
+      "#define CHECK(x) {{ sink(x); }}\n{enclosing} {{ void run() {{ CHECK(value()) }} }}\n"
+    );
+    let report = audit_recovery(Path::new("scope.cc"), &source, &[]);
+    assert!(
+      !report.has_error,
+      "a function body admits the statement: {report:?}"
+    );
+    assert_eq!(report.macro_spans.len(), 1);
+    for delimiter in ["", ";"] {
+      let source = format!(
+        "#define CHECK(x) {{ sink(x); }}\n{enclosing} {{ CHECK(first()){delimiter} CHECK(second()){delimiter} }}\n"
+      );
+      let report = audit_recovery(Path::new("multiple-scopes.cc"), &source, &[]);
+      assert!(report.has_error, "{report:?}");
+      assert_eq!(report.context_errors.len(), 2, "{report:?}");
+      assert!(report.eligible_names.is_empty());
+    }
+  }
+  let source =
+    "#define CHECK(x) { sink(x); }\nnamespace scope { auto run = []() { CHECK(value()) }; }\n";
+  let report = audit_recovery(Path::new("lambda.cc"), source, &[]);
+  assert!(
+    !report.has_error,
+    "lambda bodies admit statements: {report:?}"
+  );
+  assert_eq!(report.macro_spans.len(), 1);
+}
+
+#[test]
+fn empty_preprocessing_arguments_are_proved_in_the_replacement() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for invocation in [
+    "CHECK()",
+    "CHECK(/* empty, argument */)",
+    "CHECK( \t )",
+    "CHECK(\x0b)",
+    "CHECK(\x0c)",
+  ] {
+    let lf = format!("#define CHECK(x) {{ sink(x); }}\nvoid run() {{ {invocation} after(); }}\n");
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("empty.cc"), &source, &[]);
+      assert!(!report.has_error, "{report:?}");
+      assert_eq!(report.eligible_names, ["CHECK"]);
+      assert_eq!(report.macro_spans.len(), 1);
+      assert_eq!(&source[report.macro_spans[0].clone()], invocation);
+      assert!(!report.calls.iter().any(|(name, _)| name == "CHECK"));
+      let product = extractor.extract_product("empty.cc", &source).unwrap();
+      assert_eq!(product.error_nodes, 0);
+      let mut owned = Vec::new();
+      encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("empty.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let raw = SgLang::from_path("empty.cc").unwrap().grep(&source);
+      let handoff = extractor
+        .extract_product_from_root("empty.cc", &raw)
+        .unwrap();
+      let mut bank = Vec::new();
+      encode_product_into(&handoff, &mut bank);
+      assert_eq!(owned, bank);
+    }
+  }
+  let source = "#define ZERO() { sink(); }\nvoid run() { ZERO() }\n";
+  let report = audit_recovery(Path::new("zero.cc"), source, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["ZERO"]);
+}
+
+#[test]
+fn semicolons_cannot_hide_incompatible_replacement_syntax() {
+  for (definition, invocation) in [
+    ("#define DECLARE(x) { int x; }", "DECLARE(1 + 2)"),
+    ("#define JUMP(x) { goto x; }", "JUMP(target())"),
+    ("#define CHECK(x) if (x) { sink(); }", "CHECK()"),
+  ] {
+    let source = format!("{definition}\nvoid run() {{ {invocation}; after(); }}\n");
+    let report = audit_recovery(Path::new("invalid-replacement.cc"), &source, &[]);
+    assert!(report.has_error, "{report:?}");
+    assert_eq!(report.context_errors.len(), 1, "{report:?}");
+    assert_eq!(&source[report.context_errors[0].clone()], invocation);
+    assert!(report.calls.iter().any(|(name, _)| name == "after"));
+  }
+}
+
+#[test]
+fn macro_arguments_must_fit_their_actual_replacement_context() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for (definition, invocation) in [
+    ("#define DECLARE(name) { int name; }", "DECLARE(1 + 2)"),
+    ("#define JUMP(label) { goto label; }", "JUMP(target())"),
+    (
+      "#define NESTED(x) { void local() { sink(x); } }",
+      "NESTED(1)",
+    ),
+    (
+      "#define METHOD(x) { struct Local { void local() { sink(x); } }; }",
+      "METHOD(1)",
+    ),
+    ("#define DECLARE(\\u03B1) { int α; }", "DECLARE(1 + 2)"),
+    ("#define DECLARE(x) { int \\u0078; }", "DECLARE(1 + 2)"),
+    (
+      "#define COPY(value) { __asm { mov eax,value } }",
+      "COPY(target())",
+    ),
+    (
+      "#define TEXT(value) { use(\"prefix\" value); }",
+      "TEXT(unexpanded)",
+    ),
+  ] {
+    let source = format!("{definition}\nvoid run() {{ {invocation} }}\n");
+    for source in [source.clone(), source.replace('\n', "\r\n")] {
+      let audit = audit_recovery(Path::new("roles.cc"), &source, &[]);
+      assert!(
+        audit.has_error,
+        "replacement-context syntax must not become false-clean: {source}: {audit:?}"
+      );
+      assert!(audit.eligible_names.is_empty());
+      let product = extractor.extract_product("roles.cc", &source).unwrap();
+      assert!(product.error_nodes > 0);
+      let mut owned = Vec::new();
+      encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("roles.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let raw = SgLang::from_path("roles.cc").unwrap().grep(&source);
+      let handoff = extractor
+        .extract_product_from_root("roles.cc", &raw)
+        .unwrap();
+      let mut bank = Vec::new();
+      encode_product_into(&handoff, &mut bank);
+      assert_eq!(owned, bank);
+    }
+  }
+}
+
+#[test]
+fn replacement_proofs_preserve_tokens_literals_and_original_call_spans() {
+  let lf = "#define DECLARE(name) { int name; }\n#define JUMP(label) { goto label; }\n#define COPY(value) { __asm { mov eax,value } }\n#define CHECK(value) { use(value, \"value\", R\"(value)\", 'v'); /* value */ }\nvoid run() { DECLARE(local) JUMP(done) COPY(12) CHECK(real()) after(); done: ; }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let audit = audit_recovery(Path::new("roles.cc"), &source, &[]);
+    assert!(!audit.has_error, "{audit:?}");
+    assert_eq!(audit.eligible_names, ["CHECK", "COPY", "DECLARE", "JUMP"]);
+    for name in ["real", "after"] {
+      let (_, span) = audit.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+  }
+  // Legacy MSVC coalesces adjacent operators; decline an ambiguous boundary.
+  let source = "#define ADD(value) { use(1+value); }\nvoid run() { ADD(+real()) }";
+  assert!(audit_recovery(Path::new("tokens.cc"), source, &[]).has_error);
+  let source = "#define ADD(value) { use(1+ value); }\nvoid run() { ADD(+real()) }";
+  assert!(!audit_recovery(Path::new("tokens.cc"), source, &[]).has_error);
+  let source = "#define DECLARE(name) { int name; }\nvoid run() { DECLARE(valid) DECLARE(1+2) }";
+  let report = audit_recovery(Path::new("blocked.cc"), source, &[]);
+  assert!(report.has_error);
+  assert_eq!(report.eligible_names, ["DECLARE"]);
+  assert_eq!(report.macro_spans.len(), 1);
+  assert_eq!(&source[report.macro_spans[0].clone()], "DECLARE(valid)");
+}
+
+#[test]
+fn compound_lambda_replacements_keep_original_argument_spans() {
+  let lf = "#define ACTION(x) { auto action = [&] { sink(x); }; action(); }\nint value(); void sink(int);\nvoid run() { ACTION(value()) after(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("lambda.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.eligible_names, ["ACTION"]);
+    assert_eq!(&source[report.macro_spans[0].clone()], "ACTION(value())");
+    for name in ["value", "after"] {
+      let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+    assert!(!report.calls.iter().any(|(name, _)| name == "ACTION"));
+  }
+}
+
+#[test]
+fn noncanonical_macro_effect_names_decline_proof_but_unicode_literals_do_not() {
+  for name in ["α", "\\u03B1", "$restore"] {
+    let source = format!(
+      "#define CHECK(x) {{ sink(x); }}\n#define {name} }}\nvoid run() {{ CHECK({name}) }}\n"
+    );
+    let report = audit_recovery(Path::new("unicode.cc"), &source, &[]);
+    assert!(report.has_error, "{source}: {report:?}");
+    assert!(report.eligible_names.is_empty());
+  }
+  let source = "#define CHECK(x) { sink(x, \"α\", R\"(\\u03B1)\"); /* α */ }\nint α();\nvoid run() { CHECK(α()) after(); }\n";
+  let report = audit_recovery(Path::new("unicode.cc"), source, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  for name in ["α", "after"] {
+    let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+    assert_eq!(&source[span.clone()], format!("{name}()"));
+  }
+}
+
+#[test]
 fn proven_statements_keep_argument_calls_and_following_function_spans() {
   let lf = "#define CHECK(x) if (!(x)) { throw 0; }\nvoid run() { CHECK(value()) after(); }\nvoid following() { next(); }\n";
   for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
@@ -18,6 +445,28 @@ fn proven_statements_keep_argument_calls_and_following_function_spans() {
     }
     assert!(!audit.calls.iter().any(|(name, _)| name == "CHECK"));
   }
+}
+
+#[test]
+fn unchanged_conditional_groups_keep_recovery_and_real_argument_spans() {
+  let prefix = "#define CHECK(x) { function(x); }\n";
+  let body = "void run() { CHECK(value()) after(); }\n";
+  let safe = format!(
+    "{prefix}#ifdef PLATFORM\nstruct First {{}};\n#else\nstruct Second {{}};\n#endif\n{body}"
+  );
+  let report = audit_recovery(Path::new("fixture.cc"), &safe, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  assert_eq!(&safe[report.macro_spans[0].clone()], "CHECK(value())");
+  assert!(!report.calls.iter().any(|(name, _)| name == "CHECK"));
+  for name in ["value", "after"] {
+    let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+    assert_eq!(&safe[span.clone()], format!("{name}()"));
+  }
+  let invalidated = format!("{prefix}#ifdef PLATFORM\n#undef CHECK\n#endif\n{body}");
+  let report = audit_recovery(Path::new("fixture.cc"), &invalidated, &[]);
+  assert!(report.has_error);
+  assert!(report.eligible_names.is_empty());
 }
 
 #[test]
@@ -108,7 +557,7 @@ fn header_edit_creation_and_removal_change_fresh_recovery_proof() {
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap()
     .as_nanos();
-  let dir = std::env::temp_dir().join(format!(
+  let dir = physical_temp_dir().join(format!(
     "vorpal-macro-recovery-{}-{nonce}",
     std::process::id()
   ));
@@ -197,4 +646,1587 @@ fn production_owned_streaming_and_scan_handoff_share_proof_and_identity() {
     expected, actual,
     "default extraction clears surrounding scanner context"
   );
+}
+
+#[test]
+fn pragma_operators_and_invoked_paste_wrappers_cannot_restore_hidden_definitions() {
+  for effect in [
+    "__pragma(pop_macro(\"CHECK\"));",
+    "_Pragma(\"pop_macro(\\\"CHECK\\\")\");",
+    "#define RESTORE() __pragma(pop_macro(\"CHECK\"))\nRESTORE();",
+    "#define JOIN(a,b) a##b\nJOIN(__pr,agma)(pop_macro(\"CHECK\"));",
+    "#define JOIN(a,b) a%:%:b\nJOIN(__pr,agma)(pop_macro(\"CHECK\"));",
+    "__pr\\\nagma(pop_macro(\"CHECK\"));",
+    "#define JOIN(a,b) a##b\n#define RESTORE() JOIN(__pr,agma)(pop_macro(\"CHECK\"))\nRESTORE();",
+  ] {
+    let source = format!(
+      "#define CHECK(x) expression(x)\n#pragma push_macro(\"CHECK\")\n#undef CHECK\n#define CHECK(x) {{ effect(x); }}\n{effect}\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    for source in [source.clone(), source.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("fixture.cc"), &source, &[]);
+      assert!(report.has_error, "{effect}: {report:?}");
+      assert!(report.eligible_names.is_empty(), "{effect}: {report:?}");
+      assert!(report.macro_spans.is_empty());
+    }
+  }
+}
+
+#[test]
+fn inert_operator_mentions_and_unused_paste_definitions_keep_valid_recovery() {
+  let source = r#"
+// __pragma(pop_macro("CHECK"))
+#define TEXT "_Pragma ## __pragma"
+#define JOIN(a,b) a##b
+#define CHECK(x) { effect(x); }
+void run() { const char* text = R"(__pragma ## _Pragma)"; CHECK(value()) }
+"#;
+  let report = audit_recovery(Path::new("fixture.cc"), source, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+}
+
+#[test]
+fn nonexpanding_conditions_keep_recovery_without_selecting_a_branch() {
+  for condition in [
+    "0",
+    "1",
+    "defined(A) && !defined(B)",
+    "0x10 == 020",
+    "(~0 & 3) != 0",
+    "2 <= 3",
+  ] {
+    let source = format!(
+      "#define CHECK(x) {{ effect(x); }}\n#if {condition}\nstruct First {{}};\n#else\nstruct Second {{}};\n#endif\nvoid run() {{ CHECK(value()) after(); }}\n"
+    );
+    for source in [source.clone(), source.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("fixture.cc"), &source, &[]);
+      assert!(!report.has_error, "{condition}: {report:?}");
+      assert_eq!(report.eligible_names, ["CHECK"]);
+      assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+      for name in ["value", "after"] {
+        let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+        assert_eq!(&source[span.clone()], format!("{name}()"));
+      }
+      assert!(!report.calls.iter().any(|(name, _)| name == "CHECK"));
+    }
+  }
+}
+
+#[test]
+fn opaque_headers_cannot_supply_hidden_restore_macros_to_later_local_proof() {
+  for boundary in [
+    "#include \"unavailable.h\"",
+    "#if defined(PLATFORM)\n#pragma push_macro(\"CHECK\")\n#endif",
+    "#ifdef PLATFORM\n#unknown effect\n#endif",
+  ] {
+    let source = format!(
+      "{boundary}\n#define CHECK(x) {{ effect(x); }}\nRESTORE();\nvoid run() {{ CHECK(value()) after(); }}\n"
+    );
+    let report = audit_recovery(Path::new("fixture.cc"), &source, &[]);
+    assert!(report.has_error, "{report:?}");
+    assert!(report.eligible_names.is_empty());
+    assert!(report.macro_spans.is_empty());
+  }
+}
+
+// Some platforms spell their temp directory through a system symlink. Ordinary
+// fixtures use the physical path; alias tests create their own explicit redirects.
+fn physical_temp_dir() -> std::path::PathBuf {
+  let path = std::env::temp_dir();
+  #[cfg(unix)]
+  {
+    path.canonicalize().unwrap_or(path)
+  }
+  #[cfg(not(unix))]
+  {
+    path
+  }
+}
+
+#[test]
+fn expanding_argument_and_keyword_macros_cannot_hide_real_syntax_errors() {
+  for source in [
+    "void effect(int);\n#define END }\n#define CHECK(x) { effect(x); }\nvoid run() { CHECK(END) after(); }\n",
+    "void effect(int);\n#define END }\n#define CHECK(x) { effect(x); }\nvoid run() { CHECK(EN\\\nD) after(); }\n",
+    "void effect(int);\n#define if(x) effect(x)\n#define CHECK(x) if(x) effect(x);\nvoid run() { CHECK(1) after(); }\n",
+    "#define effect }\n#define CHECK(x) { effect(x); }\nvoid run() { CHECK(1) after(); }\n",
+  ] {
+    for newline in ["\n", "\r\n"] {
+      let source = source.replace('\n', newline);
+      let report = audit_recovery(Path::new("expanding.cc"), &source, &[]);
+      assert!(report.has_error, "{report:?}");
+      assert!(report.eligible_names.is_empty(), "{report:?}");
+      assert!(report.macro_spans.is_empty());
+    }
+  }
+}
+
+#[test]
+fn unused_macros_and_names_inside_literals_do_not_block_argument_recovery() {
+  let source = "#define END }\n#define CHECK(x) { effect(x); }\nvoid run() { CHECK(\"END\") CHECK(value() /* END */) }\n";
+  let report = audit_recovery(Path::new("literal.cc"), source, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  assert_eq!(report.macro_spans.len(), 2);
+  assert!(
+    report
+      .calls
+      .iter()
+      .any(|(name, range)| name == "value" && &source[range.clone()] == "value()")
+  );
+}
+
+#[test]
+fn invocation_comments_keep_original_spans_and_match_production_paths() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let lf = "#define CHECK(x) { effect(x); }\nvoid run() {\nCHECK /* α CHECK(other()) */ /***/ (value())\nCHECK // CHECK(other())\n \t\x0b\x0c(value())\nafter();\n}\nvoid following() { next(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let audit = audit_recovery(Path::new("comments.cc"), &source, &[]);
+    assert!(!audit.has_error, "{audit:?}");
+    assert_eq!(audit.eligible_names, ["CHECK"]);
+    assert_eq!(audit.macro_spans.len(), 2);
+    let recovered = vorpal_language::with_cpp_statement_macros(&audit.eligible_names, || {
+      SgLang::from_path("comments.cc").unwrap().grep(&source)
+    });
+    assert_eq!(
+      recovered
+        .root()
+        .dfs()
+        .filter(|n| n.kind() == "comment")
+        .count(),
+      3
+    );
+    for node in recovered
+      .root()
+      .dfs()
+      .filter(|n| n.kind() == "macro_statement")
+    {
+      let name = node.field("name").unwrap();
+      assert_eq!(&source[name.range()], "CHECK");
+      assert!(node.text().starts_with("CHECK "));
+    }
+    assert!(
+      !audit
+        .calls
+        .iter()
+        .any(|(name, _)| ["CHECK", "other"].contains(&name.as_str()))
+    );
+    for name in ["value", "after", "next"] {
+      for (_, span) in audit.calls.iter().filter(|(n, _)| n == name) {
+        assert_eq!(&source[span.clone()], format!("{name}()"));
+      }
+    }
+    assert_eq!(audit.calls.iter().filter(|(n, _)| n == "value").count(), 2);
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_recovery(&[])
+      .unwrap();
+    let product = extractor.extract_product("comments.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("comments.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw = SgLang::from_path("comments.cc").unwrap().grep(&source);
+    assert!(raw.root().has_error());
+    let handoff = extractor
+      .extract_product_from_root("comments.cc", &raw)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handoff, &mut encoded);
+    assert_eq!(owned, encoded);
+  }
+}
+
+#[test]
+fn comment_and_control_whitespace_invocations_cannot_escape_proof_intervals() {
+  for spacing in ["\x0b", " /* note */ ", " // note\n "] {
+    let source = format!(
+      "void before() {{ CHECK{spacing}(value()) }}\n#define CHECK(x) {{ effect(x); }}\nvoid run() {{ CHECK(value()) }}\n"
+    );
+    let audit = audit_recovery(Path::new("comments.cc"), &source, &[]);
+    assert!(audit.has_error, "{spacing:?}: {audit:?}");
+    assert_eq!(audit.eligible_names, ["CHECK"], "{spacing:?}: {audit:?}");
+    assert_eq!(audit.macro_spans.len(), 1);
+    assert_eq!(audit.macro_spans[0].start, source.rfind("CHECK(value())").unwrap());
+    assert_eq!(&source[audit.macro_spans[0].clone()], "CHECK(value())");
+  }
+  for invocation in [
+    "CHECK /* note */ (value(), second())",
+    "CHECK // note\n (value(,))",
+    "CHECK /* line\\\nsplice */ (value())",
+    "CHECK // line\\\nsplice\n (value())",
+    "CHECK /* trigraph??/ splice */ (value())",
+    "CHECK // trigraph??/ splice\n (value())",
+    "CHECK /* unterminated (value())",
+    "CHECK /* note */ (value()) genuine()",
+  ] {
+    let source = format!("#define CHECK(x) {{ effect(x); }}\nvoid run() {{ {invocation} }}\n");
+    let audit = audit_recovery(Path::new("comments.cc"), &source, &[]);
+    assert!(audit.has_error, "{invocation:?}: {audit:?}");
+  }
+  assert!(
+    audit_recovery(
+      Path::new("ordinary.cc"),
+      "void run() { CHECK /* note */ (value()) }",
+      &[]
+    )
+    .has_error
+  );
+}
+
+#[test]
+fn unrelated_literal_macro_stack_metadata_keeps_recovery_and_spans() {
+  let lf = "#define CHECK(x) { sink(x); }\n#pragma push_macro(\"OTHER\")\n#pragma pop_macro(\"OTHER\")\nvoid run() { CHECK(value()) after(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("stack.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.eligible_names, ["CHECK"]);
+    for name in ["value", "after"] {
+      let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+    assert!(!report.calls.iter().any(|(n, _)| n == "CHECK"));
+  }
+  for source in [
+    "#define CHECK(x) { sink(x); }\n#pragma pop_macro(\"CHECK\")\nvoid run() { CHECK(value()) }",
+    "#define CHECK(x) { sink(x); }\n#pragma pop_macro(\"value\")\nvoid run() { CHECK(value()) }",
+    "#define CHECK(x) { value(x); }\n#pragma pop_macro(\"value\")\nvoid run() { CHECK(1) }",
+    "#define CHECK(x) { sink(x); }\n#undef 123invalid\nvoid run() { CHECK(value()) }",
+  ] {
+    let report = audit_recovery(Path::new("stack.cc"), source, &[]);
+    assert!(report.has_error, "{source}: {report:?}");
+    assert!(report.eligible_names.is_empty());
+  }
+}
+
+#[test]
+fn saving_an_entering_macro_keeps_original_sites_without_proving_restoration() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for push in [
+    "#pragma push_macro(\"CHECK\")\n",
+    "#ifdef PLATFORM\n#pragma push_macro(\"CHECK\")\n#endif\n",
+    "#if 0\n#pragma push_macro(\"CHECK\")\n#endif\n",
+  ] {
+    let lf = format!(
+      "#define CHECK(x) {{ sink(x); }}\n{push}void run() {{ CHECK(value()) after(); }}\n#pragma pop_macro(\"CHECK\")\nvoid following() {{ later(); }}\n"
+    );
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("saved.cc"), &source, &[]);
+      assert!(!report.has_error, "{report:?}");
+      assert_eq!(report.eligible_names, ["CHECK"]);
+      assert_eq!(report.macro_spans.len(), 1);
+      assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+      assert!(
+        OutlineExtractor::new()
+          .unwrap()
+          .extract_product("saved.cc", &source)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+      let product = extractor.extract_product("saved.cc", &source).unwrap();
+      assert_eq!(product.error_nodes, 0);
+      for name in ["value", "after", "later"] {
+        let reference = product
+          .refs
+          .iter()
+          .find(|r| r.kind == 0 && r.name == name)
+          .unwrap();
+        assert_eq!(
+          &source[reference.start as usize..reference.end as usize],
+          format!("{name}()")
+        );
+      }
+      assert!(
+        !product
+          .refs
+          .iter()
+          .any(|r| r.kind == 0 && ["CHECK", "sink"].contains(&r.name.as_str()))
+      );
+      let mut owned = Vec::new();
+      encode_product_into(&product, &mut owned);
+      let mut streaming = Vec::new();
+      extractor
+        .extract_product_encoded("saved.cc", &source, 0, 0, &mut streaming)
+        .unwrap();
+      assert_eq!(owned, streaming);
+      let parsed = vorpal_lang_registry::SgLang::from_path("saved.cc")
+        .unwrap()
+        .grep(&source);
+      let scan = extractor
+        .extract_product_from_root("saved.cc", &parsed)
+        .unwrap();
+      let mut scan_bytes = Vec::new();
+      encode_product_into(&scan, &mut scan_bytes);
+      assert_eq!(owned, scan_bytes);
+
+      for damaged in [
+        format!("#define push_macro pop_macro\n{source}"),
+        source.replace("after();", "after()"),
+        source.replace(
+          "void following()",
+          "void bad() { CHECK(value()) }\nvoid following()",
+        ),
+        source.replace("push_macro(\"CHECK\")", "push_macro(NAME)"),
+        source.replace("push_macro(\"CHECK\")", "push_macro(\"CHECK\") junk"),
+        source.replace(
+          "void run()",
+          "#undef CHECK\n#define CHECK(x) { other(x); }\nvoid run()",
+        ),
+      ] {
+        assert!(
+          audit_recovery(Path::new("saved.cc"), &damaged, &[]).has_error,
+          "{damaged}"
+        );
+      }
+    }
+  }
+}
+
+#[test]
+fn unused_pragma_definitions_preserve_production_spans_without_executing_wrappers() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  let definitions = "#define DIRECT() __pragma(pop_macro(\"CHECK\"))\n#define PORTABLE() _Pragma(\"pop_macro(\\\"CHECK\\\")\")\n#define WRAPPER() DIRECT()\n#define CHECK(x) { sink(x); }\n";
+  let lf = format!("{definitions}void run() {{ CHECK(value()) after(); }}\n");
+  for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("unused.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.eligible_names, ["CHECK"]);
+    assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+    for name in ["value", "after"] {
+      let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+      assert_eq!(&source[span.clone()], format!("{name}()"));
+    }
+    assert!(!report.calls.iter().any(|(name, _)| name == "CHECK"));
+    let product = extractor.extract_product("unused.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("unused.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw = SgLang::from_path("unused.cc").unwrap().grep(&source);
+    let handoff = extractor
+      .extract_product_from_root("unused.cc", &raw)
+      .unwrap();
+    let mut bank = Vec::new();
+    encode_product_into(&handoff, &mut bank);
+    assert_eq!(owned, bank);
+    for use_site in ["DIRECT();", "PORTABLE();", "WRAPPER();"] {
+      let changed = source.replace("void run()", &format!("{use_site}\nvoid run()"));
+      let report = audit_recovery(Path::new("used.cc"), &changed, &[]);
+      assert!(report.has_error, "{report:?}");
+      assert!(report.eligible_names.is_empty());
+      assert!(
+        extractor
+          .extract_product("used.cc", &changed)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+  }
+}
+
+#[test]
+fn statement_macro_expression_uses_are_diagnosed_without_inventing_macro_calls() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for expression in [
+    "return CHECK(value());",
+    "int x = CHECK(value());",
+    "use(CHECK(value()));",
+    "object.CHECK(value());",
+    "::CHECK(value());",
+    "if (CHECK(value())) after();",
+    "for (; CHECK(value());) after();",
+    "int array[CHECK(value())];",
+    "throw CHECK(value());",
+  ] {
+    let lf = format!("#define CHECK(x) {{ sink(x); }}\nint run() {{ {expression} after(); }}\n");
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let report = audit_recovery(Path::new("context.cc"), &source, &[]);
+      assert!(report.has_error, "{expression}: {report:?}");
+      assert!(report.eligible_names.is_empty());
+      assert_eq!(report.context_errors.len(), 1, "{expression}: {report:?}");
+      assert!(source[report.context_errors[0].clone()].contains("CHECK(value())"));
+      assert!(!report.calls.iter().any(|(name, _)| name == "CHECK"));
+      for name in ["value", "after"] {
+        let (_, span) = report.calls.iter().find(|(n, _)| n == name).unwrap();
+        assert_eq!(&source[span.clone()], format!("{name}()"));
+      }
+      let product = extractor.extract_product("context.cc", &source).unwrap();
+      assert!(product.error_nodes > 0);
+      assert!(!product.refs.iter().any(|r| r.name == "CHECK"));
+      assert!(product.refs.iter().any(|r| r.name == "value"));
+      let mut owned = Vec::new();
+      encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("context.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let raw = SgLang::from_path("context.cc").unwrap().grep(&source);
+      let handoff = extractor
+        .extract_product_from_root("context.cc", &raw)
+        .unwrap();
+      let mut bank = Vec::new();
+      encode_product_into(&handoff, &mut bank);
+      assert_eq!(owned, bank);
+    }
+  }
+  let source = "#define CHECK(x) { sink(x); }\nvoid first() { CHECK(value()); }\n#undef CHECK\nint CHECK(int); int second() { return CHECK(value()); }\n";
+  let report = audit_recovery(Path::new("interval.cc"), source, &[]);
+  assert!(report.context_errors.is_empty(), "{report:?}");
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(
+    report
+      .calls
+      .iter()
+      .filter(|(name, _)| name == "CHECK")
+      .count(),
+    1,
+    "the ordinary call after undef retains its span"
+  );
+}
+
+#[test]
+fn surrounding_macro_expansions_and_gnu_statement_expressions_decline_context_errors() {
+  use vorpal_ingest::OutlineExtractor;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for (definitions, context) in [
+    ("#define IDENTITY(x) x\n", "IDENTITY(CHECK(value()));"),
+    ("#define return\n", "return CHECK(value());"),
+    ("", "(CHECK(value()));"),
+    ("", "sizeof(CHECK(value()));"),
+  ] {
+    let lf = format!(
+      "#define CHECK(x) {{ sink(x); x; }}\n{definitions}void run() {{ {context} after(); }}\n"
+    );
+    for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+      let audit = audit_recovery(Path::new("valid-context.cc"), &source, &[]);
+      assert!(!audit.has_error, "{context}: {audit:?}");
+      assert!(audit.context_errors.is_empty(), "{context}: {audit:?}");
+      assert!(!audit.calls.iter().any(|(name, _)| name == "CHECK"));
+      for name in ["value", "after"] {
+        let (_, span) = audit.calls.iter().find(|(n, _)| n == name).unwrap();
+        assert_eq!(&source[span.clone()], format!("{name}()"));
+      }
+      let product = extractor
+        .extract_product("valid-context.cc", &source)
+        .unwrap();
+      assert_eq!(product.error_nodes, 0, "{context}");
+      assert!(!product.refs.iter().any(|r| r.name == "CHECK"));
+    }
+  }
+}
+
+#[test]
+fn dangling_if_macros_retain_else_calls_and_nearest_if_binding() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for replacement in [
+    "if (x) { sink(x); }",
+    "if (x) {} else if (other()) { sink(x); }",
+    "if (x) {} else while (other()) if (x) { sink(x); }",
+  ] {
+    for body in [
+      "CHECK /* name */ (value()) /* boundary */ else after();",
+      "if (outer()) CHECK(value()) else after();",
+      "if (outer()) CHECK(value()) else after(); else fallback();",
+    ] {
+      let lf = format!(
+        "#define CHECK(x) {replacement}\nvoid run() {{ {body} }}\nvoid following() {{ next(); }}\n"
+      );
+      for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+        let audit = audit_recovery(Path::new("open-if.cc"), &source, &[]);
+        assert!(!audit.has_error, "{source}: {audit:?}");
+        assert_eq!(audit.eligible_names, ["CHECK"]);
+        for name in ["value", "after", "next"] {
+          let (_, span) = audit.calls.iter().find(|(n, _)| n == name).unwrap();
+          assert_eq!(&source[span.clone()], format!("{name}()"));
+        }
+        assert!(
+          !audit
+            .calls
+            .iter()
+            .any(|(n, _)| matches!(n.as_str(), "CHECK" | "other" | "sink"))
+        );
+        let product = extractor.extract_product("open-if.cc", &source).unwrap();
+        assert_eq!(product.error_nodes, 0);
+        for name in ["value", "after", "next"] {
+          let call = product
+            .refs
+            .iter()
+            .find(|r| r.name == name && r.kind == 0)
+            .unwrap();
+          assert_eq!(
+            &source[call.start as usize..call.end as usize],
+            format!("{name}()")
+          );
+        }
+        assert!(
+          !product
+            .refs
+            .iter()
+            .any(|r| r.name == "CHECK" && r.kind == 0)
+        );
+        let following = product
+          .items
+          .iter()
+          .find(|n| n.entry.name == "following")
+          .unwrap();
+        assert_eq!(
+          &source[following.entry.range.byte_offset.clone()],
+          "void following() { next(); }"
+        );
+        let mut owned = Vec::new();
+        encode_product_into(&product, &mut owned);
+        let mut streamed = Vec::new();
+        extractor
+          .extract_product_encoded("open-if.cc", &source, 0, 0, &mut streamed)
+          .unwrap();
+        assert_eq!(owned, streamed);
+        let raw = SgLang::from_path("open-if.cc").unwrap().grep(&source);
+        let handoff = extractor
+          .extract_product_from_root("open-if.cc", &raw)
+          .unwrap();
+        let mut scanned = Vec::new();
+        encode_product_into(&handoff, &mut scanned);
+        assert_eq!(owned, scanned);
+        let names = ["CHECK".to_owned()];
+        let parsed = vorpal_language::with_cpp_statement_macro_kinds(&names, &names, || {
+          SgLang::from_path("open-if.cc").unwrap().grep(&source)
+        });
+        let statement = parsed
+          .root()
+          .dfs()
+          .find(|n| n.kind().as_ref() == "macro_statement")
+          .unwrap();
+        assert_eq!(statement.field("name").unwrap().text(), "CHECK");
+        assert_eq!(statement.field("arguments").unwrap().text(), "(value())");
+        assert_eq!(
+          statement.field("alternative").unwrap().text(),
+          "else after();"
+        );
+        if body.starts_with("if (outer())") {
+          let outer = statement.parent().unwrap();
+          assert_eq!(outer.kind().as_ref(), "if_statement");
+          assert_eq!(
+            outer.field("alternative").is_some(),
+            body.contains("fallback")
+          );
+        }
+      }
+    }
+  }
+}
+
+#[test]
+fn closed_macro_else_and_extra_semicolons_remain_original_span_errors() {
+  use vorpal_ingest::OutlineExtractor;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for replacement in [
+    "{ sink(x); }",
+    "if (x) { sink(x); } else { sink(0); }",
+    "try { sink(x); } catch (...) {}",
+  ] {
+    for body in [
+      "CHECK(value()) else after();",
+      "CHECK(value()); else after();",
+      "if (outer()) CHECK(value()); else after();",
+    ] {
+      let lf = format!(
+        "#define CHECK(x) {replacement}\nvoid run() {{ {body} }}\nvoid following() {{ next(); }}\n"
+      );
+      for source in [lf.clone(), lf.replace('\n', "\r\n")] {
+        let report = audit_recovery(Path::new("invalid-else.cc"), &source, &[]);
+        assert!(report.has_error, "{source}: {report:?}");
+        assert!(
+          report
+            .context_errors
+            .iter()
+            .any(|span| source[span.clone()].starts_with("CHECK(value())")
+              && source[span.clone()].ends_with("else")),
+          "{report:?}"
+        );
+        assert!(!report.calls.iter().any(|(n, _)| n == "CHECK"));
+        assert!(report.calls.iter().any(|(n, _)| n == "value"));
+        assert!(report.calls.iter().any(|(n, _)| n == "next"));
+        assert!(
+          extractor
+            .extract_product("invalid-else.cc", &source)
+            .unwrap()
+            .error_nodes
+            > 0
+        );
+      }
+    }
+    let source = format!(
+      "#define CHECK(x) {replacement}\nvoid run() {{ if (outer()) CHECK(value()) else after(); }}\n"
+    );
+    let report = audit_recovery(Path::new("outer-else.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert!(report.calls.iter().any(|(n, _)| n == "after"));
+  }
+  for body in [
+    "CHECK(value()); else after();",
+    "if (outer()) CHECK(value()); else after();",
+    "CHECK(value()) else",
+    "CHECK(value()) else after()",
+  ] {
+    let source = format!("#define CHECK(x) if (x) {{ sink(x); }}\nvoid run() {{ {body} }}\n");
+    assert!(
+      audit_recovery(Path::new("broken-open-if.cc"), &source, &[]).has_error,
+      "{source}"
+    );
+  }
+  let mixed = "#define CHECK(x) if (x) { sink(x); }\nvoid first() { CHECK(value()) }\n#undef CHECK\n#define CHECK(x) { sink(x); }\nvoid second() { CHECK(value()) }\n";
+  let report = audit_recovery(Path::new("mixed.cc"), mixed, &[]);
+  assert!(!report.has_error, "{report:?}");
+  assert_eq!(report.eligible_names, ["CHECK"]);
+  assert_eq!(report.macro_spans.len(), 2);
+  let ordinary = "void run() { CHECK(value()) else after(); }\n";
+  assert!(audit_recovery(Path::new("ordinary.cc"), ordinary, &[]).has_error);
+}
+
+#[test]
+fn typed_macro_scanner_context_is_nested_panic_safe_and_thread_local() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_language::{SupportLang, with_cpp_statement_macro_kinds, with_cpp_statement_macros};
+  let source = "void run() { CHECK(value()) else after(); }";
+  let names = ["CHECK".to_owned()];
+  let shape = || {
+    let parsed = SupportLang::Cpp.grep(source);
+    parsed
+      .root()
+      .dfs()
+      .any(|n| n.kind().as_ref() == "macro_statement" && n.field("alternative").is_some())
+  };
+  assert!(!shape());
+  with_cpp_statement_macro_kinds(&names, &names, || {
+    assert!(shape());
+    with_cpp_statement_macros(&names, || assert!(!shape()));
+    assert!(shape());
+    with_cpp_statement_macros(&[], || assert!(!shape()));
+    let panic =
+      std::panic::catch_unwind(|| with_cpp_statement_macros(&names, || panic!("fixture")));
+    assert!(panic.is_err());
+    assert!(shape());
+    assert!(
+      !std::thread::spawn(move || {
+        let parsed = SupportLang::Cpp.grep(source);
+        parsed
+          .root()
+          .dfs()
+          .any(|n| n.kind().as_ref() == "macro_statement")
+      })
+      .join()
+      .unwrap()
+    );
+  });
+  assert!(!shape());
+}
+
+#[test]
+fn opaque_macro_prefixes_decline_additional_else_context_diagnostics() {
+  let source = "#define PREFIX() if (outer())\n#define CHECK(x) { sink(x); }\nvoid run() { PREFIX() CHECK(value()) else after(); }\n";
+  let report = audit_recovery(Path::new("opaque-prefix.cc"), source, &[]);
+  assert!(report.context_errors.is_empty(), "{report:?}");
+  // The unsupported prefix remains outside recovery; no native-invalid claim.
+  let source =
+    "#define CHECK(x) { sink(x); }\nvoid run() { CHECK(first()) CHECK(value()) else after(); }\n";
+  let report = audit_recovery(Path::new("adjacent.cc"), source, &[]);
+  assert!(report.has_error);
+  assert_eq!(report.context_errors.len(), 1, "{report:?}");
+}
+
+#[test]
+fn conditional_function_bodies_retain_proven_macro_argument_calls() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  let lf = "#define CHECK(x) { sink(x); }\n\n#if defined(WIDE)\nvoid wide() {\n#else\nvoid narrow() {\n#endif\nCHECK(value()) after();\n}\nvoid following() { final_call(); }\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("conditional.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert!(report.context_errors.is_empty());
+    assert_eq!(report.macro_spans.len(), 1);
+    assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+    for name in ["wide", "narrow", "following"] {
+      assert!(report.functions.iter().any(|n| n == name));
+    }
+    let product = extractor
+      .extract_product("conditional.cc", &source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && matches!(r.name.as_str(), "CHECK" | "sink"))
+    );
+    for name in ["value", "after"] {
+      let calls: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(calls.len(), 2, "{:?}", product.refs);
+      for call in calls {
+        assert_eq!(
+          &source[call.start as usize..call.end as usize],
+          format!("{name}()")
+        );
+      }
+    }
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "final_call")
+        .count(),
+      1
+    );
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("conditional.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let orphan = source.replace("CHECK(value()) after();", "CHECK(value()) else after();");
+    assert!(
+      extractor
+        .extract_product("conditional.cc", &orphan)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    for uncertain in [
+      source.replace("defined(WIDE)", "FLAG"),
+      source.replace(
+        "CHECK(value()) after();",
+        "#include \"missing.h\"\nCHECK(value()) after();",
+      ),
+      source.replace(
+        "CHECK(value()) after();",
+        "#undef CHECK\nCHECK(value()) after();",
+      ),
+    ] {
+      let report = audit_recovery(Path::new("conditional.cc"), &uncertain, &[]);
+      assert!(report.eligible_names.is_empty(), "{report:?}");
+      assert!(report.has_error);
+    }
+    let unproven = source.replace("#define CHECK(x) { sink(x); }", "void CHECK(int);");
+    assert!(
+      extractor
+        .extract_product("conditional.cc", &unproven)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    assert!(
+      OutlineExtractor::new()
+        .unwrap()
+        .extract_product("conditional.cc", &source)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+  }
+}
+
+#[test]
+fn conditional_objc_function_macro_proof_retains_all_original_owners() {
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let lf = r#"#define CHECK(x) { sink(x); }
+#ifdef OUTER
+#ifndef __OBJC__
+#if defined(WIDE)
+int wide(int v){
+#else
+int narrow(int v){
+#endif
+CHECK(next(v)) return v;
+}
+#else
+int objc(int v){
+#if !defined(ARC)
+Pool *p=[[Pool alloc] init];
+#endif
+#if !defined(ARC)
+[p drain];
+#endif
+CHECK(next(v)) return v;
+}
+#endif
+#endif
+void following() { after(); }
+"#;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("conditional.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.macro_spans.len(), 2);
+    for span in &report.macro_spans {
+      assert_eq!(&source[span.clone()], "CHECK(next(v))");
+    }
+    let product = extractor
+      .extract_product("conditional.cc", &source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    let calls: Vec<_> = product
+      .refs
+      .iter()
+      .filter(|r| r.kind == 0 && r.name == "next")
+      .collect();
+    assert_eq!(calls.len(), 3);
+    for name in ["wide", "narrow", "objc"] {
+      let owner = product
+        .items
+        .iter()
+        .position(|i| i.entry.name == name)
+        .unwrap() as u32
+        + 1;
+      let call = calls.iter().find(|r| r.from_entity_index == owner).unwrap();
+      assert_eq!(&source[call.start as usize..call.end as usize], "next(v)");
+    }
+    assert!(!product.refs.iter().any(|r| r.kind == 0
+      && matches!(
+        r.name.as_str(),
+        "CHECK" | "sink" | "alloc" | "init" | "drain"
+      )));
+    assert!(product.items.iter().any(|i| i.entry.name == "following"));
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("conditional.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    for uncertain in [
+      source.replace("!defined(ARC)", "!ARC"),
+      source.replace("#ifndef __OBJC__", "#ifndef __OBJC__ extra"),
+      source
+        .replace("#endif\n#endif\n", "#endif\n")
+        .replace("#endif\r\n#endif\r\n", "#endif\r\n"),
+      source.replace(
+        "CHECK(next(v)) return v;",
+        "#undef CHECK\nCHECK(next(v)) return v;",
+      ),
+      source.replace(
+        "CHECK(next(v)) return v;",
+        "#include \"missing.h\"\nCHECK(next(v)) return v;",
+      ),
+    ] {
+      let report = audit_recovery(Path::new("conditional.cc"), &uncertain, &[]);
+      assert!(report.eligible_names.is_empty(), "{report:?}");
+      assert!(report.has_error);
+    }
+    for unproved in [
+      source.replace("#define CHECK(x) { sink(x); }", "void CHECK(int);"),
+      source.clone(),
+    ] {
+      assert!(
+        OutlineExtractor::new()
+          .unwrap()
+          .extract_product("conditional.cc", &unproved)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+  }
+}
+
+#[test]
+fn friend_definitions_own_proven_macro_arguments_without_becoming_members() {
+  use vorpal_core::{Language, tree_sitter::LanguageExt};
+  use vorpal_ingest::OutlineExtractor;
+  use vorpal_lang_registry::SgLang;
+  let lf = r#"
+#define CHECK(x) { sink(x); }
+struct Stream {};
+int work();
+int count();
+struct Column {
+  inline friend Stream& operator<<(Stream& os, Column const& col) { CHECK(work()) return os; }
+  inline friend void inspect(Column&);
+  int size() const { return count(); }
+};
+void following() { after(); }
+"#;
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let raw = SgLang::from_path("macros.cc").unwrap().grep(&source);
+    assert!(raw.root().has_error());
+    let friends: Vec<_> = raw
+      .root()
+      .dfs()
+      .filter(|n| n.kind() == "friend_declaration")
+      .collect();
+    assert_eq!(friends.len(), 2);
+    for node in friends {
+      assert!(node.text().starts_with("inline friend"));
+      assert_eq!(&source[node.range()], node.text());
+    }
+    let operator = raw
+      .root()
+      .dfs()
+      .find(|n| {
+        n.kind() == "function_definition"
+          && n
+            .field("declarator")
+            .is_some_and(|d| d.text().contains("operator<<"))
+      })
+      .unwrap();
+    assert_eq!(operator.field("type").unwrap().text(), "Stream");
+    assert_eq!(operator.field("body").unwrap().kind(), "compound_statement");
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_recovery(&[])
+      .unwrap();
+    let product = extractor.extract_product("macros.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.name == "friend" || r.name == "CHECK" || r.name == "sink")
+    );
+    for name in ["work", "count", "after"] {
+      let calls: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(calls.len(), 1);
+      assert_eq!(
+        &source[calls[0].start as usize..calls[0].end as usize],
+        format!("{name}()")
+      );
+    }
+    let column = product
+      .items
+      .iter()
+      .find(|i| i.entry.name == "Column")
+      .unwrap();
+    assert!(column.members.iter().any(|m| m.entry.name == "size"));
+    assert!(
+      !column
+        .members
+        .iter()
+        .any(|m| m.entry.name == "operator<<" || m.entry.name == "inspect")
+    );
+    assert!(product.items.iter().any(|i| i.entry.name == "following"));
+    let friend = product
+      .items
+      .iter()
+      .find(|i| i.entry.name == "operator<<")
+      .unwrap();
+    assert!(friend.members.is_empty());
+    let owner = product
+      .items
+      .iter()
+      .position(|i| i.entry.name == "operator<<")
+      .unwrap();
+    let expected = 1
+      + product.items[..owner]
+        .iter()
+        .map(|i| 1 + i.members.len())
+        .sum::<usize>();
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .find(|r| r.kind == 0 && r.name == "work")
+        .unwrap()
+        .from_entity_index as usize,
+      expected
+    );
+    assert!(!product.items.iter().any(|i| i.entry.name == "inspect"));
+    let mut owned = Vec::new();
+    vorpal_ingest::encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("macros.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let handed = extractor
+      .extract_product_from_root("macros.cc", &raw)
+      .unwrap();
+    let mut scan = Vec::new();
+    vorpal_ingest::encode_product_into(&handed, &mut scan);
+    assert_eq!(owned, scan);
+  }
+  for bad in [
+    lf.replace("#define CHECK(x) { sink(x); }", "#define CHECK(x) sink(x)"),
+    lf.replace("CHECK(work())", "CHECK(work(), other())"),
+    lf.replace("return os;", "return os"),
+  ] {
+    let product = vorpal_ingest::OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_recovery(&[])
+      .unwrap()
+      .extract_product("macros.cc", &bad)
+      .unwrap();
+    assert!(product.error_nodes > 0);
+  }
+}
+
+#[test]
+fn conditional_return_suffixes_preserve_proven_statement_arguments() {
+  use vorpal_core::Language;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let lf = r#"#define CHECK(v) { sink(v); }
+bool base(); bool extra(); int value();
+bool run() {
+ CHECK(value())
+ return base()
+#ifdef ON
+ || extra()
+#endif
+ ;
+}
+void following() { after(); }
+"#;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("logical.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.macro_spans.len(), 1);
+    assert_eq!(&source[report.macro_spans[0].clone()], "CHECK(value())");
+    let product = extractor.extract_product("logical.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    for name in ["value", "base", "extra", "after"] {
+      let refs: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(refs.len(), 1);
+      assert_eq!(
+        &source[refs[0].start as usize..refs[0].end as usize],
+        format!("{name}()")
+      );
+    }
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && matches!(r.name.as_str(), "CHECK" | "sink" | "ON"))
+    );
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("logical.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    use vorpal_core::tree_sitter::LanguageExt;
+    let raw = vorpal_lang_registry::SgLang::from_path("logical.cc").unwrap().grep(&source);
+    let handoff = extractor.extract_product_from_root("logical.cc", &raw).unwrap();
+    let mut scan = Vec::new();
+    encode_product_into(&handoff, &mut scan);
+    assert_eq!(owned, scan);
+
+  }
+  for bad in [
+    lf.replace("#ifdef ON", "#ifdef ON junk"),
+    lf.replace("|| extra()", "||"),
+    lf.replace(" ;", " "),
+    lf.replace("#define CHECK(v) { sink(v); }", "#define CHECK(v) sink(v)"),
+  ] {
+    assert!(
+      extractor
+        .extract_product("logical.cc", &bad)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+  }
+}
+
+#[test]
+fn conditional_return_metadata_does_not_hide_macro_mutations_or_expanding_guards() {
+  let lf = "#define CHECK(v) { sink(v); }\nbool base(); bool extra();\nbool run() {\n CHECK(value())\n return base()\n#ifdef ON\n || extra()\n#endif\n ;\n}\n";
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    for unproven in [
+      source.replace("#ifdef ON", "#if UNKNOWN"),
+      source.replace("#ifdef ON", "#if GUARD()"),
+      source.replace("#ifdef ON", "#ifdef ON junk"),
+      source.replace(" return base()", "#undef CHECK\n return base()"),
+      source.replace(
+        " return base()",
+        "#include \"missing-proof.h\"\n return base()",
+      ),
+      source.replace(
+        " return base()",
+        "#define CHECK(v) expression(v)\n return base()",
+      ),
+      source.replace("#endif", "#else\n || other()\n#endif"),
+      source.replace("#endif", "#endif junk"),
+      source.replace("#endif", ""),
+      format!("namespace scope {{\n{source}\n}}"),
+    ] {
+      let report = audit_recovery(Path::new("logical.cc"), &unproven, &[]);
+      assert!(report.eligible_names.is_empty(), "{unproven:?}: {report:?}");
+      assert!(report.macro_spans.is_empty(), "{report:?}");
+      assert!(report.has_error, "{report:?}");
+    }
+    // Definedness/literal logical guards preserve evidence without selecting a branch.
+    for guard in ["#ifndef ON", "#if defined(ON) && !defined(OFF)", "#if 0"] {
+      let supported = source.replace("#ifdef ON", guard);
+      let report = audit_recovery(Path::new("logical.cc"), &supported, &[]);
+      assert!(!report.has_error, "{guard}: {report:?}");
+      assert_eq!(report.macro_spans.len(), 1);
+    }
+  }
+}
+
+#[test]
+fn do_while_statement_wrappers_require_the_original_terminator() {
+  use vorpal_core::{Language, tree_sitter::LanguageExt};
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let lf = "#define CHECK(v) do { sink(v); } while (false)\nint value();\nvoid run(bool flag) {\n if (flag) CHECK(value()) /* ending */ ; else after();\n}\nvoid following() { later(); }\n";
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for source in [lf.to_owned(), lf.replace('\n', "\r\n")] {
+    let report = audit_recovery(Path::new("do.cc"), &source, &[]);
+    assert!(!report.has_error, "{report:?}");
+    assert_eq!(report.eligible_names, ["CHECK"]);
+    assert_eq!(report.macro_spans.len(), 1);
+    assert_eq!(
+      &source[report.macro_spans[0].clone()],
+      "CHECK(value()) /* ending */ ;"
+    );
+    let product = extractor.extract_product("do.cc", &source).unwrap();
+    assert_eq!(product.error_nodes, 0);
+    for name in ["value", "after", "later"] {
+      let refs: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(refs.len(), 1);
+      assert_eq!(
+        &source[refs[0].start as usize..refs[0].end as usize],
+        format!("{name}()")
+      );
+    }
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && matches!(r.name.as_str(), "CHECK" | "sink"))
+    );
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("do.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw = vorpal_lang_registry::SgLang::from_path("do.cc")
+      .unwrap()
+      .grep(&source);
+    let handed = extractor.extract_product_from_root("do.cc", &raw).unwrap();
+    let mut scanned = Vec::new();
+    encode_product_into(&handed, &mut scanned);
+    assert_eq!(owned, scanned);
+    // Unproven sites remain raw; an earlier proven do/while site survives undef.
+    let later_ordinary = source.replace(
+      "void following()",
+      "#undef CHECK\nvoid unproven() { CHECK(value()) }\nvoid following()",
+    );
+    let report = audit_recovery(Path::new("do.cc"), &later_ordinary, &[]);
+    assert!(report.has_error);
+    assert_eq!(report.eligible_names, ["CHECK"]);
+    assert_eq!(report.macro_spans.len(), 1);
+    assert!(report.calls.iter().any(|(name, span)| name == "CHECK"
+      && span.start == later_ordinary.rfind("CHECK(value())").unwrap()));
+    for bad in [
+      source.replace(" /* ending */ ;", " /* ending */ "),
+      source.replace("while (false)", "while ()"),
+      source.replace("while (false)", "while (false) junk"),
+      source.replace("CHECK(value())", "CHECK(value(), extra())"),
+      source.replace("do { sink(v); } while (false)", "sink(v)"),
+    ] {
+      let report = audit_recovery(Path::new("do.cc"), &bad, &[]);
+      assert!(report.eligible_names.is_empty(), "{bad:?}: {report:?}");
+      assert!(report.macro_spans.is_empty(), "{bad:?}: {report:?}");
+    }
+    for malformed in [
+      source.replace(" /* ending */ ;", " /* ending */ "),
+      source.replace(" /* ending */ ;", " /* ending */ ;;"),
+    ] {
+      assert!(audit_recovery(Path::new("do.cc"), &malformed, &[]).has_error);
+    }
+    for expression in [
+      source.replace(
+        "if (flag) CHECK(value()) /* ending */ ; else after();",
+        "int n = CHECK(value());",
+      ),
+      source.replace(
+        "if (flag) CHECK(value()) /* ending */ ; else after();",
+        "receiver.CHECK(value());",
+      ),
+      source.replace(
+        "if (flag) CHECK(value()) /* ending */ ; else after();",
+        "if (CHECK(value())) after();",
+      ),
+    ] {
+      let report = audit_recovery(Path::new("do.cc"), &expression, &[]);
+      assert!(report.has_error, "{expression:?}: {report:?}");
+      assert!(!report.context_errors.is_empty(), "{report:?}");
+      assert!(report.macro_spans.is_empty(), "{report:?}");
+    }
+    // A definition containing its own terminator needs none from the invocation.
+    let self_terminated = source
+      .replace("while (false)", "while (false);")
+      .replace(" /* ending */ ;", "");
+    assert!(!audit_recovery(Path::new("do.cc"), &self_terminated, &[]).has_error);
+  }
+}
+
+#[test]
+fn complete_control_macros_keep_original_sites_and_else_binding() {
+  use vorpal_core::{Language, tree_sitter::LanguageExt};
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for replacement in [
+    "while (v) { sink(v); }",
+    "for (; v;) { sink(v); }",
+    "for (auto item : v) { sink(item); }",
+    "switch (v) { case 1: sink(v); break; default: break; }",
+    "while (v) if (v) sink(v);",
+    "for (; v;) if (v) sink(v);",
+  ] {
+    for newline in ["\n", "\r\n"] {
+      let source = format!("#define CHECK(v) {replacement}\nvoid run(bool flag) {{ if (flag) CHECK(value()) else after(); }}\nvoid following() {{ later(); }}\n").replace('\n', newline);
+      let report = audit_recovery(Path::new("controls.cc"), &source, &[]);
+      assert!(!report.has_error, "{replacement}: {report:?}");
+      assert_eq!(report.eligible_names, ["CHECK"]);
+      assert_eq!(report.macro_spans.len(), 1);
+      assert_eq!(
+        &source[report.macro_spans[0].clone()],
+        if replacement.contains("if (v)") {
+          "CHECK(value()) else after();"
+        } else {
+          "CHECK(value())"
+        }
+      );
+      let product = extractor.extract_product("controls.cc", &source).unwrap();
+      assert_eq!(product.error_nodes, 0, "{replacement}");
+      for name in ["value", "after", "later"] {
+        let refs: Vec<_> = product
+          .refs
+          .iter()
+          .filter(|r| r.kind == 0 && r.name == name)
+          .collect();
+        assert_eq!(refs.len(), 1, "{replacement}: {name}");
+        assert_eq!(
+          &source[refs[0].start as usize..refs[0].end as usize],
+          format!("{name}()")
+        );
+      }
+      assert!(
+        !product
+          .refs
+          .iter()
+          .any(|r| r.kind == 0 && matches!(r.name.as_str(), "CHECK" | "sink"))
+      );
+      let mut owned = Vec::new();
+      encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor
+        .extract_product_encoded("controls.cc", &source, 0, 0, &mut streamed)
+        .unwrap();
+      assert_eq!(owned, streamed);
+      let raw = vorpal_lang_registry::SgLang::from_path("controls.cc")
+        .unwrap()
+        .grep(&source);
+      let mut scanned = Vec::new();
+      encode_product_into(
+        &extractor
+          .extract_product_from_root("controls.cc", &raw)
+          .unwrap(),
+        &mut scanned,
+      );
+      assert_eq!(owned, scanned);
+      for bad in [
+        source.replace("CHECK(value()) else", "CHECK(value()); else"),
+        source.replace(
+          "if (flag) CHECK(value()) else after();",
+          "int n = CHECK(value());",
+        ),
+        source.replace(
+          "if (flag) CHECK(value()) else after();",
+          "receiver.CHECK(value());",
+        ),
+      ] {
+        assert!(
+          audit_recovery(Path::new("controls.cc"), &bad, &[]).has_error,
+          "{replacement}: {bad}"
+        );
+      }
+      let orphan = source.replace("if (flag) CHECK(value())", "CHECK(value())");
+      let open_if = replacement.contains("if (v)");
+      assert_eq!(
+        !audit_recovery(Path::new("controls.cc"), &orphan, &[]).has_error,
+        open_if,
+        "{replacement}"
+      );
+      let wrong_arity = source.replace("CHECK(value())", "CHECK(value(), extra())");
+      assert!(
+        audit_recovery(Path::new("controls.cc"), &wrong_arity, &[])
+          .macro_spans
+          .is_empty()
+      );
+      let missing = source.replace("later();", "later()");
+      assert!(audit_recovery(Path::new("controls.cc"), &missing, &[]).has_error);
+    }
+  }
+  for replacement in [
+    "while (v)",
+    "for (; v;)",
+    "switch (v)",
+    "for (auto item : v)",
+  ] {
+    let source =
+      format!("#define CHECK(v) {replacement}\nvoid run() {{ CHECK(value()) {{ after(); }} }}\n");
+    let report = audit_recovery(Path::new("prefix.cc"), &source, &[]);
+    assert!(report.eligible_names.is_empty());
+    assert!(report.macro_spans.is_empty());
+  }
+}
+
+#[test]
+fn conditional_return_values_preserve_proof_and_all_original_call_sites() {
+  use vorpal_core::{Language, tree_sitter::LanguageExt};
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  let lf = "#define CHECK(v) { sink(v); }\nbool base(); bool left(); bool right(); int value();\nbool run() {\n CHECK(value())\n return\n#ifdef PREFIX\n base() &&\n#endif\n#if defined(CHOICE)\n left()\n#else\n right()\n#endif\n ;\n}\nvoid following() { CHECK(value()) after(); }\n";
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  for newline in ["\n", "\r\n"] {
+    for prefix in [true, false] {
+      for guard in [
+        "#if defined(CHOICE)",
+        "#ifdef CHOICE",
+        "#ifndef CHOICE",
+        "#if 0",
+      ] {
+        let source = lf.replace("#if defined(CHOICE)", guard);
+        let source = if prefix {
+          source
+        } else {
+          source.replace("#ifdef PREFIX\n base() &&\n#endif\n", "")
+        };
+        let source = source.replace('\n', newline);
+        let report = audit_recovery(Path::new("values.cc"), &source, &[]);
+        assert!(!report.has_error, "{guard} {prefix}: {report:?}");
+        assert_eq!(report.eligible_names, ["CHECK"]);
+        assert_eq!(report.macro_spans.len(), 2);
+        for span in &report.macro_spans {
+          assert_eq!(&source[span.clone()], "CHECK(value())");
+        }
+        let product = extractor.extract_product("values.cc", &source).unwrap();
+        assert_eq!(product.error_nodes, 0);
+        for (name, count) in [
+          ("value", 2),
+          ("left", 1),
+          ("right", 1),
+          ("after", 1),
+          ("base", usize::from(prefix)),
+        ] {
+          let calls: Vec<_> = product
+            .refs
+            .iter()
+            .filter(|r| r.kind == 0 && r.name == name)
+            .collect();
+          assert_eq!(calls.len(), count, "{name}");
+          for call in calls {
+            assert_eq!(
+              &source[call.start as usize..call.end as usize],
+              format!("{name}()")
+            );
+          }
+        }
+        assert!(
+          !product.refs.iter().any(
+            |r| r.kind == 0 && ["CHECK", "sink", "CHOICE", "PREFIX"].contains(&r.name.as_str())
+          )
+        );
+        let mut owned = Vec::new();
+        encode_product_into(&product, &mut owned);
+        let mut streamed = Vec::new();
+        extractor
+          .extract_product_encoded("values.cc", &source, 0, 0, &mut streamed)
+          .unwrap();
+        assert_eq!(owned, streamed);
+        let raw = vorpal_lang_registry::SgLang::from_path("values.cc")
+          .unwrap()
+          .grep(&source);
+        let handoff = extractor
+          .extract_product_from_root("values.cc", &raw)
+          .unwrap();
+        let mut scan = Vec::new();
+        encode_product_into(&handoff, &mut scan);
+        assert_eq!(owned, scan);
+      }
+    }
+    let missing_semicolon = lf.replace("#endif\n ;", "#endif\n ").replace('\n', newline);
+    let missing = audit_recovery(Path::new("values.cc"), &missing_semicolon, &[]);
+    assert!(
+      missing.has_error,
+      "a complete guard inventory cannot hide a missing return terminator"
+    );
+    assert_eq!(missing.macro_spans.len(), 2);
+    assert!(
+      extractor
+        .extract_product("values.cc", &missing_semicolon)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    for bad in [
+      lf.replace("#ifdef PREFIX", "#if UNKNOWN"),
+      lf.replace("#if defined(CHOICE)", "#if GUARD()"),
+      lf.replace("#else", "#elif defined(OTHER)"),
+      lf.replace("#else", "#else junk"),
+      lf.replace("#endif\n ;", "#endif junk\n ;"),
+      lf.replace("#endif\n ;", " ;"),
+      lf.replace("#else", "#else\n#else"),
+      lf.replace("#else", "#else\n#undef CHECK"),
+      lf.replace("#else", "#else\n#define CHECK(v) other(v)"),
+      lf.replace("#else", "#else\n#include \"absent-proof.h\""),
+      lf.replace("#else", "#else\n#pragma pop_macro(\"CHECK\")"),
+      lf.replace("#else", "#else\n#pragma warning(push, LEVEL)"),
+    ] {
+      let bad = bad.replace('\n', newline);
+      let report = audit_recovery(Path::new("values.cc"), &bad, &[]);
+      assert!(report.eligible_names.is_empty(), "{bad:?}: {report:?}");
+      assert!(report.macro_spans.is_empty(), "{report:?}");
+      assert!(report.has_error, "{report:?}");
+    }
+  }
+}
+
+#[test]
+fn exact_production_sites_preserve_partial_proof_all_parse_paths_and_ordinary_calls() {
+  use vorpal_core::Language;
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::{OutlineExtractor, encode_product_into};
+  use vorpal_lang_registry::SgLang;
+  let extractor = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_recovery(&[])
+    .unwrap();
+  let lf = "// Grüße 日本語\n#define CHECK(x) { sink(x); }\nvoid run() { CHECK(first()); int bad = object.CHECK(second()); CHECK(last()) }\n#undef CHECK\nint CHECK(int); int ordinary() { return CHECK(value()); }\nvoid following() { after(); }\n";
+  for newline in ["\n", "\r\n"] {
+    let source = lf.replace('\n', newline);
+    let report = audit_recovery(Path::new("sites.cc"), &source, &[]);
+    assert!(report.has_error);
+    assert_eq!(report.eligible_names, ["CHECK"]);
+    assert_eq!(report.macro_spans.len(), 2);
+    assert_eq!(report.context_errors.len(), 1);
+    assert_eq!(
+      &source[report.context_errors[0].clone()],
+      "object.CHECK(second())"
+    );
+    let product = extractor.extract_product("sites.cc", &source).unwrap();
+    assert!(product.error_nodes > 0);
+    for name in ["first", "second", "last", "value", "after"] {
+      let call = product
+        .refs
+        .iter()
+        .find(|r| r.kind == 0 && r.name == name)
+        .unwrap();
+      assert_eq!(
+        &source[call.start as usize..call.end as usize],
+        format!("{name}()")
+      );
+    }
+    let ordinary: Vec<_> = product
+      .refs
+      .iter()
+      .filter(|r| r.kind == 0 && r.name == "CHECK")
+      .collect();
+    assert_eq!(ordinary.len(), 1);
+    assert_eq!(
+      ordinary[0].start as usize,
+      source.find("CHECK(value())").unwrap()
+    );
+    assert!(!product.refs.iter().any(|r| r.name == "sink"));
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded("sites.cc", &source, 0, 0, &mut streamed)
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw = SgLang::from_path("sites.cc").unwrap().grep(&source);
+    let handed = extractor
+      .extract_product_from_root("sites.cc", &raw)
+      .unwrap();
+    let mut scanned = Vec::new();
+    encode_product_into(&handed, &mut scanned);
+    assert_eq!(owned, scanned);
+  }
 }

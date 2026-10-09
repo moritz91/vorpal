@@ -43,6 +43,14 @@ pub(crate) struct Supervisor {
 }
 
 impl Supervisor {
+  /// The child protocol cannot transport an explicit macro proof environment.
+  /// Until it can, every rebuild must use the daemon's exact environment.
+  pub(crate) fn without_child() -> Self {
+    let mut supervisor = Self::discover();
+    supervisor.candidate = None;
+    supervisor
+  }
+
   pub(crate) fn discover() -> Self {
     let timeout = std::env::var("VORPAL_MCP_BUILD_TIMEOUT_S")
       .ok()

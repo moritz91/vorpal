@@ -397,6 +397,40 @@ must run as a single-project daemon.
 
 ## Freshness and crash isolation
 
+External indexes need an explicit source tree to participate in freshness checks:
+
+```sh
+vorpal mcp --src /absolute/path/to/project --index /absolute/path/to/external-index --config /absolute/path/to/vorpalconfig.yml
+```
+
+`--src` watches that tree even when the launch directory and index live elsewhere.
+Without `--index`, it serves `<src>/.vorpal/index`. Configuration still comes from
+`--config` or discovery in the launch directory; `--src` does not change config
+selection or enable macro recovery by itself. A configured `cppMacroIncludeRoots`
+enables the existing header dependency checks in the same retained environment.
+An external index without `--src` remains explicitly refreshed: index contents
+and parent directories never authorize a watched source tree. In `--projects`
+mode the enrolled registry supplies each source root, including external indexes;
+`--src` and `--projects` cannot be combined. Missing/non-directory CLI roots fail
+at startup. `--no-watch-rebuild` still keeps lazy query-time freshness active.
+
+Configured recovery proves each original invocation separately and passes its
+exact byte position and statement syntax to the scanner. An unsupported or
+ordinary same-name call does not disable an independent proven statement; calls
+after `#undef`, invalid arguments and incompatible expression contexts remain
+ordinary calls or original diagnostics. Macro arguments retain their source
+spans, and the macro name creates no runtime call edge. Opt-in product identity
+v23 reparses earlier name-wide declined products. Opaque SDK includes still stop
+metadata proof. A separate explicit `cppMacroCompiler` configuration can run a
+trusted fresh native provider for listed translation units; see
+[CPP_NATIVE_PROVIDER.md](CPP_NATIVE_PROVIDER.md). It is not enabled by include
+roots alone. Native products cannot authorize replay: every graph/health query
+recaptures the selected units, including quiet queries and external native-only
+header changes. This can be expensive. An authorized source root is mandatory;
+a frozen external index cannot claim native freshness. These recovery servers
+retain their exact extraction environment in process rather than rediscovering
+configuration through a child indexer.
+
 The daemon watches the source tree (FSEvents/inotify) and rebuilds **proactively**: after a
 save, once the tree is quiet for half a second, a background worker rebuilds the index so the
 first query after an edit is already warm (it pays a fast-path check plus an mmap reload, not
@@ -420,6 +454,13 @@ generation (about four seconds on the kernel) and hands it to the open searcher.
 lands, name queries take the exact scan over every name (150 ms on the kernel, 0.4 ms
 with the tier), never a wrong answer. `VORPAL_NO_AUTOWARM=1` disables this heal with the
 other background tier builds.
+
+At orderly shutdown the daemon stops its source watcher, cancels a running
+cancelable ANN warm and waits for its existing rebuild, persistence, overlay,
+ANN and scope/posting tasks. It starts no successor work while draining them.
+Once shutdown returns, those tasks no longer read or write the index directory;
+an embedded caller can then remove or replace it. Shutdown can wait for an
+already running noncancelable build to finish.
 
 Two rules keep the served graph truthful when the tree and the index move independently:
 

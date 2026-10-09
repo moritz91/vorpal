@@ -10,7 +10,7 @@ const PREC = {
 export default grammar({
   name: 'powershell',
 
-  externals: ($) => [$._statement_terminator],
+  externals: ($) => [$._statement_terminator, $._native_argument_separator, $._native_assignment_prefix],
 
   extras: ($) => [
     $.comment,
@@ -26,6 +26,7 @@ export default grammar({
     [$.class_method_definition, $.attribute],
     [$.expandable_string_literal],
     [$.path_command_name, $._value],
+    [$.array_literal_expression, $._native_array_argument],
   ],
 
   rules: {
@@ -53,7 +54,7 @@ export default grammar({
         seq(
           /[0-9]+/,
           optional(choice('l', 'd')),
-          optional(choice('kb', 'mb', 'gb', 'tb', 'pb')),
+          optional(/[kKmMgGtTpP][bB]/),
         ),
       ),
 
@@ -63,7 +64,7 @@ export default grammar({
           '0x',
           /[0-9a-fA-F]+/,
           optional('l'),
-          optional(choice('kb', 'mb', 'gb', 'tb', 'pb')),
+          optional(/[kKmMgGtTpP][bB]/),
         ),
       ),
 
@@ -74,17 +75,17 @@ export default grammar({
           seq(
             /[0-9]+\.[0-9]+/,
             optional(token(seq('e', optional(choice('+', '-')), /[0-9]+/))),
-            optional(choice('kb', 'mb', 'gb', 'tb', 'pb')),
+            optional(/[kKmMgGtTpP][bB]/),
           ),
           seq(
             /\.[0-9]+/,
             optional(token(seq('e', optional(choice('+', '-')), /[0-9]+/))),
-            optional(choice('kb', 'mb', 'gb', 'tb', 'pb')),
+            optional(/[kKmMgGtTpP][bB]/),
           ),
           seq(
             /[0-9]+/,
             token(seq('e', optional(choice('+', '-')), /[0-9]+/)),
-            optional(choice('kb', 'mb', 'gb', 'tb', 'pb')),
+            optional(/[kKmMgGtTpP][bB]/),
           ),
         ),
       ),
@@ -306,12 +307,12 @@ export default grammar({
 
     // Commands
     generic_token: ($) =>
-      token(/[^\(\)\$\"\'\-\{\}@\|\[`\&\s][^\&\s\(\)\}\|;,]*/),
+      token(/[^\(\)\$\"\'\-\{\}@\|\[`\&\s,;][^\&\s\(\)\}\|;,]*/),
 
     _command_token: ($) => token(/[^\(\)\{\}\s;\&]+/),
 
     // Parameters
-    command_parameter: ($) => token(choice(/-+[a-zA-Z_?\-`]+/, '--')),
+    command_parameter: ($) => token(choice(/-+[a-zA-Z_?\-`][a-zA-Z0-9_?\-`]*/, '--')),
 
     _verbatim_command_argument_chars: ($) =>
       repeat1(choice(/"[^"]*"/, /&[^&]*/, /[^\|\r\n]+/)),
@@ -765,6 +766,7 @@ export default grammar({
       prec.right(
         choice(
           $.command_parameter,
+          alias($._native_argument_separator, $.command_parameter),
           seq($._command_argument, optional($.argument_list)),
           $.redirection,
           $.stop_parsing,
@@ -788,8 +790,22 @@ export default grammar({
           seq($.command_argument_sep, $.array_literal_expression),
           $.parenthesized_expression,
           $.script_block_expression,
+          seq($.command_argument_sep, alias($._native_assignment_argument, $.generic_token)),
+          seq($.command_argument_sep, alias($._native_array_argument, $.array_literal_expression)),
         ),
       ),
+
+    _native_assignment_argument: ($) => choice(
+      token(seq(/--[a-zA-Z_][a-zA-Z0-9_-]*=/,
+        choice(/'([^']|'')*'/, /[^\s;,|&(){}"'$`]+/, ''))),
+      seq($._native_assignment_prefix,
+        alias(token.immediate(/\$(?:[a-zA-Z0-9_]+:)?[a-zA-Z0-9_]+/), $.variable)),
+    ),
+
+    _native_array_argument: ($) => prec.right(7, seq(
+      choice($.generic_token, $.unary_expression),
+      repeat1(seq(',', choice($.generic_token, $.unary_expression))),
+    )),
 
     verbatim_command_argument: ($) =>
       seq('--%', $._verbatim_command_argument_chars),
@@ -1066,12 +1082,12 @@ export default grammar({
 
     invokation_expression: ($) =>
       choice(
-        seq(
+        prec.left(PREC.PARAM + 1, seq(
           $._primary_expression,
           token.immediate('.'),
           $.member_name,
           $.argument_list,
-        ),
+        )),
         seq($._primary_expression, '::', $.member_name, $.argument_list),
         $.invokation_foreach_expression,
       ),

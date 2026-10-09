@@ -58,7 +58,9 @@ use vorpal_resolve::{RefForm, RefKind};
 // Header-relative so `peek_product_cuts` never decodes items or refs; a `refs_off` u32
 // before the cuts (offset 52) lets `peek_product_refs` read the reference rows without the
 // outline; every call reference carries its call shape (`arity << 2 | opaque << 1 | plain`).
-pub const PRODUCT_FORMAT_VERSION: u32 = 22;
+// 23: parse health counts MISSING tokens alongside ERROR nodes; layout unchanged.
+// Re-key products so a prior missing-only tree cannot replay as clean.
+pub const PRODUCT_FORMAT_VERSION: u32 = 23;
 
 /// Cap on recorded top-level cuts per file: a file with more direct root children than this
 /// records none (chunk-scoped parsing degrades to the whole-file parse, never to a wrong one).
@@ -92,12 +94,15 @@ pub struct FileProduct {
   /// extraction rules invalidates exactly its stale products. (Field name is historical — it
   /// began as grammar-only in v8.)
   pub grammar_digest: u64,
-  /// How many tree-sitter ERROR nodes the parse produced: `0` = clean, higher = worse (a rough
+  /// Syntax diagnostic count: tree-sitter ERROR/MISSING nodes plus opted-in
+  /// proven statement-macro context failures. `0` = clean;
+  /// higher = worse (a rough
   /// "how bad" signal, not just "did it fail"). Some definitions in this file may be missing from
   /// the graph. Language-agnostic graceful-degradation telemetry — surfaced in
-  /// `IndexReport::{error_files, error_nodes}`, never acted on (parsing is tree-sitter's job).
+  /// `IndexReport::{error_files, error_nodes}` and parse-health policies.
   pub error_nodes: u32,
-  /// Total bytes covered by ERROR nodes, after merging nested/overlapping error ranges —
+  /// Total bytes covered by syntax diagnostics (ERROR/MISSING or opted-in macro-context errors); MISSING insertion spans have length zero.
+  /// After merging nested/overlapping error ranges —
   /// with `source_size`, the covered-byte ratio a health policy thresholds on.
   pub error_bytes: u64,
   /// Up to eight representative merged error spans, document order — enough to LOOK at the

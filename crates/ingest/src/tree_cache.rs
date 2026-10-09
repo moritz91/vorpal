@@ -440,4 +440,21 @@ int main(void) {
     let total: usize = cache.entries.values().map(Entry::cost).sum();
     assert_eq!(total, cache.bytes, "byte accounting is exact");
   }
+
+  #[test]
+  fn oracle_anonymous_cpp_scope_edits() {
+    let before = "struct Shared {};\n#define HEAD(name) void test_##name()\nHEAD(one) { Shared first; }\nHEAD(two) { Shared second; }\nShared global;\nvoid following() { Shared local; }\n";
+    for (line, source) in [("lf", before.to_owned()), ("crlf", before.replace('\n', "\r\n"))] {
+      let edits = [
+        ("prefix", format!("// preface\n{source}")),
+        ("body", source.replace("Shared first;", "Shared first; Shared duplicate;")),
+        ("named", source.replace("HEAD(one)", "void HEAD(int one)")),
+        ("remove", source.replace("HEAD(two) { Shared second; }", "")),
+      ];
+      for (edit, after) in edits {
+        oracle(&format!("anonymous-{line}-{edit}.cpp"), &source, &after);
+      }
+    }
+  }
+
 }

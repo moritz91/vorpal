@@ -108,6 +108,10 @@
       "required": true,
       "types": [
         {
+          "type": "generic_token",
+          "named": true
+        },
+        {
           "type": "unary_expression",
           "named": true
         }
@@ -1412,6 +1416,21 @@
         },
         {
           "type": "script_block",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "generic_token",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "variable",
           "named": true
         }
       ]
@@ -3979,10 +3998,6 @@
   {
     "type": "function",
     "named": false
-  },
-  {
-    "type": "generic_token",
-    "named": true
   },
   {
     "type": "hexadecimal_integer_literal",

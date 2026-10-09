@@ -55,7 +55,7 @@
     "commit": "f41e1a044c8a",
     "license": "MIT",
     "patches": [
-      "ASCII/low-codepoint fast path in set_contains (src/tree_sitter/parser.h): linear scan of leading ranges for lookahead < 0x80, byte-identical membership vs the binary search \u2014 cuts identifier-lexing cost (see docs/UPSTREAM.md)",
+      "ASCII/low-codepoint fast path in set_contains (src/tree_sitter/parser.h): linear scan of leading ranges for lookahead < 0x80, byte-identical membership vs the binary search \u00e2\u20ac\u201d cuts identifier-lexing cost (see docs/UPSTREAM.md)",
       "Fork C++ syntax extensions: qualified macro arguments, format string macros, header probes, typeid, pointer-member operators and qualified new arrays; regenerated with tree-sitter 0.25.10, ABI 14; reproduce with scripts/patch_cpp_macro_grammar.py (including --finalize).",
       "SDK convention/export identifiers in declaration and callback positions, with negative dynamic precedence preserving ordinary declarations; source-byte-preserving grammar extension via scripts/patch_cpp_macro_grammar.py.",
       "Conditional initializer-list entries with nested preprocessor branch aliases and original source spans; ordinary list commas remain required; reproduce via scripts/patch_cpp_macro_grammar.py.",
@@ -67,10 +67,36 @@
       "Conditional linkage braces in complete optionally nested preprocessor guard groups; retain guard conditions, source spans and declarations without source preprocessing.",
       "Multiple replacement-list fragments separated by block comments in object/function macro definitions; preserve original preproc_arg/comment spans with LF or CRLF continuations.",
       "Accept decltype base-specifiers in class base lists without changing declaration calling-convention paths; retain original operand spans.",
-      "Scoped proof-backed statement-macro scanner and macro_statement audit node; default parsing keeps scanner context empty."
+      "Scoped proof-backed statement-macro scanner and macro_statement audit node; default parsing keeps scanner context empty.",
+      "SDK calling conventions before inline member definitions, with existing declaration contexts unchanged; patch_cpp_macro_grammar.py, tree-sitter 0.25.10 ABI 14 and --finalize ASCII fast path.",
+      "Braced default parameter values retain initializer_list nodes without invented missing types; explicit default-value context only, ABI 14 and original spans preserved via patch_cpp_macro_grammar.py.",
+      "Annotation-free parameter path only for directly named pointer-return functions, preserving array-reference parameters without missing types. Existing SDK path stays parallel; aliases retain visible kinds. scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Annotation-free explicit function declaration/definition alternative requires a named array-reference parameter; preserves reference declarators following pointer parameters without widening general declarators/expressions. scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Native DLL function declarations require explicit __declspec and native calling convention in top-level/block contexts; retain existing declaration/function kinds and annotation metadata without general modifier widening. scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Proof-backed invocation spacing accepts original block/line comments and all six C++ ASCII whitespace characters; scanner/audit rules match, splice/trigraph comments are declined, recovered product identity v2 invalidates older proofs. scripts/cpp_statement_macro_scanner.c.",
+      "Scoped static/extern declarations retain complete guarded storage modifiers and preprocessor conditions",
+      "Abstract member-data pointers only in explicit type_descriptor contexts with named scopes, existing declarator aliases and unchanged global abstract-pointer rules. scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Complete unevaluated decltype operands admit comma_expression only inside decltype; preserve original spans, existing runtime-call exclusion and general expression rules. scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Explicit MSVC brace-delimited mov/cpuid instructions with named destinations, decimal/identifier sources and line-bound operands; preserve original opcode/operand spans and genuine missing operands. scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Explicit operator member access only through dot/arrow, preserving existing template methods and original operator call spans. scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Split conditional if scopes require complete opening and closing guard groups with both branches, runtime conditions and complete else bodies; retain preprocessor/runtime spans and conservative macro-evidence boundaries. scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Scoped Objective-C++ protocol/method declarations and plain object-string literals in explicit positive __OBJC__ guards; complete blocks retain following namespaces, selector metadata and variadic message arguments retain original spans. Keyword and nonplain string prefixes remain errors. Reproduce with scripts/patch_cpp_macro_grammar.py, ABI 14.",
+      "Scoped Objective-C selector metadata preserves original labels and spans without runtime callee nodes under exact positive guards; global C++ expressions remain unchanged.",
+      "Named dotted fields rooted in guarded Objective-C messages preserve ordinary field_expression aliases and original spans without broadening global C++ member/template rules.",
+      "Guarded Objective-C constructor member-initializer arguments retain field_initializer/list and argument_list aliases with original message/call spans; global C++ declarations remain unchanged.",
+      "Separate guarded Objective-C declaration/body contexts reject standalone dialect statements in files/namespaces and retain nested function-body preprocessor contexts; upstream C++ fragment rules are unchanged.",
+      "Exact #ifndef __OBJC__ guards retain an ordinary C++ first arm and a complete Objective-C else arm in separate declaration/body contexts; original preproc aliases and spans are retained without condition evaluation.",
+      "Proof-backed dangling-if macro scanner token and else_clause attachment, closed-statement framing preserved; original source spans and empty default context retained.",
+      "Explicit positive _MANAGED guard: handle parameter/return declarators, handle template static calls and struct specialization, existing container aliases and original spans; global C++ declarators and XOR unchanged.",
+      "Two complete #if/#else function heads share an explicit original trailing body in declaration scopes; preserve conditions and spans, expose header fragments and attribute body references to both alternatives without branch selection.",
+      "Unqualified explicit operator calls retain operator_name and argument_list with low static and negative dynamic precedence; keep ordinary declarators viable and do not promote operator names to general expressions.",
+      "Declaration-scoped inverse __OBJC__ guards admit primitive-return function definitions with mandatory function declarators and existing Objective-C compound-body aliases; reject general declaration specifiers and namespace bodies.",
+      "Permit an inline prefix on the original friend declaration with one explicit storage-class conflict; retain original function/declaration kinds and spans without keyword-as-type recovery.",
+      "Return-only conditional logical suffix groups retain the original left value, directive conditions and logical right operands, requiring complete directive lines and a final semicolon; no general expression expansion or branch selection.",
+      "Scoped exact invocation-site scanner context with a byte-offset capability supplied by the vendored runtime; TSLexer ABI and serialized scanner state are unchanged; standalone CLI requires no runtime symbol."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:f3971c7d917e00ce",
+    "source_digest": "xxh3:79d6bafc4f407b05",
     "version": "0.23.4"
   },
   "tree-sitter-css": {
@@ -328,9 +354,12 @@
     "abi": 15,
     "commit": "v0.26.4",
     "license": "MIT",
-    "patches": [],
+    "patches": [
+      "Case-insensitive numeric multipliers, instance-call precedence, native command separators, assignment arguments and bare-word arrays; scripts/patch_powershell_grammar.py with tree-sitter 0.25.10 ABI 15.",
+      "Allow digits after the initial command parameter name character; retain numeric negative arguments. Reproduced by scripts/patch_powershell_grammar.py (ABI 15)."
+    ],
     "repository": "https://github.com/airbus-cert/tree-sitter-powershell",
-    "source_digest": "xxh3:c1ae62a9ed3ea972",
+    "source_digest": "xxh3:bd4993cc888c4687",
     "version": "0.26.4"
   },
   "tree-sitter-proto": {

@@ -370,6 +370,10 @@ pub struct SearchArg {
 
 #[derive(Args)]
 pub struct McpArg {
+  /// Source tree to watch when serving an external index. Configuration still
+  /// comes from --config or the launch directory. Never inferred from index data.
+  #[clap(long, conflicts_with = "projects")]
+  src: Option<PathBuf>,
   /// Index directory the daemon serves (default: `./.vorpal/index`).
   #[clap(long)]
   index: Option<PathBuf>,
@@ -530,6 +534,15 @@ fn extraction_env_from_project(
   let Some(project) = project else {
     return Ok(env);
   };
+  env.cpp_macro_include_roots = project.cpp_macro_include_roots.as_ref().map(|roots| {
+    roots.iter().map(|root| project.project_dir.join(root)).collect()
+  });
+  env.cpp_macro_compiler = project.cpp_macro_compiler.clone().map(|mut command| {
+    command.program = project.project_dir.join(command.program);
+    command.directory = project.project_dir.join(command.directory);
+    command.translation_units = command.translation_units.iter().map(|p| project.project_dir.join(p)).collect();
+    command
+  });
   let Some(customs) = project.custom_languages.as_ref() else {
     return Ok(env);
   };
@@ -669,7 +682,7 @@ pub fn run_index(arg: IndexArg, project: Result<ProjectConfig>) -> Result<ExitCo
     );
     if report.error_files > 0 {
       println!(
-        "note: {} files had parse errors ({} ERROR nodes total; some definitions may be \
+        "note: {} files had parse errors ({} ERROR/MISSING nodes or macro-context diagnostics total; some definitions may be \
          missing) — tree-sitter could not fully parse them",
         report.error_files, report.error_nodes
       );
@@ -1580,7 +1593,28 @@ pub fn run_mcp(arg: McpArg, project: Result<ProjectConfig>) -> Result<ExitCode> 
   // begins; the daemon itself can never load code. Its rebuilds run under the same
   // extraction environment `vorpal index` uses.
   let env = extraction_env_from_project(project.ok().as_ref())?;
-  vorpal_mcp::serve_stdio_opts(index_dir(arg.index), profile, env, !arg.no_watch_rebuild)?;
+  let source_root = arg
+    .src
+    .map(|src| -> Result<PathBuf> {
+      let root = src
+        .canonicalize()
+        .with_context(|| format!("MCP source {} is not accessible", src.display()))?;
+      if !root.is_dir() {
+        return Err(anyhow!("MCP source {} is not a directory", src.display()));
+      }
+      Ok(root)
+    })
+    .transpose()?;
+  let out = arg
+    .index
+    .or_else(|| source_root.as_ref().map(|src| src.join(".vorpal/index")));
+  vorpal_mcp::serve_stdio_source_opts(
+    index_dir(out),
+    profile,
+    env,
+    !arg.no_watch_rebuild,
+    source_root,
+  )?;
   Ok(ExitCode::SUCCESS)
 }
 
@@ -1640,6 +1674,23 @@ mod union_tests {
   use super::*;
   use std::collections::HashMap;
   use vorpal_dynamic::LibraryPath;
+
+  #[test]
+  fn macro_roots_load_without_custom_languages_and_resolve_from_config_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let absolute = temp.path().join("external");
+    let mut yaml = String::from("ruleDirs: []\ncppMacroIncludeRoots:\n  - first\n  - second\n  - ");
+    yaml.push_str(&serde_json::to_string(&absolute).unwrap());
+    yaml.push('\n');
+    std::fs::write(temp.path().join("vorpalconfig.yml"), yaml).unwrap();
+    let project = ProjectConfig::load_unregistered(temp.path()).unwrap().unwrap();
+    let env = extraction_env_from_project(Some(&project)).unwrap();
+    assert_eq!(env.cpp_macro_include_roots, Some(vec![
+      temp.path().join("first"), temp.path().join("second"), absolute,
+    ]));
+    assert!(!env.is_default());
+    assert!(extraction_env_from_project(None).unwrap().is_default());
+  }
 
   fn custom(lib: &str, exts: &[&str]) -> CustomLang {
     CustomLang {

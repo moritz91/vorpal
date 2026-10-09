@@ -5,7 +5,7 @@
 #include <string.h>
 #include <wctype.h>
 
-enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO };
+enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO, PROVEN_OPEN_IF_MACRO };
 
 // vorpal: scoped statement-macro proof context; never serialized into a tree.
 #if defined(_MSC_VER)
@@ -18,12 +18,84 @@ const char *tree_sitter_cpp_set_statement_macros(const char *names) {
     statement_macros = names;
     return previous;
 }
+typedef struct {
+    uint32_t offset;
+    const char *name;
+    bool open_if;
+} StatementMacroSite;
+typedef struct {
+    const StatementMacroSite *sites;
+    size_t length;
+    uint32_t (*byte_offset)(const void *lexer);
+} StatementMacroSites;
+#if defined(_MSC_VER)
+static __declspec(thread) const StatementMacroSites *statement_sites;
+#else
+static __thread const StatementMacroSites *statement_sites;
+#endif
+const StatementMacroSites *tree_sitter_cpp_set_statement_macro_sites(const StatementMacroSites *sites) {
+    const StatementMacroSites *previous = statement_sites;
+    statement_sites = sites;
+    return previous;
+}
 static bool statement_space(int32_t c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
 }
-static bool scan_statement_macro(TSLexer *lexer) {
-    if (!statement_macros) return false;
+static bool statement_comment_char(int32_t c, unsigned *questions) {
+    if (c == '\\' || (c == '/' && *questions >= 2)) return false;
+    *questions = c == '?' ? *questions + 1 : 0;
+    if (*questions > 2) *questions = 2;
+    return true;
+}
+// Match invocation_spacing in the Rust proof audit. Keep mark_end at the name:
+// comments remain ordinary extra nodes with their original source spans.
+static bool statement_spacing(TSLexer *lexer) {
+    for (;;) {
+        while (statement_space(lexer->lookahead)) lexer->advance(lexer, false);
+        if (lexer->lookahead != '/') return true;
+        lexer->advance(lexer, false);
+        unsigned questions = 0;
+        if (lexer->lookahead == '/') {
+            while (!lexer->eof(lexer) && lexer->lookahead != '\r' && lexer->lookahead != '\n') {
+                if (!statement_comment_char(lexer->lookahead, &questions)) return false;
+                lexer->advance(lexer, false);
+            }
+        } else if (lexer->lookahead == '*') {
+            lexer->advance(lexer, false);
+            bool star = false;
+            bool closed = false;
+            while (!lexer->eof(lexer)) {
+                if (!statement_comment_char(lexer->lookahead, &questions)) return false;
+                if (star && lexer->lookahead == '/') {
+                    lexer->advance(lexer, false);
+                    closed = true;
+                    break;
+                }
+                star = lexer->lookahead == '*';
+                lexer->advance(lexer, false);
+            }
+            if (!closed) return false;
+        } else {
+            return false;
+        }
+    }
+}
+static bool scan_statement_macro(TSLexer *lexer, const bool *valid_symbols) {
+    if (!statement_macros && !statement_sites) return false;
     while (statement_space(lexer->lookahead)) lexer->advance(lexer, true);
+    const StatementMacroSite *site = NULL;
+    if (statement_sites) {
+        if (!statement_sites->byte_offset) return false;
+        uint32_t offset = statement_sites->byte_offset(lexer);
+        size_t low = 0, high = statement_sites->length;
+        while (low < high) {
+            size_t middle = low + (high - low) / 2;
+            if (statement_sites->sites[middle].offset < offset) low = middle + 1;
+            else high = middle;
+        }
+        if (low == statement_sites->length || statement_sites->sites[low].offset != offset) return false;
+        site = &statement_sites->sites[low];
+    }
     char name[128];
     unsigned length = 0;
     while ((lexer->lookahead >= 'a' && lexer->lookahead <= 'z') ||
@@ -35,13 +107,23 @@ static bool scan_statement_macro(TSLexer *lexer) {
     }
     if (!length) return false;
     lexer->mark_end(lexer);
-    while (statement_space(lexer->lookahead)) lexer->advance(lexer, false);
-    if (lexer->lookahead != '(') return false;
+    if (!statement_spacing(lexer) || lexer->lookahead != '(') return false;
+    if (site) {
+        if (strlen(site->name) != length || memcmp(site->name, name, length)) return false;
+        enum TokenType kind = site->open_if ? PROVEN_OPEN_IF_MACRO : PROVEN_STATEMENT_MACRO;
+        if (!valid_symbols[kind]) return false;
+        lexer->result_symbol = kind;
+        return true;
+    }
     for (const char *entry = statement_macros; *entry;) {
-        const char *end = strchr(entry, '\n');
+        bool open_if = *entry == '?';
+        const char *name_entry = entry + (open_if ? 1 : 0);
+        const char *end = strchr(name_entry, '\n');
         if (!end) return false;
-        if ((unsigned)(end - entry) == length && !memcmp(entry, name, length)) {
-            lexer->result_symbol = PROVEN_STATEMENT_MACRO;
+        if ((unsigned)(end - name_entry) == length && !memcmp(name_entry, name, length)) {
+            enum TokenType kind = open_if ? PROVEN_OPEN_IF_MACRO : PROVEN_STATEMENT_MACRO;
+            if (!valid_symbols[kind]) return false;
+            lexer->result_symbol = kind;
             return true;
         }
         entry = end + 1;
@@ -150,8 +232,8 @@ bool tree_sitter_cpp_external_scanner_scan(void *payload, TSLexer *lexer, const 
         return false;
     }
 
-    if (valid_symbols[PROVEN_STATEMENT_MACRO]) {
-        return scan_statement_macro(lexer);
+    if (valid_symbols[PROVEN_STATEMENT_MACRO] || valid_symbols[PROVEN_OPEN_IF_MACRO]) {
+        return scan_statement_macro(lexer, valid_symbols);
     }
 
     // No skipping leading whitespace: raw-string grammar is space-sensitive.

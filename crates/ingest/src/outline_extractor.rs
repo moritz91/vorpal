@@ -6,6 +6,8 @@ use std::sync::{Arc, OnceLock};
 
 use rayon::prelude::*;
 use vorpal_core::Language;
+#[cfg(feature = "builtin-parser")]
+use vorpal_core::tree_sitter::LanguageExt;
 use vorpal_kg::KgWriter;
 use vorpal_lang_registry::SgLang;
 
@@ -24,7 +26,16 @@ use crate::pipeline::FileExtractor;
 use crate::product::{self, FileProduct, ProductRef};
 use crate::references::{extract_references_with_facts, ref_spec, resolved_ref_spec};
 
+#[derive(Clone, Copy)]
+struct MacroProofContext<'a> {
+  dependency: u64,
+  errors: &'a [std::ops::Range<usize>],
+  calls: &'a [std::ops::Range<usize>],
+  definition_sites: &'a [std::ops::Range<usize>],
+}
+
 type LangExtractors = HashMap<SgLang, CombinedExtractors<SgLang>>;
+type ReceiverTyping<'a> = Option<(&'a str, crate::typefacts::BindOrigin)>;
 
 /// The rule set behind an extractor.
 ///
@@ -152,6 +163,8 @@ pub struct OutlineExtractor {
   /// grammar digest alone cannot see a rule change.
   rules_digest: u64,
   cpp_macro_roots: Option<Vec<std::path::PathBuf>>,
+  cpp_macro_compiler: Option<crate::cpp_macro_compiler::CompilerCommand>,
+  pub(crate) cpp_macro_freshness: Option<Arc<crate::cpp_macro_freshness::MacroFreshness>>,
 }
 
 
@@ -252,6 +265,8 @@ impl OutlineExtractor {
     Ok(Self {
       by_lang,
       cpp_macro_roots: None,
+      cpp_macro_compiler: None,
+      cpp_macro_freshness: None,
       dynamic_specs: HashMap::new(),
       rules_digest: xxhash_rust::xxh3::xxh3_64(DEFAULT_OUTLINE_RULES.as_bytes()),
     })
@@ -262,6 +277,8 @@ impl OutlineExtractor {
     Ok(Self {
       by_lang: Arc::new(ExtractorSet::Eager(compile_rules(rules_yaml)?)),
       cpp_macro_roots: None,
+      cpp_macro_compiler: None,
+      cpp_macro_freshness: None,
       dynamic_specs: HashMap::new(),
       rules_digest: xxhash_rust::xxh3::xxh3_64(rules_yaml.as_bytes()),
     })
@@ -380,6 +397,8 @@ impl OutlineExtractor {
       by_lang: Arc::new(ExtractorSet::Eager(compile_groups(rules)?)),
       dynamic_specs,
       cpp_macro_roots: None,
+      cpp_macro_compiler: None,
+      cpp_macro_freshness: None,
       rules_digest: h.digest(),
     })
   }
@@ -417,7 +436,7 @@ impl OutlineExtractor {
     if !cfg!(feature = "builtin-parser") {
       return Err("C++ macro recovery requires builtin-parser".to_owned());
     }
-    if self.cpp_macro_roots.is_some() {
+    if self.cpp_macro_recovery_enabled() {
       return Err("C++ macro recovery already configured".to_owned());
     }
     let roots: Vec<_> = roots.iter().map(|p| std::path::absolute(p).map_err(|e| e.to_string())).collect::<Result<_, _>>()?;
@@ -434,19 +453,54 @@ impl OutlineExtractor {
     Ok(self)
   }
 
+  pub fn with_cpp_macro_compiler(
+    mut self,
+    mut command: crate::cpp_macro_compiler::CompilerCommand,
+  ) -> Result<Self, String> {
+    command.validate()?;
+    if self.cpp_macro_compiler.is_some() {
+      return Err("C++ compiler recovery already configured".into());
+    }
+    let mut hash = xxhash_rust::xxh3::Xxh3::new();
+    hash.update(b"vorpal-cpp-compiler-config-v1\0");
+    hash.update(&self.rules_digest.to_le_bytes());
+    hash.update(&serde_json::to_vec(&command).map_err(|e| e.to_string())?);
+    self.rules_digest = hash.digest();
+    command.translation_units = command.translation_units.iter()
+      .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone())).collect();
+    self.cpp_macro_compiler = Some(command);
+    Ok(self)
+  }
+
   pub fn cpp_macro_recovery_enabled(&self) -> bool {
-    self.cpp_macro_roots.is_some()
+    self.cpp_macro_roots.is_some() || self.cpp_macro_compiler.is_some()
+  }
+
+  fn compiler_applies(&self, path: &str) -> bool {
+    self.cpp_macro_compiler.as_ref().is_some_and(|c| {
+      let physical = std::fs::canonicalize(path).ok();
+      c.translation_units.iter().any(|p| p == std::path::Path::new(path) || physical.as_ref() == Some(p))
+    })
   }
 
   /// Replay identity from current source/include bytes, including missing
   /// candidates which may now shadow an existing header. Failure declines reuse.
   pub fn extraction_identity_for_path(&self, path: &str) -> Option<u64> {
+    // Native observers do not yet certify every native dependency. An identity
+    // from a previous capture must never authorize product replay.
+    if self.compiler_applies(path)
+      && SgLang::from_path(path) == Some(SgLang::Builtin(vorpal_language::SupportLang::Cpp)) {
+      return None;
+    }
     let base = crate::extraction_identity_for_path(path, self.rules_digest)?;
     #[cfg(feature = "builtin-parser")]
     if let Some(roots) = &self.cpp_macro_roots
       && SgLang::from_path(path) == Some(SgLang::Builtin(vorpal_language::SupportLang::Cpp)) {
       let source = std::fs::read_to_string(path).ok()?;
       let evidence = crate::cpp_macro_evidence::audit_with_roots(std::path::Path::new(path), &source, roots);
+      if let Some(freshness) = &self.cpp_macro_freshness {
+        freshness.observe(std::path::Path::new(path), &source, &evidence);
+      }
       return Some(macro_product_identity(base, evidence.dependency_identity()));
     }
     Some(base)
@@ -455,7 +509,10 @@ impl OutlineExtractor {
 
 fn macro_product_identity(base: u64, dependency: u64) -> u64 {
   let mut hash = xxhash_rust::xxh3::Xxh3::new();
-  hash.update(b"vorpal-cpp-macro-product-v1\0");
+  // Scanner-only changes do not alter the grammar's structural fingerprint.
+  // v23 scopes statement proof to original invocation byte sites. Old name-wide
+  // declined products must reparse, including unchanged sources/headers.
+  hash.update(b"vorpal-cpp-macro-product-v23\0");
   hash.update(&base.to_le_bytes());
   hash.update(&dependency.to_le_bytes());
   hash.digest()
@@ -526,6 +583,12 @@ impl OutlineExtractor {
     self.extract_with(path, source, product_from_parts)
   }
 
+  /// Manufactured canary bytes use identical extraction without publishing
+  /// their virtual paths as filesystem freshness observations.
+  pub(crate) fn extract_canary_product(&self, path: &str, source: &str) -> Option<FileProduct> {
+    self.extract_with_parser(path, source, crate::tree_cache::grep_cached, false, product_from_parts)
+  }
+
   /// [`OutlineExtractor::extract_product`] that never materializes the owned product: the
   /// borrowed extraction is encoded straight into `buf` as stamped `.vpb` bytes —
   /// byte-identical to `encode_product` of the stamped owned product (pinned by test). The
@@ -562,7 +625,7 @@ impl OutlineExtractor {
     source: &str,
     finish: impl FnOnce(product::ExtractedParts<'_>) -> R,
   ) -> Option<R> {
-    self.extract_with_parser(path, source, crate::tree_cache::grep_cached, finish)
+    self.extract_with_parser(path, source, crate::tree_cache::grep_cached, true, finish)
   }
 
   /// [`OutlineExtractor::extract_product`] with an injected parser — the tree-cache
@@ -574,7 +637,7 @@ impl OutlineExtractor {
     source: &str,
     parse: fn(SgLang, &str, &str) -> vorpal_core::Vorpal<vorpal_core::tree_sitter::StrDoc<SgLang>>,
     ) -> Option<crate::FileProduct> {
-    self.extract_with_parser(path, source, parse, product_from_parts)
+    self.extract_with_parser(path, source, parse, true, product_from_parts)
   }
 
   fn extract_with_parser<R>(
@@ -582,8 +645,11 @@ impl OutlineExtractor {
     path: &str,
     source: &str,
     parse: fn(SgLang, &str, &str) -> ParsedRoot,
+    observe_freshness: bool,
     finish: impl FnOnce(product::ExtractedParts<'_>) -> R,
   ) -> Option<R> {
+    #[cfg(not(feature = "builtin-parser"))]
+    let _ = observe_freshness;
     let lang = SgLang::from_path(path)?;
     // The rules-or-spec gate runs BEFORE the parse is paid for (the body re-derives it).
     if !self.extracts(lang) {
@@ -593,12 +659,24 @@ impl OutlineExtractor {
     // product before it drops. Reference extraction runs even without outline rules (the file
     // node is the only definition span).
     #[cfg(feature = "builtin-parser")]
-    if self.cpp_macro_recovery_enabled() && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
+    if (self.cpp_macro_roots.is_some() || self.compiler_applies(path)) && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
       // Recovery always reparses: cached trees/walk snapshots have no proof identity.
       let _ = crate::tree_cache::take_reuse(path);
-      let (grep, dependency) = crate::cpp_macro_recovery::parse_recovery(
+      if self.compiler_applies(path) {
+        let command = self.cpp_macro_compiler.as_ref().unwrap();
+        if let Some(parsed) = crate::cpp_macro_compiler::parse(command, std::path::Path::new(path), source) {
+          return self.extract_from_grep(lang, path, source, &parsed.root, Some(MacroProofContext { dependency: parsed.dependency, errors: &parsed.diagnostics.errors, calls: &parsed.diagnostics.macro_calls, definition_sites: &parsed.definition_sites }), finish);
+        }
+        // Failure declines recovery. Raw syntax and diagnostics remain intact.
+        let grep = vorpal_language::with_cpp_statement_macros(&[], || lang.grep(source));
+        return self.extract_from_grep(lang, path, source, &grep, None, finish);
+      }
+      let (grep, evidence, diagnostics) = crate::cpp_macro_recovery::parse_recovery(
         std::path::Path::new(path), source, self.cpp_macro_roots.as_deref().unwrap());
-      return self.extract_from_grep(lang, path, source, &grep, Some(dependency), finish);
+      if observe_freshness && let Some(freshness) = &self.cpp_macro_freshness {
+        freshness.observe(std::path::Path::new(path), source, &evidence);
+      }
+      return self.extract_from_grep(lang, path, source, &grep, Some(MacroProofContext { dependency: evidence.dependency_identity(), errors: &diagnostics.errors, calls: &diagnostics.macro_calls, definition_sites: &[] }), finish);
     }
     #[cfg(feature = "builtin-parser")]
     let grep = if lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
@@ -632,7 +710,7 @@ impl OutlineExtractor {
     if *root.lang() != lang || !self.extracts(lang) {
       return None;
     }
-    if self.cpp_macro_recovery_enabled() && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
+    if (self.cpp_macro_roots.is_some() || self.compiler_applies(path)) && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
       return self.extract_product(path, root.source());
     }
     self.extract_from_grep(lang, path, root.source(), root, None, product_from_parts)
@@ -646,7 +724,7 @@ impl OutlineExtractor {
     path: &str,
     source: &str,
     grep: &ParsedRoot,
-    dependency: Option<u64>,
+    proof: Option<MacroProofContext<'_>>,
     finish: impl FnOnce(product::ExtractedParts<'_>) -> R,
   ) -> Option<R> {
     let combined = self.by_lang.get(lang);
@@ -669,22 +747,24 @@ impl OutlineExtractor {
       Vec::new()
     };
     let root = grep.root();
-    // Graceful-degradation telemetry (all languages): count the tree-sitter ERROR nodes this
-    // parse produced (0 = clean) AND measure the damage — merged error ranges give an honest
+    // Graceful-degradation telemetry (all languages): count tree-sitter syntax-error nodes this
+    // parse produced, including MISSING nodes, plus proven macro-context failures
+    // in an opted-in C++ parse (0 = clean), and measure the damage.
+    // Merged error ranges give an honest
     // affected-byte count (nested ERRORs never double-count) plus up to eight representative
     // spans, so health policies can threshold on a ratio and humans can look at the wreckage
     // without re-parsing (IMPROVEMENTS #11).
     //
     // The scan is gated on the root's O(1) `has_error` subtree flag: a clean parse (the
-    // overwhelming majority of files) has provably zero ERROR nodes, so we skip the full-tree
-    // DFS entirely. When the flag is set we walk exactly as before — a MISSING-only tree (flag
-    // set, no ERROR node) still yields `(0, 0, [])`, byte-identical to the ungated result.
+    // overwhelming majority of files) has zero ERROR or MISSING nodes, so skip its DFS.
+    // Missing tokens retain zero-length insertion spans and contribute no affected bytes.
     let (error_nodes, error_bytes, error_spans) = if root.has_error()
       || injected.iter().any(|sub| sub.root().has_error())
+      || proof.is_some_and(|p| !p.errors.is_empty())
     {
       let mut error_ranges: Vec<(u32, u32)> = root
         .dfs()
-        .filter(|node| node.is_error())
+        .filter(|node| node.is_error() || node.is_missing())
         .map(|node| {
           let range = node.range();
           (range.start as u32, range.end as u32)
@@ -692,10 +772,13 @@ impl OutlineExtractor {
         .collect();
       for sub in &injected {
         let sub_root = sub.root();
-        error_ranges.extend(sub_root.dfs().filter(|node| node.is_error()).map(|node| {
+        error_ranges.extend(sub_root.dfs().filter(|node| node.is_error() || node.is_missing()).map(|node| {
           let range = node.range();
           (range.start as u32, range.end as u32)
         }));
+      }
+      if let Some(proof) = proof {
+        error_ranges.extend(proof.errors.iter().map(|range| (range.start as u32, range.end as u32)));
       }
       let error_nodes = error_ranges.len() as u32;
       error_ranges.sort_unstable();
@@ -717,7 +800,7 @@ impl OutlineExtractor {
     // stale snapshot never leaks to a later file on this worker thread.
     let reuse = crate::tree_cache::take_reuse(path);
     let base_identity = crate::extraction_identity(grammar_generation, self.rules_digest);
-    let identity = dependency.map_or(base_identity, |dep| macro_product_identity(base_identity, dep));
+    let identity = proof.map_or(base_identity, |p| macro_product_identity(base_identity, p.dependency));
     static WALK_REUSE: OnceLock<bool> = OnceLock::new();
     let reuse_enabled = *WALK_REUSE
       .get_or_init(|| !std::env::var_os("VORPAL_WALK_REUSE").is_some_and(|v| v == "0"));
@@ -866,6 +949,12 @@ impl OutlineExtractor {
       }
     }
 
+    if let Some(proof) = proof {
+      items.retain(|item| !proof.definition_sites.contains(&item.entry.range.byte_offset));
+      for item in &mut items {
+        item.members.retain(|member| !proof.definition_sites.contains(&member.entry.range.byte_offset));
+      }
+    }
     let (entities, spans) = local_layout(&items);
 
     // Reuse attempt, row side (needs the NEW layout): remap retained attribution by
@@ -901,7 +990,12 @@ impl OutlineExtractor {
       let mut kinds: Vec<vorpal_kg::SymbolKind> = Vec::with_capacity(spans.len());
       kinds.push(vorpal_kg::SymbolKind::File);
       for item in &items {
-        kinds.push(vorpal_kg::SymbolKind::from_symbol_type(item.entry.symbol_type, item.is_import));
+        // Definition fragments do not claim a complete-body near-clone sketch.
+        kinds.push(if item.entry.ast_kind == "conditional_function_prefix" {
+          vorpal_kg::SymbolKind::File
+        } else {
+          vorpal_kg::SymbolKind::from_symbol_type(item.entry.symbol_type, item.is_import)
+        });
         for member in &item.members {
           kinds.push(vorpal_kg::SymbolKind::from_symbol_type(member.entry.symbol_type, false));
         }
@@ -1187,20 +1281,115 @@ impl OutlineExtractor {
     // never matters (a use-before-assign types identically), so the map is order-free.
     let mut typed: HashMap<&str, Option<(&str, crate::typefacts::BindOrigin)>> = HashMap::new();
     let cpp = matches!(lang, SgLang::Builtin(vorpal_language::SupportLang::Cpp));
-    let mut cpp_local: HashMap<(u32, &str), Option<(&str, crate::typefacts::BindOrigin)>> = HashMap::new();
+    // An unexpanded, returnless macro head has no evidenced function name. Its
+    // original syntactic body still separates local bindings from other such
+    // bodies attributed to the same file/module. Do not manufacture an entity
+    // just to preserve that lexical boundary.
+    let mut unowned_cpp_functions = Vec::new();
+    if cpp {
+      for node in root
+        .dfs()
+        .filter(|n| n.kind().as_ref() == "function_definition")
+      {
+        if crate::references::untyped_cpp_namespace_function(&node) {
+          unowned_cpp_functions.push(node.range());
+        }
+      }
+      unowned_cpp_functions.sort_by_key(|range| range.start);
+    }
+    let cpp_scope = |offset: usize| {
+      let count = unowned_cpp_functions.partition_point(|range| range.start <= offset);
+      unowned_cpp_functions[..count]
+        .iter()
+        .rev()
+        .find(|range| range.contains(&offset))
+        .map_or(0, |range| range.start + 1)
+    };
+    let mut cpp_local: HashMap<(u32, usize, &str), ReceiverTyping<'_>> =
+      HashMap::new();
+    // Local class/alias names have no public entity in these anonymous bodies.
+    // Never narrow their uses to a same-spelled global type. Scope-wide rejection
+    // is conservative for declaration order and nested local type shadowing.
+    let mut cpp_hidden_types =
+      std::collections::BTreeMap::<usize, std::collections::BTreeSet<String>>::new();
+    if cpp && !unowned_cpp_functions.is_empty() {
+      for node in root.dfs() {
+        let scope = cpp_scope(node.range().start);
+        if scope == 0 {
+          continue;
+        }
+        let name = match node.kind().as_ref() {
+          "class_specifier" | "struct_specifier" | "union_specifier" | "enum_specifier"
+          | "alias_declaration" => node.field("name"),
+          "type_definition" => node.field("declarator"),
+          _ => None,
+        };
+        if let Some(name) = name {
+          // Qualified/template spellings also block their simple leading name.
+          let text = name.text();
+          if let Some(first) = text
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .find(|part| !part.is_empty())
+          {
+            if !first.is_empty() {
+              cpp_hidden_types
+                .entry(scope)
+                .or_default()
+                .insert(first.to_owned());
+            }
+          }
+        }
+      }
+    }
+    let hidden_cpp_type = |scope: usize, ty: &str| {
+      cpp_hidden_types.get(&scope).is_some_and(|names| {
+        ty.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+          .any(|part| names.contains(part))
+      })
+    };
     let mut binding_cursor = crate::references::SpanCursor::new(&spans);
     for binding in &bindings {
+      // Parameters/fields in anonymous local methods cannot become file facts.
+      if cpp_scope(binding.start as usize) != 0
+        && matches!(
+          binding.origin,
+          crate::typefacts::BindOrigin::Field | crate::typefacts::BindOrigin::Param
+        )
+      {
+        continue;
+      }
       // Return bindings key a FUNCTION's name to its return type — they feed the chained-
       // call ledger below and must never type a same-named receiver variable.
       if binding.origin == crate::typefacts::BindOrigin::Return {
         continue;
       }
-      if cpp && binding.ty.as_deref().is_some_and(|ty| ty.starts_with(crate::typefacts::CPP_ALIAS_PREFIX)) { continue; }
+      if cpp
+        && binding
+          .ty
+          .as_deref()
+          .is_some_and(|ty| ty.starts_with(crate::typefacts::CPP_ALIAS_PREFIX))
+      {
+        continue;
+      }
       if cpp && binding.origin != crate::typefacts::BindOrigin::Field {
         if let Some(from) = binding_cursor.enclosing(binding.start as usize) {
-          let value = binding.ty.as_deref().map(|ty| (ty, binding.origin));
-          cpp_local.entry((from.raw() as u32, binding.name.as_ref()))
-            .and_modify(|slot| { if *slot != value { *slot = None; } })
+          let scope = cpp_scope(binding.start as usize);
+          let value = binding
+            .ty
+            .as_deref()
+            .filter(|ty| !hidden_cpp_type(scope, ty))
+            .map(|ty| (ty, binding.origin));
+          cpp_local
+            .entry((
+              from.raw() as u32,
+              cpp_scope(binding.start as usize),
+              binding.name.as_ref(),
+            ))
+            .and_modify(|slot| {
+              if *slot != value {
+                *slot = None;
+              }
+            })
             .or_insert(value);
         }
         continue;
@@ -1225,15 +1414,42 @@ impl OutlineExtractor {
     if cpp {
       let mut cursor = crate::references::SpanCursor::new(&spans);
       for binding in &bindings {
-        let Some(alias) = binding.ty.as_deref().and_then(|ty| ty.strip_prefix(crate::typefacts::CPP_ALIAS_PREFIX)) else { continue; };
-        let Some(from) = cursor.enclosing(binding.start as usize) else { continue; };
-        let key = (from.raw() as u32, binding.name.as_ref());
-        let value = cpp_local.get(&(from.raw() as u32, alias)).copied().flatten()
-          .or_else(|| typed.get(alias).copied().flatten());
-        cpp_local.entry(key).and_modify(|slot| { if *slot != value { *slot = None; } }).or_insert(value);
+        let Some(alias) = binding
+          .ty
+          .as_deref()
+          .and_then(|ty| ty.strip_prefix(crate::typefacts::CPP_ALIAS_PREFIX))
+        else {
+          continue;
+        };
+        let Some(from) = cursor.enclosing(binding.start as usize) else {
+          continue;
+        };
+        let key = (
+          from.raw() as u32,
+          cpp_scope(binding.start as usize),
+          binding.name.as_ref(),
+        );
+        let scope = cpp_scope(binding.start as usize);
+        let local = cpp_local.get(&(from.raw() as u32, scope, alias));
+        let value = if scope != 0 {
+          local.copied().flatten()
+        } else {
+          local
+            .copied()
+            .flatten()
+            .or_else(|| typed.get(alias).copied().flatten())
+        };
+        let value = value.filter(|(ty, _)| !hidden_cpp_type(scope, ty));
+        cpp_local
+          .entry(key)
+          .and_modify(|slot| {
+            if *slot != value {
+              *slot = None;
+            }
+          })
+          .or_insert(value);
       }
     }
-
     // Per-entity parameter lists: every Param binding attributed to its innermost enclosing
     // definition span, in file order (dfs order is file order). Borrowed — the finish
     // decides whether the strings are copied (owned product) or encoded in place.
@@ -1243,7 +1459,7 @@ impl OutlineExtractor {
       let mut by_entity: std::collections::BTreeMap<u32, Vec<(&str, Option<&str>)>> =
         std::collections::BTreeMap::new();
       for binding in &bindings {
-        if binding.origin != crate::typefacts::BindOrigin::Param {
+        if binding.origin != crate::typefacts::BindOrigin::Param || cpp_scope(binding.start as usize) != 0 {
           continue;
         }
         if let Some(from) = cursor.enclosing(binding.start as usize) {
@@ -1260,12 +1476,23 @@ impl OutlineExtractor {
     // local rows; the link-time map poisons cross-file disagreements.
     let returns: Vec<(&str, &str)> = bindings
       .iter()
-      .filter(|b| b.origin == crate::typefacts::BindOrigin::Return)
+      .filter(|b| b.origin == crate::typefacts::BindOrigin::Return && cpp_scope(b.start as usize) == 0)
       .filter_map(|b| Some((b.name.as_ref(), b.ty.as_deref()?)))
       .collect();
 
     // References stay borrowed; receiver typing is resolved HERE, once, so the owning and
     // encoding finishes see identical evidence.
+    if let Some(proof) = proof {
+      // Omit only exact original calls excluded by the proof. Native observations
+      // also exclude arguments ignored/stringified/unevaluated by an expansion.
+      let calls: std::collections::HashSet<_> = proof.calls.iter().map(|r| (r.start, r.end)).collect();
+      raw.retain(|r| r.kind != vorpal_resolve::RefKind::Call || !calls.contains(&(r.start as usize, r.end as usize)));
+    }
+    raw.retain(|r| {
+      let scope = cpp_scope(r.start as usize);
+      !hidden_cpp_type(scope, &r.name)
+        && !r.qualifier.as_deref().is_some_and(|qualifier| hidden_cpp_type(scope, qualifier))
+    });
     let refs: Vec<product::RefParts<'_>> = raw
       .into_iter()
       .map(|r| {
@@ -1273,7 +1500,8 @@ impl OutlineExtractor {
           .receiver
           .as_deref()
           .and_then(|name| {
-            if cpp && let Some(value) = cpp_local.get(&(r.from.raw() as u32, name)) { return *value; }
+            if cpp && let Some(value) = cpp_local.get(&(r.from.raw() as u32, cpp_scope(r.start as usize), name)) { return *value; }
+            if cpp_scope(r.start as usize) != 0 { return None; }
             typed.get(name).copied().flatten()
           });
         product::RefParts {

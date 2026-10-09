@@ -43,7 +43,9 @@ impl MultiServer {
         let env = envs.remove(name).unwrap_or_default();
         (
           name.clone(),
-          Server::with_profile_env(entry.index.clone(), profile, env),
+          Server::with_profile_env_rebuild_source(
+            entry.index.clone(), profile, env, true, Some(entry.src.clone()),
+          ),
         )
       })
       .collect();
