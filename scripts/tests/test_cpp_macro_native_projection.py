@@ -4,10 +4,67 @@ import sys
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from cpp_macro_native_projection import project_root, validated_hash_offsets
+from cpp_macro_native_projection import project_root, validated_hash_offsets, observed_literal_once_lines
 
 
 class NativeProjection(unittest.TestCase):
+    def test_literal_once_requires_active_physical_callback_and_matching_native_line(self):
+        for nl in [b'\n', b'\r\n']:
+            original = nl.join([b'// header', b'#pragma once', b'int original;', b''])
+            loc = {'nested': False, 'path': 'root.cc', 'offset': original.index(b'pragma'),
+                   'buffer_sha256': hashlib.sha256(original).hexdigest()}
+            row = {'kind': 'root_pragma', 'hash_pragma': True, 'location': loc}
+            lines = observed_literal_once_lines(original, [row], 'root.cc', str)
+            self.assertEqual(lines, {2})
+            data = nl.join([b'#line 2 "root.cc"', b'#pragma once', b'int original;', b''])
+            offsets = {0, data.index(b'#pragma')}
+            self.assertEqual(project_root(data, offsets, 'root.cc', str, literal_once_lines=lines),
+                             b'int original;' + nl)
+            self.assertIn(b'#pragma once', project_root(data, offsets, 'root.cc', str))
+            wrong_line = data.replace(b'#line 2', b'#line 3')
+            self.assertIn(b'#pragma once', project_root(wrong_line, offsets, 'root.cc', str,
+                                                       literal_once_lines=lines))
+            repeated = data + data
+            with self.assertRaises(ValueError):
+                project_root(repeated, offsets | {o + len(data) for o in offsets}, 'root.cc', str,
+                             literal_once_lines=lines)
+            for change in [{'nested': True}, {'path': 'other.h'}, {'offset': True},
+                           {'offset': -1}, {'buffer_sha256': '0' * 64}]:
+                with self.assertRaises(ValueError):
+                    observed_literal_once_lines(original, [{**row, 'location': {**loc, **change}}],
+                                                'root.cc', str)
+            self.assertFalse(observed_literal_once_lines(original, [], 'root.cc', str))
+            self.assertFalse(observed_literal_once_lines(original, [{**row, 'hash_pragma': False}], 'root.cc', str))
+        for original in [b'#pragma ONCE\n', b'__pragma(once)\n', b'_Pragma("once")\n',
+                         b'const char *s = "#pragma once";\n', b'#pragma once // comment\n']:
+            loc = {'nested': False, 'path': 'root.cc', 'offset': 0,
+                   'buffer_sha256': hashlib.sha256(original).hexdigest()}
+            self.assertFalse(observed_literal_once_lines(original,
+                [{'kind': 'root_pragma', 'hash_pragma': True, 'location': loc}], 'root.cc', str))
+
+    def test_forced_wrapper_restoration_requires_explicit_actual_inputs(self):
+        data = b'#line 1 "wrapper.h"\n#pragma external_header(push)\n\n#line 1 "pch.h"\nint pch;\n#line 2 "wrapper.h"\n#pragma external_header(pop)\n#line 1 "unity.cc"\n#line 1 "root.cc"\nint original;\n'
+        offsets = {data.index(b'#', start) for start in [0, data.index(b'#pragma'), data.index(b'#line 1 "pch'), data.index(b'#line 2'), data.index(b'#pragma external_header(pop)'), data.index(b'#line 1 "unity'), data.index(b'#line 1 "root')]}
+        with self.assertRaises(ValueError): self.project(data, offsets)
+        self.assertEqual(project_root(data, offsets, 'root.cc', str,
+            forced_inputs=['wrapper.h'], translation_unit='unity.cc'), b'int original;\n')
+        for forced, root in [([], 'unity.cc'), (['other.h'], 'unity.cc'), (['wrapper.h'], 'other.cc')]:
+            with self.assertRaises(ValueError):
+                project_root(data, offsets, 'root.cc', str, forced_inputs=forced, translation_unit=root)
+        # An authored matching spelling is retained, never administrative proof.
+        self.assertIn(b'#pragma external_header(pop)', project_root(data, offsets, 'wrapper.h', str, True,
+            forced_inputs=['wrapper.h'], translation_unit='unity.cc'))
+
+    def test_forced_header_frames_allow_bounded_blank_lines_only(self):
+        for nl in [b'\n', b'\r\n']:
+            data = nl.join([b'#line 1 "root.cc"', b'#pragma external_header(push)',
+                b'', b' \t\v\f', b'#line 1 "pch.h"', b'int pch;',
+                b'#pragma external_header(pop)', b'', b'#line 2 "root.cc"', b'int after;', b''])
+            self.assertEqual(self.project(data), nl.join([b'', b' \t\v\f', b'int after;', b'']))
+            for intervening in [b'int authored;', b'#pragma unknown', b'\0', nl * 65]:
+                malformed = data.replace(nl + b' \t\v\f' + nl, nl + intervening + nl)
+                with self.assertRaises(ValueError): self.project(malformed)
+
     def project(self, data, offsets=None, authored=False):
         if offsets is None:
             offsets, offset = set(), 0

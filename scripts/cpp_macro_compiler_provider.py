@@ -16,7 +16,7 @@ import shutil
 import subprocess
 import sys
 import time
-from cpp_macro_native_projection import project_root, validated_hash_offsets
+from cpp_macro_native_projection import project_root, validated_hash_offsets, observed_literal_once_lines
 
 
 def digest(data):
@@ -61,10 +61,14 @@ def main():
     if len(selected) != 1:
         raise RuntimeError("a unique explicit native command is required")
     entry = selected[0]
+    translation_unit = Path(entry.get("translationUnit", entry["source"]))
+    included_source = physical(translation_unit) != physical(source)
+    translation_unit_bytes = translation_unit.read_bytes()
     # Plans are supplied by the trusted launcher and contain only preprocessing
     # arguments plus the original source. Never accept an arbitrary compile line.
     arguments = entry["args"]
     assert arguments[-1].lower() == "/zs"
+    assert len(arguments) >= 2 and physical(arguments[-2]) == physical(translation_unit)
     for argument in arguments:
         option = argument.lstrip("/-")
         lowered = option.lower()
@@ -75,6 +79,8 @@ def main():
                 assert not lowered.startswith(("fo", "fd", "fe", "fp", "fa", "fm", "fr", "fi", "yc", "sourcedependencies", "analyze:log"))
 
     native_args = [a for a in arguments if a.lower() != "/zs"] + ["/E"]
+    forced_inputs = [a[3:] for a in arguments if a.startswith(("/FI", "-FI"))]
+    assert all(forced_inputs), "forced input paths must be explicit joined arguments"
     compiler = shutil.which(args.compiler)
     if not compiler:
         raise RuntimeError("native compiler unavailable; load the VS environment")
@@ -94,6 +100,7 @@ def main():
                  "libclang": digest(Path(args.libclang).read_bytes()),
                  "plan": digest(Path(args.plan).read_bytes()),
                  "arguments": native_args, "cwd": entry["cwd"],
+                 "physicalSource": physical(source),
                  "environment": dict(os.environ), "msvcVersion": args.msvc_version,
                  "resourceDir": str(Path(args.resource_dir).resolve())}
         # Per-capture paths are handshake metadata, not toolchain inputs.
@@ -135,7 +142,9 @@ def main():
             inputs.add(resolved)
             return resolved
 
-        projected = project_root(data, directive_offsets, source, input_path)
+        projected = project_root(data, directive_offsets, source, input_path,
+                                 forced_inputs=forced_inputs, translation_unit=translation_unit,
+                                 literal_once_lines=literal_once_lines)
         # A matching frame can also be authored in a header, or emitted through
         # a pragma macro. Inspect every physical file named by an actual marker,
         # including strings/comments conservatively; no name allowlist is proof.
@@ -155,7 +164,9 @@ def main():
         if any(physical(path) != resolved for path, resolved in resolved_paths.items()):
             raise RuntimeError("native input redirect changed during projection")
         if authored:
-            projected = project_root(data, directive_offsets, source, physical, True)
+            projected = project_root(data, directive_offsets, source, physical, True,
+                                     forced_inputs=forced_inputs, translation_unit=translation_unit,
+                                     literal_once_lines=literal_once_lines)
         text = projected.decode("utf-8")
         virtual = str(scratch / (label + "-root.cc"))
         tu = index.parse(virtual, args=["-std=c++20", "-fms-extensions"], unsaved_files=[(virtual, text)])
@@ -171,9 +182,17 @@ def main():
     before_file = scratch / "native-before.i"
     run([str(compiler), *native_args], before_file, scratch / "native-before.stderr")
     observer_file = scratch / "observer.jsonl"
-    run([args.observer, *arguments, "-fms-compatibility-version=" + args.msvc_version,
+    selection = ["--physical-source", str(source)] if included_source else []
+    run([args.observer, *selection, *arguments, "-fms-compatibility-version=" + args.msvc_version,
          "-resource-dir=" + args.resource_dir], observer_file, scratch / "observer.stderr")
     rows = [json.loads(line) for line in observer_file.read_bytes().splitlines()]
+    literal_once_lines = observed_literal_once_lines(original, rows, source, physical)
+    if included_source:
+        visits = [r for r in rows if r["kind"] == "physical_root_visit"]
+        assert len(visits) == 1 and visits[0]["visit"] == 1
+        assert physical(visits[0]["path"]) == physical(source)
+        assert all(physical(r["path"]) == physical(source)
+                   for r in rows if r["kind"] == "root_token")
     after_file = scratch / "native-after.i"
     run([str(compiler), *native_args], after_file, scratch / "native-after.stderr")
     after_context = context()
@@ -226,6 +245,7 @@ def main():
                 and record["end"] <= outer[index]["end"])
     literal_arguments = [r for r in literal_arguments if in_argument(r)]
     assert source.read_bytes() == original and Path(args.plan).read_bytes() == plan_bytes
+    assert translation_unit.read_bytes() == translation_unit_bytes
     assert all(Path(b["path"]).read_bytes() == b["source"].encode() for b in definitions)
     packet = {"version": 1, "requestId": request["requestId"], "path": request["path"], "source": request["source"],
               "complete": any(r["kind"] == "complete" and r["success"] for r in rows),

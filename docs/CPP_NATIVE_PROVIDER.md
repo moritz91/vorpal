@@ -61,8 +61,15 @@ the matching resource directory, and the physical callback observer built from
 `scripts/cpp_macro_observer`. Configure CMake with explicit `LLVM_DIR`, `Clang_DIR`
 and `VORPAL_CLANG_DRIVER`; `VORPAL_DIA_GUIDS` can replace an unavailable DIA library
 referenced by an imported Windows SDK. These are developer tools, not release assets.
-The command plan is a JSON array of `{source, cwd, args}` with the original physical
-source and trusted **preprocessing-only** argument array ending in `/Zs`. Strip
+The command plan is a JSON array of `{source, cwd, args, translationUnit?}` with
+the original physical source and trusted **preprocessing-only** argument array
+ending in the actual translation-unit path and `/Zs`. Without `translationUnit`,
+the original source is the translation unit. An explicit `translationUnit` can
+select a header or included source inside its genuine compile/Unity context;
+`translationUnits` in the configuration still lists the physical files to extract.
+The observer selects the actual FileEntry and requires exactly one preprocessing
+visit. Missing or repeated physical visits decline capture. Both the selected
+source and actual translation-unit bytes are rechecked before returning. Strip
 object/PDB/linker/output/dependency-emission flags before producing the plan.
 Response files and output-producing options are rejected. Keep original defines,
 include order, forced input headers, language and native preprocessor settings.
@@ -72,9 +79,16 @@ Independently lexed root token streams must agree; only CRLF inside complete raw
 literal payloads may differ. Token boundaries protect fake `#line`/`#pragma` text
 inside literals. Balanced MSVC `external_header(push/pop)` diagnostic frames
 are omitted from the ephemeral native-output root projection only when each
-hash is an actual lexer token and the immediately following physical `#line`
+hash is an actual lexer token and the following physical `#line`
 transition matches the full nested frame stack. Indented hashes and LF/CRLF
 are handled by physical byte offsets; vertical whitespace is not a line break.
+At most 64 intervening ASCII-whitespace lines are permitted. A forced PCH wrapper
+may restore the actual TU only in the first frame, with the exact trusted `/FI`
+input and translation-unit path. Tokens, extra directives and malformed returns
+remain boundaries. Literal `#pragma once` is omitted only at its exact native
+line after an active hash-pragma callback verifies the original physical byte
+offset and immutable source-buffer digest. Macro operands, `_Pragma`, `__pragma`,
+literal payloads and unknown pragmas do not supply this evidence.
 Every physical file named by an actual marker is read afresh (at most 2,048
 files, 4 MiB per file / 32 MiB total). Missing/unreadable/oversized inputs decline
 capture. Any occurrence of `external_header` in those original buffers, including
@@ -102,7 +116,7 @@ parsing. Only actual physical `#` tokens are emitted; the driver verifies the
 entire buffer SHA-256, byte length and bounded unique ordered offsets before
 projection. CIndex still independently tokenizes the projected root for native
 before/after/observed token agreement. Omitting the option retains the CIndex
-full-stream path; a failed selected raw-lexer run declines the capture. Six
+full-stream path; a failed selected raw-lexer run declines the capture. Nine
 stdlib integrity/projection controls run on Windows/Linux CI/release gates.
 
 ## Provider protocol v1
@@ -170,6 +184,16 @@ Complete function/declaration-list generators use the native role described belo
 The application, log and UI test files are clean. Nested SDL argument-macro diagnostics
 are handled by the numeric argument evidence described below. The installed
 release and productive MCP were not changed.
+
+The genuine CMake UI Unity context now supplies native proofs for all 41
+state-storage definitions and 41 declarations in `state.cc` / `state.h`. Fresh
+native and observed physical token streams agree. The complete isolated index
+and normal source-authorized native MCP report **8 error-bearing files / 158
+diagnostics / 951 diagnostic bytes**, compared with the installed `.3` baseline
+of 15 / 378 / 951. Both State files are clean. Native controls cover LF/CRLF,
+single versus repeated/missing physical visits and a macro-produced pragma whose
+token mismatch still declines recovery. Hades and the productive release remain
+unchanged; glTF shared-fragment and vendor-generator contexts remain follow-up.
 
 The glTF `gltf_io.cc`, `gltf_accessors.cc`, and `gltf_materials.cc` files are
 intentional textual include chunks assembled by `mesh_asset_parse.cc`, including
