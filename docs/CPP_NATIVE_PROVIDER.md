@@ -308,11 +308,21 @@ preprocessor `#`/`##` operators are retained, and interior-token or comment
 endpoints decline. Syntax leaf endpoints cannot prove complete preprocessor
 token coverage and are not used for this check.
 
-The normal isolated MCP now reports 8 error-bearing files / 134 diagnostics /
-951 bytes. All 24 `STBI__CASE` sites are clean in a separately tested scalar
+The normal isolated MCP now reports 8 error-bearing files / 132 diagnostics /
+947 bytes. All 24 `STBI__CASE` sites and both `STBI__IDCT_1D` statement lists
+are clean in a separately tested scalar
 implementation context (`STB_IMAGE_IMPLEMENTATION`, `STBI_NO_SIMD`,
 `STBI_NO_THREAD_LOCALS`, `/X` and explicit native include roots). Native `/Zs`
 accepts that original header and the positive prefix fixture, and rejects the
 missing-semicolon control. This does not claim SIMD compiler streams agree;
-mismatched streams still decline. Three stb diagnostics remain. Productive `.3`
+mismatched streams still decline. One stb diagnostic remains. Productive `.3`
 and the Hades checkout are unchanged.
+
+Native statement-list arguments can also be simple atoms or subscripts without
+calls, side effects or expanding argument names. A raw erroneous assignment may
+have absorbed the macro call as its left operand and the following original
+identifier as an error; proof requires a separate physical identifier after the
+exact invocation and a direct block position. Real operators continuing the call
+and control-arm/member contexts do not qualify. The original source is reparsed
+under the exact site proof, preserving following assignments and missing
+semicolons. Expanded declarations/calls acquire no fabricated original spans.

@@ -386,6 +386,22 @@ mod native {
           position = parent;
           continue;
         }
+        if parent.kind().as_ref() == "assignment_expression"
+          && parent.range().start == expansion.start
+          && parent.has_error()
+          && parent
+            .field("left")
+            .is_some_and(|n| n.range() == position.range())
+          && crate::cpp_macro_recovery::invocation_spacing(source.as_bytes(), expansion.end)
+            .and_then(|next| source.as_bytes().get(next))
+            .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'_')
+        {
+          // Raw recovery can absorb the following authored assignment into the
+          // macro call's left operand. Require a separate identifier after the
+          // exact invocation, never a real operator continuing that call.
+          position = parent;
+          continue;
+        }
         direct = parent.kind().as_ref() == "expression_statement"
           && parent.range().start == expansion.start
           && parent
@@ -400,15 +416,32 @@ mod native {
         &call.field("arguments")?.text(),
         anchor.parameters,
       )?;
-      if arguments.is_empty()
-        || !arguments.iter().all(|a| {
+      let callback_arguments = !arguments.is_empty()
+        && arguments.iter().all(|a| {
           a.as_bytes()
             .first()
             .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'_')
             && a.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
         })
-        || !arguments.iter().any(|a| packet.expanded_names.contains(a))
-      {
+        && arguments.iter().any(|a| packet.expanded_names.contains(a));
+      let argument_node = call.field("arguments")?;
+      // Atom/array arguments contain no runtime calls or side effects to lose
+      // when a native list ignores, repeats or reorders them. Expanding names
+      // and all other expression forms require a separate evaluation proof.
+      let array_arguments = !arguments.is_empty()
+        && !argument_node.has_error()
+        && argument_node.dfs().filter(|n| n.is_named()).all(|n| {
+          matches!(
+            n.kind().as_ref(),
+            "argument_list"
+              | "identifier"
+              | "number_literal"
+              | "subscript_expression"
+              | "subscript_argument_list"
+          ) && (n.kind().as_ref() != "identifier"
+            || !packet.expanded_names.contains(n.text().as_ref()))
+        });
+      if !callback_arguments && !array_arguments {
         continue;
       }
       let mut positions = origins.range(expansion.start..expansion.end);

@@ -87,6 +87,12 @@ fn compiler_provider_process() {
   };
   let invocation = if mode.starts_with("literal-argument") {
     "CHECK(value() + BUTTON)"
+  } else if mode == "array-generator-call" {
+    "CHECK(data[index()])"
+  } else if mode == "array-generator-expanding" {
+    "CHECK(DISPATCH[0])"
+  } else if mode.starts_with("array-generator") {
+    "CHECK(data[0])"
   } else if mode.starts_with("x-generator") {
     "CHECK(DISPATCH)"
   } else if mode.starts_with("function-prefix") || mode.starts_with("case-loop") {
@@ -227,11 +233,17 @@ fn compiler_provider_process() {
       }
     }
   }
-  if mode.starts_with("x-generator") {
-    let tokens = vec![
-      "if", "(", "ready", ")", "{", "first", "(", ")", ";", "}", "if", "(", "ready", ")", "{",
-      "second", "(", ")", ";", "}",
-    ];
+  if mode.starts_with("x-generator") || mode.starts_with("array-generator") {
+    let tokens = if mode.starts_with("array-generator") {
+      vec![
+        "int", "x0", "=", "data", "[", "0", "]", ";", "x0", "+=", "1", ";",
+      ]
+    } else {
+      vec![
+        "if", "(", "ready", ")", "{", "first", "(", ")", ";", "}", "if", "(", "ready", ")", "{",
+        "second", "(", ")", ";", "}",
+      ]
+    };
     packet["nativeBefore"] = json!(tokens);
     packet["nativeAfter"] = json!(tokens);
     packet["observedTokens"] = json!(tokens);
@@ -244,16 +256,16 @@ fn compiler_provider_process() {
     packet["expandedNames"] = json!(["CHECK", "DISPATCH"]);
     packet["expansions"][0]["definition"]["end"] =
       json!(header.lines().next().unwrap().trim_end().len());
-    if mode == "x-generator-offset" {
+    if mode == "x-generator-offset" || mode == "array-generator-offset" {
       packet["observedTokenSites"][0]["offset"] = json!(source.len());
     }
-    if mode == "x-generator-origin" {
+    if mode == "x-generator-origin" || mode == "array-generator-origin" {
       packet["observedTokenSites"][0]["fromMacro"] = json!(false);
     }
-    if mode == "x-generator-length" {
+    if mode == "x-generator-length" || mode == "array-generator-length" {
       packet["observedTokenSites"].as_array_mut().unwrap().pop();
     }
-    if mode == "x-generator-unclosed" {
+    if mode == "x-generator-unclosed" || mode == "array-generator-unclosed" {
       for key in [
         "nativeBefore",
         "nativeAfter",
