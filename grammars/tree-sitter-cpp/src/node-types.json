@@ -1755,6 +1755,10 @@
           "named": true
         },
         {
+          "type": "macro_declaration",
+          "named": true
+        },
+        {
           "type": "namespace_alias_definition",
           "named": true
         },
@@ -1982,6 +1986,10 @@
         },
         {
           "type": "linkage_specification",
+          "named": true
+        },
+        {
+          "type": "macro_declaration",
           "named": true
         },
         {
@@ -2428,6 +2436,10 @@
           "named": true
         },
         {
+          "type": "macro_declaration",
+          "named": true
+        },
+        {
           "type": "namespace_alias_definition",
           "named": true
         },
@@ -2606,6 +2618,10 @@
         },
         {
           "type": "linkage_specification",
+          "named": true
+        },
+        {
+          "type": "macro_declaration",
           "named": true
         },
         {
@@ -3056,6 +3072,10 @@
         },
         {
           "type": "linkage_specification",
+          "named": true
+        },
+        {
+          "type": "macro_declaration",
           "named": true
         },
         {
@@ -4960,6 +4980,32 @@
     }
   },
   {
+    "type": "macro_declaration",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "argument_list",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "macro_statement",
     "named": true,
     "fields": {
@@ -6273,6 +6319,10 @@
           "named": true
         },
         {
+          "type": "macro_declaration",
+          "named": true
+        },
+        {
           "type": "namespace_alias_definition",
           "named": true
         },
@@ -6433,6 +6483,10 @@
           "named": true
         },
         {
+          "type": "macro_declaration",
+          "named": true
+        },
+        {
           "type": "namespace_alias_definition",
           "named": true
         },
@@ -6582,6 +6636,10 @@
         },
         {
           "type": "linkage_specification",
+          "named": true
+        },
+        {
+          "type": "macro_declaration",
           "named": true
         },
         {
@@ -6853,6 +6911,10 @@
           "named": true
         },
         {
+          "type": "macro_declaration",
+          "named": true
+        },
+        {
           "type": "namespace_alias_definition",
           "named": true
         },
@@ -7044,6 +7106,10 @@
         },
         {
           "type": "linkage_specification",
+          "named": true
+        },
+        {
+          "type": "macro_declaration",
           "named": true
         },
         {
@@ -8478,6 +8544,10 @@
         },
         {
           "type": "linkage_specification",
+          "named": true
+        },
+        {
+          "type": "macro_declaration",
           "named": true
         },
         {

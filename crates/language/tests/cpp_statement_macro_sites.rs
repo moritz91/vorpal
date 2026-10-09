@@ -13,6 +13,44 @@ fn site(source: &str, needle: &str, open_if: bool) -> CppStatementMacroSite {
 }
 
 #[test]
+fn complete_declaration_sites_keep_original_spans_and_decline_statement_roles() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// Grüße 日本語\nnamespace scope { CHECK /* original */ (Type)\nvoid following() { after(); } }".replace('\n', newline);
+    let sites = [CppProvenMacroSite {
+      offset: source.find("CHECK").unwrap().try_into().unwrap(),
+      name: "CHECK".into(),
+      kind: CppProvenMacroKind::DeclarationList,
+    }];
+    let parsed = with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&source));
+    assert!(!parsed.root().has_error());
+    let declaration = parsed
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "macro_declaration")
+      .unwrap();
+    assert_eq!(declaration.text(), "CHECK /* original */ (Type)");
+    assert_eq!(declaration.field("arguments").unwrap().text(), "(Type)");
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    let local = source.replace("namespace scope", "void invalid()");
+    let local_sites = [CppProvenMacroSite {
+      offset: local.find("CHECK").unwrap().try_into().unwrap(),
+      name: "CHECK".into(),
+      kind: CppProvenMacroKind::DeclarationList,
+    }];
+    let declined = with_cpp_proven_macro_sites(&local_sites, || SupportLang::Cpp.grep(&local));
+    // Grammar recovery may still choose a declaration branch inside a block;
+    // the production proof must separately reject the original local context.
+    assert!(
+      declined
+        .root()
+        .dfs()
+        .all(|n| n.kind().as_ref() != "macro_statement")
+    );
+  }
+}
+
+#[test]
 fn original_byte_sites_survive_bom_utf8_crlf_comments_and_unproven_calls() {
   for newline in ["\n", "\r\n"] {
     let source = "\u{feff}// Grüße 日本語\nvoid run() { CHECK /* spacing */ (first()) CHECK(second()); }\nvoid broken() { CHECK(third()) }".replace('\n', newline);

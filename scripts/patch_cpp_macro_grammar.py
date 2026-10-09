@@ -603,7 +603,7 @@ rules['base_class_clause'] = decltype_base(rules['base_class_clause'])
 rules['decltype']['members'][2] = choice(symbol('expression'), symbol('comma_expression'))
 # Proof-backed statement names come only from a scoped external scanner context.
 # Without that context the new branch is unreachable, including ordinary calls.
-for name in ['_proven_statement_macro', '_proven_open_if_macro', '_proven_function_macro']:
+for name in ['_proven_statement_macro', '_proven_open_if_macro', '_proven_function_macro', '_proven_declaration_macro']:
     external = symbol(name)
     if external not in grammar['externals']:
         grammar['externals'].append(external)
@@ -630,6 +630,14 @@ rules['_macro_function_definition'] = seq(
 macro_function = alias_rule('_macro_function_definition', 'function_definition')
 if macro_function not in rules['_top_level_item']['members']:
     rules['_top_level_item']['members'].append(macro_function)
+# A complete native declaration generator owns only its original invocation.
+# Its expanded names/bodies belong to the compiler proof, never the source AST.
+rules['macro_declaration'] = seq(
+    {'type': 'FIELD', 'name': 'name', 'content': alias_rule('_proven_declaration_macro', 'identifier')},
+    {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')})
+for context in ['_top_level_item', '_block_item']:
+    if symbol('macro_declaration') not in rules[context]['members']:
+        rules[context]['members'].append(symbol('macro_declaration'))
 # The audited native cpuid helper uses a brace-delimited MSVC assembly block.
 # Admit its mov/cpuid instruction forms explicitly, not an opaque body token.
 # Operands and commas cannot cross lines: otherwise an incomplete mov could

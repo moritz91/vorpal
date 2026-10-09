@@ -91,6 +91,8 @@ fn compiler_provider_process() {
     "CHECK(DISPATCH)"
   } else if mode.starts_with("function-prefix") {
     "CHECK(42)"
+  } else if mode.starts_with("declaration-list") {
+    "CHECK(Type)"
   } else if mode == "native-operators" {
     "CHECK(value)"
   } else {
@@ -137,6 +139,44 @@ fn compiler_provider_process() {
         .as_array_mut()
         .unwrap()
         .push(site);
+    }
+  }
+  if mode.starts_with("declaration-list") {
+    let tokens: Vec<_> = if mode == "declaration-list-definitions" {
+      vec![
+        "template", "<", ">", "int", "storage", "<", "Type", ">", "(", ")", "{", "return", "0",
+        ";", "}", "template", "<", ">", "int", "other", "<", "Type", ">", "(", ")", "{", "return",
+        "1", ";", "}",
+      ]
+    } else if mode == "declaration-list-expression" {
+      vec!["value", "(", ")", ";"]
+    } else {
+      vec![
+        "template", "<", ">", "int", "storage", "<", "Type", ">", "(", ")", ";", "template", "<",
+        ">", "int", "other", "<", "Type", ">", "(", ")", ";",
+      ]
+    };
+    for key in ["nativeBefore", "nativeAfter", "observedTokens"] {
+      packet[key] = json!(tokens);
+    }
+    packet["observedTokenSites"] = json!(
+      tokens
+        .iter()
+        .map(|_| json!({"offset":start,"fromMacro":true}))
+        .collect::<Vec<_>>()
+    );
+    if mode == "declaration-list-origin" {
+      packet["observedTokenSites"][0]["fromMacro"] = json!(false);
+    }
+    if mode == "declaration-list-unclosed" {
+      for key in [
+        "nativeBefore",
+        "nativeAfter",
+        "observedTokens",
+        "observedTokenSites",
+      ] {
+        packet[key].as_array_mut().unwrap().pop();
+      }
     }
   }
   if mode.starts_with("function-prefix") {

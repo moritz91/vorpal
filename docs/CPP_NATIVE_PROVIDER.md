@@ -165,10 +165,10 @@ Comments and literals are distinguished from operators. Invalid paste operands,
 UCNs, manufactured pragma identifiers, oversized parameter amplification and
 missing original do/while semicolons decline recovery. Metadata-only evidence
 still treats pasting effects as opaque; it cannot use native-only proof.
-Declaration-list generators still require separate context support.
+Complete function/declaration-list generators use the native role described below.
 
-The application, log and UI test files are clean. Four nested SDL argument-macro diagnostics
-remain in the input tests; native-only proofs do not conceal them. The installed
+The application, log and UI test files are clean. Nested SDL argument-macro diagnostics
+are handled by the numeric argument evidence described below. The installed
 release and productive MCP were not changed.
 
 The glTF `gltf_io.cc`, `gltf_accessors.cc`, and `gltf_materials.cc` files are
@@ -198,7 +198,7 @@ streaming and Scan handoff use the same parser; native products remain nonreplay
 The isolated full Hades index now has 11 error-bearing files and 244 diagnostics
 (951 diagnostic bytes), down from the installed release's 15/378/951. All six
 `ALL_COMPONENT_TYPES(DISPATCH_*)` sites in `registry.cc` are clean. No Hades source
-or productive runtime was modified. Template-specialization declaration generation remains separate work.
+or productive runtime was modified. Physical include/Unity projection for the remaining state-storage files remains separate work.
 
 ## Native function-prefix generators
 
@@ -240,3 +240,28 @@ The fresh isolated Hades index and normal native MCP now have 10 error-bearing
 files / 240 diagnostics / 951 diagnostic bytes. The input tests are clean, and
 four original `GetMouseButtonState` call references are additionally resolved.
 The productive installed release and MCP remain unchanged.
+
+## Complete native function/declaration generators
+
+A fresh anchored invocation may own a complete list of function declarations or
+function definitions, including explicit template specializations. The parent
+requires a direct original TU/namespace call, exact arity, and one contiguous
+fully macro-origin token slice at the invocation offset. The ephemeral token
+proof must contain complete function declarations/definitions; expression lists,
+truncated syntax, incorrect origins and local/control-arm contexts decline.
+
+The scoped `DeclarationList` role produces `macro_declaration` with only the
+original name and arguments. Expanded function names and expanded bodies are
+never fabricated as original declarations, and generator arguments do not invent
+runtime calls. Following original functions and their diagnostics remain intact.
+Owned, streaming and Scan handoff share the proof, and native replay stays disabled.
+
+Windows/Linux regressions, the unchanged full corpus, Clippy, C++ provenance and
+schema checks pass. A genuine native MSVC fixture also recovers through normal
+MCP; `/Zs` accepts the positive declaration generator and rejects an original
+missing semicolon. The source checkout and productive `.3` stay unchanged.
+
+`state.cc` is compiled through CMake's generated `hades-ui` Unity source, explaining
+its absence as an individual compiler-database entry. Its original spans and those
+of `state.h` still need native physical-file projection within that genuine
+compilation context. This role alone does not claim those Hades files are clean.

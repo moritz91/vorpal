@@ -175,6 +175,10 @@
           "value": "function_definition"
         },
         {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
@@ -387,6 +391,10 @@
           },
           "named": true,
           "value": "preproc_ifdef"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
         },
         {
           "type": "ALIAS",
@@ -21752,6 +21760,10 @@
           "value": "declaration"
         },
         {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
@@ -22400,6 +22412,10 @@
           },
           "named": true,
           "value": "declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
         },
         {
           "type": "ALIAS",
@@ -28102,6 +28118,10 @@
           "value": "declaration"
         },
         {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
@@ -29289,6 +29309,32 @@
         }
       ]
     },
+    "macro_declaration": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_proven_declaration_macro"
+            },
+            "named": true,
+            "value": "identifier"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "arguments",
+          "content": {
+            "type": "SYMBOL",
+            "name": "argument_list"
+          }
+        }
+      ]
+    },
     "_cli_top_level_item": {
       "type": "CHOICE",
       "members": [
@@ -29471,6 +29517,10 @@
           },
           "named": true,
           "value": "function_definition"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
         },
         {
           "type": "ALIAS",
@@ -29679,6 +29729,10 @@
           },
           "named": true,
           "value": "preproc_ifdef"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
         },
         {
           "type": "ALIAS",
@@ -31577,6 +31631,10 @@
           "value": "preproc_ifdef"
         },
         {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
@@ -33412,6 +33470,10 @@
     {
       "type": "SYMBOL",
       "name": "_proven_function_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_declaration_macro"
     }
   ],
   "inline": [

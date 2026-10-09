@@ -2049,7 +2049,7 @@ pub(crate) fn walk_reference_tree<'t>(
           let call_range = node.range();
           if ancestors.iter().any(|ancestor| {
             let kind = ancestor.kind();
-            if matches!(kind.as_ref(), "sdk_parameter_annotation" | "decltype") {
+            if matches!(kind.as_ref(), "sdk_parameter_annotation" | "decltype" | "macro_declaration") {
               return true;
             }
             if !cpp_conditions {
