@@ -246,3 +246,34 @@ fn proven_function_prefixes_preserve_original_bodies_and_do_not_leak_roles() {
     }
   }
 }
+
+#[test]
+fn proven_case_loop_prefixes_preserve_original_bodies_and_empty_context_errors() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// Grüße 日本語\nvoid run() { switch(0) { CHECK /* name */ (42) { body(); } break; } after(); }".replace('\n', newline);
+    let sites = [CppProvenMacroSite {
+      offset: source.find("CHECK").unwrap().try_into().unwrap(),
+      name: "CHECK".into(),
+      kind: CppProvenMacroKind::CaseLoopPrefix,
+    }];
+    let root = with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&source));
+    assert!(!root.root().has_error());
+    let case = root
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "case_statement")
+      .unwrap();
+    assert_eq!(case.field("name").unwrap().text(), "CHECK");
+    assert_eq!(case.field("arguments").unwrap().text(), "(42)");
+    assert_eq!(case.field("body").unwrap().text(), "{ body(); }");
+    assert!(case.field("value").is_none());
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    let invalid = source.replace("body();", "body()");
+    assert!(
+      with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&invalid))
+        .root()
+        .has_error()
+    );
+  }
+}

@@ -4,13 +4,18 @@
 
 The current generator follow-up is documented in
 [CPP_NATIVE_PROVIDER.md](CPP_NATIVE_PROVIDER.md). Fresh native proofs cover
-statement lists, function prefixes, complete function/declaration lists and
-numeric object macros inside statement arguments. The isolated Hades MCP is
-8 error-bearing files / 158 diagnostics / 951 diagnostic bytes; productive `.3`
+statement lists, function prefixes, complete function/declaration lists,
+case/loop prefixes and numeric object macros inside statement arguments.
+The isolated Hades MCP is
+8 error-bearing files / 134 diagnostics / 951 diagnostic bytes; productive `.3`
 remains 15 / 378 / 951. All 41 state-storage definitions and 41 declarations are
 clean using physical-file projection in their genuine CMake Unity context.
 Missing/repeated visits and unsupported pragmas remain conservative boundaries;
-glTF chunks still need shared include context.
+glTF chunks still need shared include context. All 24 `STBI__CASE` invocations
+are clean in an explicitly validated scalar stb implementation context;
+three other stb diagnostics remain. SIMD contexts with differing compiler
+token streams still decline. Physical trailing comments do not extend native
+replacement token endpoints; literal payload and `#`/`##` remain significant.
 Historical measurements below describe their corresponding earlier stages.
 
 `cppMacroCompiler` now connects fresh native observations to normal owned,

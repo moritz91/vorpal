@@ -128,6 +128,7 @@ pub enum CppProvenMacroKind {
   OpenIf,
   FunctionPrefix,
   DeclarationList,
+  CaseLoopPrefix,
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +170,7 @@ pub fn with_cpp_proven_macro_sites<R>(
         CppProvenMacroKind::OpenIf => 1,
         CppProvenMacroKind::FunctionPrefix => 2,
         CppProvenMacroKind::DeclarationList => 3,
+        CppProvenMacroKind::CaseLoopPrefix => 4,
       },
     })
     .collect();

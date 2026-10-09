@@ -905,6 +905,177 @@ mod native {
     Some(result)
   }
 
+  // A case/for generator must be a direct switch-body invocation followed by
+  // an original compound body. Native tokens prove only the generated prefix;
+  // its generated label/loop expressions never become authored source nodes.
+  fn case_loop_prefix_sites(
+    packet: &Packet,
+    root: &crate::ParsedRoot,
+  ) -> Option<Vec<vorpal_language::CppProvenMacroSite>> {
+    use vorpal_core::tree_sitter::LanguageExt;
+    use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, SupportLang};
+    if packet.observed_token_sites.is_empty() {
+      return Some(Vec::new());
+    }
+    let mut candidates = std::collections::BTreeMap::new();
+    for call in root
+      .root()
+      .dfs()
+      .filter(|n| n.kind().as_ref() == "call_expression")
+    {
+      let Some(name) = call
+        .field("function")
+        .filter(|n| n.kind().as_ref() == "identifier")
+      else {
+        continue;
+      };
+      let mut context = call.parent();
+      while let Some(node) = context {
+        match node.kind().as_ref() {
+          "expression_statement" | "ERROR" if node.range().start == call.range().start => {}
+          "compound_statement"
+            if node
+              .parent()
+              .is_some_and(|n| n.kind().as_ref() == "switch_statement") =>
+          {
+            let body = node.children().find(|n| {
+              n.is_named() && n.kind().as_ref() != "comment" && n.range().start >= call.range().end
+            });
+            if body.is_some_and(|n| {
+              n.kind().as_ref() == "compound_statement"
+                && crate::cpp_macro_recovery::invocation_spacing(
+                  packet.source.as_bytes(),
+                  call.range().end,
+                ) == Some(n.range().start)
+            }) {
+              candidates.insert(
+                name.range().start,
+                (name.text().into_owned(), call.field("arguments")?),
+              );
+            }
+            break;
+          }
+          _ => break,
+        }
+        context = node.parent();
+      }
+    }
+    let mut origins: std::collections::BTreeMap<usize, Vec<usize>> =
+      std::collections::BTreeMap::new();
+    for (i, site) in packet.observed_token_sites.iter().enumerate() {
+      origins.entry(site.offset).or_default().push(i);
+    }
+    let mut result = Vec::new();
+    for expansion in &packet.expansions {
+      let Some(anchor) = &expansion.definition else {
+        continue;
+      };
+      let Some((name, arguments)) = candidates.get(&expansion.start) else {
+        continue;
+      };
+      if name != &expansion.name || arguments.range().end != expansion.end {
+        continue;
+      }
+      crate::cpp_macro_recovery::validated_arguments(&arguments.text(), anchor.parameters)?;
+      let mut positions = origins.range(expansion.start..expansion.end);
+      let Some((&offset, indices)) = positions.next() else {
+        continue;
+      };
+      if offset != expansion.start || positions.next().is_some() {
+        return None;
+      }
+      let (Some(&first), Some(&last)) = (indices.first(), indices.last()) else {
+        continue;
+      };
+      if last - first + 1 != indices.len()
+        || indices
+          .iter()
+          .any(|&i| !packet.observed_token_sites[i].from_macro)
+      {
+        return None;
+      }
+      let prefix = "void proof() { switch(0) { ";
+      let mut source = prefix.to_owned();
+      for token in &packet.observed_tokens[first..=last] {
+        if source.len().checked_add(token.len())?.checked_add(8)? > 4 * 1024 * 1024 {
+          return None;
+        }
+        source.push_str(token);
+        source.push(' ');
+      }
+      let body_start = source.len();
+      source.push_str("{} } }");
+      let parsed = SupportLang::Cpp.grep(&source);
+      let proof = parsed.root();
+      let Some(body) = proof
+        .children()
+        .find(|n| n.kind().as_ref() == "function_definition")
+        .and_then(|n| n.field("body"))
+      else {
+        continue;
+      };
+      let statements: Vec<_> = body.children().filter(|n| n.is_named()).collect();
+      if proof.has_error()
+        || statements.len() != 1
+        || statements[0].kind().as_ref() != "switch_statement"
+      {
+        continue;
+      }
+      let Some(switch_body) = statements[0].field("body") else {
+        continue;
+      };
+      let cases: Vec<_> = switch_body.children().filter(|n| n.is_named()).collect();
+      if cases.len() != 1
+        || cases[0].kind().as_ref() != "case_statement"
+        || cases[0].range().start != prefix.len()
+      {
+        continue;
+      }
+      let children: Vec<_> = cases[0].children().filter(|n| n.is_named()).collect();
+      let Some(loop_node) = children
+        .last()
+        .filter(|n| n.kind().as_ref() == "for_statement")
+      else {
+        continue;
+      };
+      if children.len() != 2
+        || !loop_node.field("body").is_some_and(|n| {
+          n.kind().as_ref() == "compound_statement"
+            && n.range().start == body_start
+            && n.text() == "{}"
+        })
+        || proof
+          .dfs()
+          .filter(|n| n.kind().as_ref() == "for_statement")
+          .count()
+          != 1
+        || proof
+          .dfs()
+          .filter(|n| n.kind().as_ref() == "case_statement")
+          .count()
+          != 1
+        || proof.dfs().any(|n| {
+          matches!(
+            n.kind().as_ref(),
+            "sdk_call_modifier"
+              | "sdk_parameter_annotation"
+              | "macro_type_argument"
+              | "macro_statement"
+              | "macro_declaration"
+          )
+        })
+      {
+        continue;
+      }
+      result.push(CppProvenMacroSite {
+        offset: u32::try_from(expansion.start).ok()?,
+        name: expansion.name.clone(),
+        kind: CppProvenMacroKind::CaseLoopPrefix,
+      });
+    }
+    Some(result)
+  }
+
   fn parse_without_context(
     config: &CompilerCommand,
     path: &Path,
@@ -955,6 +1126,7 @@ mod native {
       crate::cpp_macro_recovery::parse_compiler_evidence(source, evidence);
     let mut sites = function_prefix_sites(&packet, &root)?;
     sites.extend(declaration_list_sites(&packet, &root)?);
+    sites.extend(case_loop_prefix_sites(&packet, &root)?);
     if !sites.is_empty() {
       use vorpal_core::tree_sitter::LanguageExt;
       use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite};
@@ -1031,7 +1203,9 @@ mod native {
     let mut omitted = Vec::new();
     let mut runtime_masks = std::collections::BTreeMap::new();
     for node in root.root().dfs() {
-      if node.kind().as_ref() == "macro_declaration" {
+      if node.kind().as_ref() == "macro_declaration"
+        || node.kind().as_ref() == "case_statement" && node.field("name").is_some()
+      {
         let span = node.field("name")?.range().start..node.field("arguments")?.range().end;
         if !ranges.contains(&span) {
           return None;

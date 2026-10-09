@@ -5,7 +5,7 @@
 #include <string.h>
 #include <wctype.h>
 
-enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO, PROVEN_OPEN_IF_MACRO, PROVEN_FUNCTION_MACRO, PROVEN_DECLARATION_MACRO };
+enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO, PROVEN_OPEN_IF_MACRO, PROVEN_FUNCTION_MACRO, PROVEN_DECLARATION_MACRO, PROVEN_CASE_LOOP_MACRO };
 
 // vorpal: scoped statement-macro proof context; never serialized into a tree.
 #if defined(_MSC_VER)
@@ -116,6 +116,7 @@ static bool scan_statement_macro(TSLexer *lexer, const bool *valid_symbols) {
           case 1: kind = PROVEN_OPEN_IF_MACRO; break;
           case 2: kind = PROVEN_FUNCTION_MACRO; break;
           case 3: kind = PROVEN_DECLARATION_MACRO; break;
+          case 4: kind = PROVEN_CASE_LOOP_MACRO; break;
           default: return false;
         }
         if (!valid_symbols[kind]) return false;

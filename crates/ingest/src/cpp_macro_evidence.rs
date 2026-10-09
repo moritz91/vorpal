@@ -1496,6 +1496,27 @@ fn effect_tokens(replacement: &str) -> (BTreeSet<String>, bool) {
 // source byte. This holds source spans only, never cached macro proof.
 struct ProtectedRanges(Vec<Range<usize>>);
 
+/// Native replacement endpoints exclude independently recognized physical
+/// comments, while keeping literal payload and opaque preprocessor operators.
+/// Syntax leaves alone are insufficient for an incomplete #/## replacement.
+#[cfg(feature = "builtin-parser")]
+pub(crate) fn replacement_token_end(source: &str) -> Option<usize> {
+  let lexical = SupportLang::Cpp.grep(source);
+  let comments = ProtectedRanges::new(
+    lexical
+      .root()
+      .dfs()
+      .filter(|n| n.kind().as_ref() == "comment")
+      .map(|n| n.range()),
+  );
+  source
+    .as_bytes()
+    .iter()
+    .enumerate()
+    .rfind(|(i, b)| !b.is_ascii_whitespace() && !comments.contains(*i))
+    .map(|(i, _)| i + 1)
+}
+
 impl ProtectedRanges {
   fn new(ranges: impl IntoIterator<Item = Range<usize>>) -> Self {
     let mut ranges: Vec<_> = ranges.into_iter().filter(|r| !r.is_empty()).collect();

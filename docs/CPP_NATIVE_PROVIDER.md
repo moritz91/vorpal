@@ -286,6 +286,33 @@ MCP; `/Zs` accepts the positive declaration generator and rejects an original
 missing semicolon. The source checkout and productive `.3` stay unchanged.
 
 `state.cc` is compiled through CMake's generated `hades-ui` Unity source, explaining
-its absence as an individual compiler-database entry. Its original spans and those
-of `state.h` still need native physical-file projection within that genuine
-compilation context. This role alone does not claim those Hades files are clean.
+its absence as an individual compiler-database entry. Native physical-file
+projection in that genuine context now makes all 41 definitions and 41
+declarations clean while retaining their original invocation spans.
+
+### Native case/loop prefixes
+
+`CaseLoopPrefix` admits an original direct switch-body invocation followed by
+an authored compound body. Its exact macro-origin token slice must independently
+parse as one case label and one complete for-loop prefix whose body is the
+appended empty proof block. Extra cases, expanded bodies, truncated prefixes,
+incorrect origins and control-arm contexts decline. The original parse aliases
+the role to `case_statement` with original name, arguments and body; expanded
+labels and loop declarations are not invented as original nodes. Body calls
+retain physical spans, and a missing body semicolon stays an error. Owned,
+streaming and Scan extraction use the same proof; native products cannot replay.
+
+Native definition endpoints exclude independently parsed trailing comments,
+including LF/CRLF and block comments. Literal comment-like payload and opaque
+preprocessor `#`/`##` operators are retained, and interior-token or comment
+endpoints decline. Syntax leaf endpoints cannot prove complete preprocessor
+token coverage and are not used for this check.
+
+The normal isolated MCP now reports 8 error-bearing files / 134 diagnostics /
+951 bytes. All 24 `STBI__CASE` sites are clean in a separately tested scalar
+implementation context (`STB_IMAGE_IMPLEMENTATION`, `STBI_NO_SIMD`,
+`STBI_NO_THREAD_LOCALS`, `/X` and explicit native include roots). Native `/Zs`
+accepts that original header and the positive prefix fixture, and rejects the
+missing-semicolon control. This does not claim SIMD compiler streams agree;
+mismatched streams still decline. Three stb diagnostics remain. Productive `.3`
+and the Hades checkout are unchanged.

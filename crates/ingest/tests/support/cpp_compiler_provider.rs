@@ -89,7 +89,7 @@ fn compiler_provider_process() {
     "CHECK(value() + BUTTON)"
   } else if mode.starts_with("x-generator") {
     "CHECK(DISPATCH)"
-  } else if mode.starts_with("function-prefix") {
+  } else if mode.starts_with("function-prefix") || mode.starts_with("case-loop") {
     "CHECK(42)"
   } else if mode.starts_with("declaration-list") {
     "CHECK(Type)"
@@ -177,6 +177,29 @@ fn compiler_provider_process() {
       ] {
         packet[key].as_array_mut().unwrap().pop();
       }
+    }
+  }
+  if mode.starts_with("case-loop") {
+    let mut tokens = vec![
+      "case", "42", ":", "for", "(", "int", "i", "=", "0", ";", "i", "<", "2", ";", "++", "i", ")",
+    ];
+    if mode == "case-loop-extra" {
+      tokens.extend(["{", "}", "case", "43", ":"]);
+    }
+    if mode == "case-loop-unclosed" {
+      tokens.pop();
+    }
+    for key in ["nativeBefore", "nativeAfter", "observedTokens"] {
+      packet[key] = json!(tokens);
+    }
+    packet["observedTokenSites"] = json!(
+      tokens
+        .iter()
+        .map(|_| json!({"offset":start,"fromMacro":true}))
+        .collect::<Vec<_>>()
+    );
+    if mode == "case-loop-origin" {
+      packet["observedTokenSites"][0]["fromMacro"] = json!(false);
     }
   }
   if mode.starts_with("function-prefix") {

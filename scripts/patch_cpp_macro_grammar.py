@@ -603,7 +603,7 @@ rules['base_class_clause'] = decltype_base(rules['base_class_clause'])
 rules['decltype']['members'][2] = choice(symbol('expression'), symbol('comma_expression'))
 # Proof-backed statement names come only from a scoped external scanner context.
 # Without that context the new branch is unreachable, including ordinary calls.
-for name in ['_proven_statement_macro', '_proven_open_if_macro', '_proven_function_macro', '_proven_declaration_macro']:
+for name in ['_proven_statement_macro', '_proven_open_if_macro', '_proven_function_macro', '_proven_declaration_macro', '_proven_case_loop_macro']:
     external = symbol(name)
     if external not in grammar['externals']:
         grammar['externals'].append(external)
@@ -638,6 +638,15 @@ rules['macro_declaration'] = seq(
 for context in ['_top_level_item', '_block_item']:
     if symbol('macro_declaration') not in rules[context]['members']:
         rules[context]['members'].append(symbol('macro_declaration'))
+# A native case/loop-head proof retains its original invocation and authored
+# compound body. The generated label and loop expressions are not source nodes.
+rules['_macro_case_loop_statement'] = seq(
+    {'type': 'FIELD', 'name': 'name', 'content': alias_rule('_proven_case_loop_macro', 'identifier')},
+    {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')},
+    {'type': 'FIELD', 'name': 'body', 'content': symbol('compound_statement')})
+macro_case_loop = alias_rule('_macro_case_loop_statement', 'case_statement')
+if macro_case_loop not in rules['statement']['members']:
+    rules['statement']['members'].append(macro_case_loop)
 # The audited native cpuid helper uses a brace-delimited MSVC assembly block.
 # Admit its mov/cpuid instruction forms explicitly, not an opaque body token.
 # Operands and commas cannot cross lines: otherwise an incomplete mov could

@@ -530,7 +530,7 @@ fn statement_space(byte: &u8) -> bool {
   matches!(*byte, b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' | b'\x0b')
 }
 
-fn invocation_spacing(bytes: &[u8], mut i: usize) -> Option<usize> {
+pub(crate) fn invocation_spacing(bytes: &[u8], mut i: usize) -> Option<usize> {
   loop {
     while bytes.get(i).is_some_and(statement_space) {
       i += 1;

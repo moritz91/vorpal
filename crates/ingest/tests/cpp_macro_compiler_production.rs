@@ -7,6 +7,103 @@ use vorpal_ingest::{ExtractionEnv, OutlineExtractor, encode_product_into};
 const SOURCE: &str = "#include <unknown-sdk.h>\nvoid run() { CHECK(value())\nafter(); }\n#undef CHECK\nvoid CHECK(int);\nvoid ordinary() { CHECK(other()); }\nvoid value() {}\nvoid after() {}\nvoid other() {}\n";
 
 #[test]
+fn native_case_loop_generators_keep_original_bodies_and_reject_wrong_contexts() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "void run() { switch(0) { CHECK(42) /* body */ { body(); } break; } after(); }\n#undef CHECK\nvoid ordinary() { CHECK(other()); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(x) case x: for(int i=0;i<2;++i)\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "case-loop-origin",
+      "case-loop-unclosed",
+      "case-loop-extra",
+      "case-loop",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "case-loop",
+        "{mode}: {}",
+        product.error_nodes
+      );
+    }
+    assert_eq!(
+      extractor.extraction_identity_for_path(path.to_str().unwrap()),
+      None
+    );
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&product, &mut encoded);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        product.source_size,
+        product.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(encoded, streamed);
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handed = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut handed_bytes = Vec::new();
+    encode_product_into(&handed, &mut handed_bytes);
+    assert_eq!(encoded, handed_bytes);
+    assert!(product.refs.iter().any(|r| r.kind == 0 && r.name == "body"));
+    assert!(
+      product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && r.name == "after")
+    );
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "CHECK")
+        .count(),
+      1
+    );
+    assert!(!product.items.iter().any(|i| i.entry.name == "proof"));
+    for changed in [
+      source.replace("body();", "body()"),
+      source.replace("switch(0)", "if(true)"),
+      source.replace("CHECK(42)", "if(true) CHECK(42)"),
+      source.replace("CHECK(42)", "object.CHECK(42)"),
+    ] {
+      fs::write(&path, &changed).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &changed)
+          .unwrap()
+          .error_nodes
+          > 0,
+        "{changed}"
+      );
+    }
+  }
+}
+
+#[test]
 fn native_complete_declaration_generators_keep_original_invocations_and_following_code() {
   use vorpal_core::tree_sitter::LanguageExt;
   for newline in ["\n", "\r\n"] {
