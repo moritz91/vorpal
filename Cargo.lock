@@ -4646,7 +4646,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vorpal"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "ansi_term",
  "anyhow",
@@ -4703,7 +4703,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-ann"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "bytemuck",
  "rayon",
@@ -4717,7 +4717,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-canonical"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "blake3",
  "vorpal-segment",
@@ -4725,7 +4725,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-config"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "bit-set",
  "globset",
@@ -4741,7 +4741,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-core"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "bit-set",
  "memchr",
@@ -4754,7 +4754,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-dynamic"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "ignore",
  "libloading 0.9.0",
@@ -4768,7 +4768,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-graph"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "bit-set",
  "bytemuck",
@@ -4778,7 +4778,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-index"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "bytemuck",
  "fd-lock",
@@ -4808,7 +4808,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-ingest"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "blake3",
  "crossbeam-channel",
@@ -4835,7 +4835,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-kg"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "bytemuck",
  "libc",
@@ -4852,7 +4852,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-lang-registry"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "anyhow",
  "ignore",
@@ -4868,7 +4868,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-language"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "ignore",
  "serde",
@@ -4928,7 +4928,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-loader"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "blake3",
  "ed25519-dalek 2.2.0",
@@ -4939,7 +4939,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-lsp"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "anyhow",
  "dashmap",
@@ -4957,7 +4957,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-mcp"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "ignore",
  "notify",
@@ -4981,7 +4981,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-mem"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "bumpalo",
  "bytemuck",
@@ -4991,7 +4991,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-napi"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "ignore",
  "napi",
@@ -5010,7 +5010,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-outline"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "regex",
  "serde",
@@ -5024,7 +5024,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-py"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -5043,7 +5043,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-query"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "rayon",
  "regex",
@@ -5055,7 +5055,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-resolve"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "crossbeam-channel",
  "crossbeam-utils",
@@ -5070,7 +5070,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-segment"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "blake3",
  "bytemuck",
@@ -5082,7 +5082,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-transport"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "async-trait",
  "rand",
@@ -5096,7 +5096,7 @@ dependencies = [
 
 [[package]]
 name = "vorpal-wire"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "blake3",
  "postcard",
@@ -5134,7 +5134,7 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasm"
-version = "0.10.2+moritz.2"
+version = "0.10.2+moritz.3"
 dependencies = [
  "js-sys",
  "serde",

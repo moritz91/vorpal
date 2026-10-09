@@ -1,6 +1,6 @@
 {
   "name": "@hyper-light/vorpal-cli-linux-arm64-musl",
-  "version": "0.10.2+moritz.2",
+  "version": "0.10.2+moritz.3",
   "os": [
     "linux"
   ],
