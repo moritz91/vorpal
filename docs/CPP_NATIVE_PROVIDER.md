@@ -165,12 +165,11 @@ Comments and literals are distinguished from operators. Invalid paste operands,
 UCNs, manufactured pragma identifiers, oversized parameter amplification and
 missing original do/while semicolons decline recovery. Metadata-only evidence
 still treats pasting effects as opaque; it cannot use native-only proof.
-This does not yet implement function-head/declaration or X-macro generators.
+Function-head/declaration generators still require separate context support.
 
-The current isolated native Hades comparison reduces health from 15 to 12 files
-and 378 to 250 diagnostics, with 951 diagnostic bytes unchanged. The application,
-log and UI test files are clean; four function-head diagnostics remain in the
-input tests. The installed release and productive MCP were not changed.
+The application, log and UI test files are clean. Four function-head diagnostics
+remain in the input tests; native-only proofs do not conceal them. The installed
+release and productive MCP were not changed.
 
 The glTF `gltf_io.cc`, `gltf_accessors.cc`, and `gltf_materials.cc` files are
 intentional textual include chunks assembled by `mesh_asset_parse.cc`, including
@@ -178,3 +177,26 @@ across template/function boundaries. Their standalone diagnostics do not prove
 source corruption. Correct handling requires compilation-context and physical
 span provenance. Three Lua guide diagrams, by contrast, contain actual NUL and
 control bytes in the original Markdown. Those bytes are not parser generators.
+
+## Fully expanded native statement generators
+
+The provider can additionally emit `observedTokenSites`: an array parallel to
+`observedTokens` containing `{offset, fromMacro}` physical root expansion facts.
+Older producers can omit it and retain direct replacement proofs. It does not
+authorize replay or replace the original document. Native before/after spelling
+agreement still covers the complete token stream.
+
+A generator invocation with identifier callback arguments can use its fully
+rescanned tokens as an ephemeral complete-block proof. The parent verifies the
+physical definition/arity, exact original arguments, one contiguous token slice,
+macro origin at the original invocation and a direct original block position.
+Authored commas, expression uses and if/loop arms cannot borrow this statement-list
+proof. Truncated expansion syntax and invalid token sites preserve raw errors.
+Ignored/generated identifiers do not become original runtime edges. Owned,
+streaming and Scan handoff use the same parser; native products remain nonreplayable.
+
+The isolated full Hades index now has 11 error-bearing files and 244 diagnostics
+(951 diagnostic bytes), down from the installed release's 15/378/951. All six
+`ALL_COMPONENT_TYPES(DISPATCH_*)` sites in `registry.cc` are clean. No Hades source
+or productive runtime was modified. This is distinct from function-head and
+template-specialization declaration generation, which remains next work.

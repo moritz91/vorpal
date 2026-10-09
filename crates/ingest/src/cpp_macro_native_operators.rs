@@ -108,6 +108,7 @@ pub(super) fn prepare(raw: &str, parameters: &[String]) -> Option<StatementRepla
     source,
     substitutions,
     native_operators: operators,
+    native_arguments: None,
     requires_semicolon: false,
   };
   let arguments: Vec<_> = parameters.iter().map(String::as_str).collect();

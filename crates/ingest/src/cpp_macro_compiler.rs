@@ -138,6 +138,10 @@ mod native {
   }
   #[derive(Deserialize)]
   #[serde(rename_all = "camelCase", deny_unknown_fields)]
+  struct TokenSite { offset: usize, from_macro: bool }
+
+  #[derive(Deserialize)]
+  #[serde(rename_all = "camelCase", deny_unknown_fields)]
   struct Packet {
     version: u32,
     request_id: String,
@@ -151,6 +155,8 @@ mod native {
     native_before: Vec<String>,
     native_after: Vec<String>,
     observed_tokens: Vec<String>,
+    #[serde(default)]
+    observed_token_sites: Vec<TokenSite>,
     native_directives: Vec<String>,
     definitions: Vec<Buffer>,
     expansions: Vec<Site>,
@@ -306,6 +312,162 @@ mod native {
     vorpal_language::with_cpp_statement_macros(&[], || parse_without_context(config, path, source))
   }
 
+  fn add_native_generators(
+    source: &str,
+    packet: &Packet,
+    evidence: &mut crate::cpp_macro_evidence::Evidence,
+  ) -> Option<()> {
+    use crate::cpp_macro_evidence::{Binding, StatementMacro, native_generator_statement};
+    use vorpal_core::tree_sitter::LanguageExt;
+    if packet.observed_token_sites.is_empty() {
+      return Some(());
+    }
+    if packet.observed_token_sites.len() != packet.observed_tokens.len()
+      || packet
+        .observed_token_sites
+        .iter()
+        .any(|s| s.offset >= source.len() || !source.is_char_boundary(s.offset))
+    {
+      return None;
+    }
+    let raw = vorpal_language::SupportLang::Cpp.grep(source);
+    let root = raw.root();
+    let calls: std::collections::BTreeMap<_, _> = root
+      .dfs()
+      .filter(|n| n.kind().as_ref() == "call_expression")
+      .filter_map(|n| Some((n.field("function")?.range().start, n)))
+      .collect();
+    let mut origins: std::collections::BTreeMap<usize, Vec<usize>> =
+      std::collections::BTreeMap::new();
+    for (i, site) in packet.observed_token_sites.iter().enumerate() {
+      origins.entry(site.offset).or_default().push(i);
+    }
+    let mut definition_spans: std::collections::BTreeMap<(usize, usize), Option<Range<usize>>> =
+      std::collections::BTreeMap::new();
+    let proven: BTreeSet<_> = evidence.bindings.iter().map(|b| b.active.start).collect();
+    for expansion in &packet.expansions {
+      if proven.contains(&expansion.start) {
+        continue;
+      }
+      let Some(anchor) = &expansion.definition else {
+        continue;
+      };
+      let Some(call) = calls.get(&expansion.start).filter(|n| {
+        n.field("function")
+          .is_some_and(|f| f.text() == expansion.name)
+          && n
+            .field("arguments")
+            .is_some_and(|a| a.range().end == expansion.end)
+      }) else {
+        continue;
+      };
+      // A statement list is admitted only at an original direct block position.
+      // It cannot be substituted as one statement inside an if/loop/else arm.
+      let mut position = call.clone();
+      let mut direct = false;
+      for _ in 0..64 {
+        let Some(parent) = position.parent() else {
+          break;
+        };
+        if parent.kind().as_ref() == "comma_expression"
+          && parent.range().start == expansion.start
+          && parent
+            .children()
+            .filter(|n| n.kind().as_ref() == ",")
+            .all(|n| n.range().is_empty())
+        {
+          // Raw error recovery can insert a missing comma before the following
+          // ordinary statement. Actual authored commas are expression contexts.
+          position = parent;
+          continue;
+        }
+        direct = parent.kind().as_ref() == "expression_statement"
+          && parent.range().start == expansion.start
+          && parent
+            .parent()
+            .is_some_and(|b| b.kind().as_ref() == "compound_statement");
+        break;
+      }
+      if !direct {
+        continue;
+      }
+      let arguments = crate::cpp_macro_recovery::validated_arguments(
+        &call.field("arguments")?.text(),
+        anchor.parameters,
+      )?;
+      if arguments.is_empty()
+        || !arguments.iter().all(|a| {
+          a.as_bytes()
+            .first()
+            .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'_')
+            && a.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        })
+        || !arguments.iter().any(|a| packet.expanded_names.contains(a))
+      {
+        continue;
+      }
+      let mut positions = origins.range(expansion.start..expansion.end);
+      let Some((&offset, indices)) = positions.next() else {
+        continue;
+      };
+      if offset != expansion.start || positions.next().is_some() {
+        return None;
+      }
+      let (Some(&first), Some(&last)) = (indices.first(), indices.last()) else {
+        continue;
+      };
+      if last - first + 1 != indices.len()
+        || indices.iter().any(|&i| {
+          let s = &packet.observed_token_sites[i];
+          !s.from_macro || s.offset != expansion.start
+        })
+      {
+        return None;
+      }
+      let mut proof = String::from("{ ");
+      for token in &packet.observed_tokens[first..=last] {
+        if proof.len().checked_add(token.len())?.checked_add(3)? > 4 * 1024 * 1024 {
+          return None;
+        }
+        proof.push_str(token);
+        proof.push(' ');
+      }
+      proof.push('}');
+      let Some(replacement) = native_generator_statement(proof, arguments) else {
+        continue;
+      };
+      let buffer = packet.definitions.get(anchor.buffer)?;
+      let definition_span = definition_spans
+        .entry((anchor.buffer, anchor.name_offset))
+        .or_insert_with(|| {
+          let parsed = vorpal_language::SupportLang::Cpp.grep(&buffer.source);
+          let root = parsed.root();
+          let node = root
+            .dfs()
+            .find(|n| {
+              n.kind().as_ref() == "preproc_function_def"
+                && n
+                  .field("name")
+                  .is_some_and(|name| name.range().start == anchor.name_offset)
+            });
+          node.map(|n| n.range())
+        })
+        .as_ref()?
+        .clone();
+      evidence.bindings.push(Binding {
+        active: expansion.start..expansion.end,
+        definition: StatementMacro {
+          name: expansion.name.clone(),
+          parameters: anchor.parameters,
+          definition_path: buffer.path.clone(),
+          definition_span,
+          replacement: std::sync::Arc::new(replacement),
+        },
+      });
+    }
+    Some(())
+  }
+
   fn parse_without_context(
     config: &CompilerCommand,
     path: &Path,
@@ -343,8 +505,9 @@ mod native {
       complete: packet.complete,
       volatile_inputs: packet.volatile_inputs,
     };
-    let (evidence, ranges) =
+    let (mut evidence, ranges) =
       crate::cpp_macro_compiler_audit::prepare_evidence(path, source, &observation).ok()?;
+    add_native_generators(source, &packet, &mut evidence)?;
     let bindings: std::collections::BTreeMap<_, _> = evidence
       .bindings
       .iter()

@@ -221,6 +221,8 @@ def main():
               "observedContext": digest(json.dumps([r for r in rows if r["kind"] == "compiler_context"], sort_keys=True).encode()),
               "nativeBefore": before, "nativeAfter": after,
               "observedTokens": [r["spelling"] for r in rows if r["kind"] == "root_token"],
+              "observedTokenSites": [{"offset": r["offset"], "fromMacro": r["from_macro"]}
+                                     for r in rows if r["kind"] == "root_token"],
               "nativeDirectives": sorted(set(directives + after_directives)),
               "definitions": definitions, "expansions": outer,
               "expandedNames": sorted({r["name"] for r in records}), "calleeSites": list(callees.values())}

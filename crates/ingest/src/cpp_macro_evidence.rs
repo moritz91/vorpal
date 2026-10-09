@@ -36,6 +36,7 @@ pub(crate) struct StatementReplacement {
   source: String,
   substitutions: Vec<(Range<usize>, usize)>,
   native_operators: Vec<NativeOperator>,
+  pub(crate) native_arguments: Option<Vec<String>>,
   pub(crate) requires_semicolon: bool,
 }
 
@@ -54,6 +55,7 @@ enum NativePiece {
 impl StatementReplacement {
   #[cfg(feature = "builtin-parser")]
   pub(crate) fn runtime_parameters(&self, count: usize) -> Option<BTreeSet<usize>> {
+    if self.native_arguments.is_some() { return Some(BTreeSet::new()); }
     // This is an ephemeral proof document. No substituted source or generated
     // definition can enter a product. Ignored/unevaluated parameters are not
     // evidence that an original argument call executes.
@@ -75,6 +77,9 @@ impl StatementReplacement {
 
   #[cfg(feature = "builtin-parser")]
   pub(crate) fn instantiate(&self, arguments: &[&str]) -> Option<String> {
+    if let Some(expected) = &self.native_arguments {
+      return arguments.iter().copied().eq(expected.iter().map(String::as_str)).then(|| self.source.clone());
+    }
     if !self.native_operators.is_empty() {
       return native_operators::instantiate(self, arguments);
     }
@@ -1360,6 +1365,7 @@ pub(crate) fn statement_replacement(
     source,
     substitutions,
     native_operators: Vec::new(),
+    native_arguments: None,
     requires_semicolon,
   })
 }
@@ -1373,6 +1379,16 @@ pub(crate) fn native_statement_replacement(
 ) -> Option<StatementReplacement> {
   statement_replacement(replacement, parameters)
     .or_else(|| native_operators::prepare(replacement, parameters))
+}
+
+/// Fully expanded native tokens are a syntax proof for this exact invocation,
+/// not a replacement translation unit or a reusable macro definition.
+#[cfg(feature = "builtin-parser")]
+pub(crate) fn native_generator_statement(source: String, arguments: Vec<String>) -> Option<StatementReplacement> {
+  complete_statement(&source).then_some(StatementReplacement {
+    source, substitutions: Vec::new(), native_operators: Vec::new(),
+    native_arguments: Some(arguments), requires_semicolon: false,
+  })
 }
 
 // Parse an opaque replacement only to identify possible effects, never to expand

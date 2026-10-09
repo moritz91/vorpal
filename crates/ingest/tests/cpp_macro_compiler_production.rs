@@ -6,6 +6,110 @@ use vorpal_ingest::{ExtractionEnv, OutlineExtractor, encode_product_into};
 
 const SOURCE: &str = "#include <unknown-sdk.h>\nvoid run() { CHECK(value())\nafter(); }\n#undef CHECK\nvoid CHECK(int);\nvoid ordinary() { CHECK(other()); }\nvoid value() {}\nvoid after() {}\nvoid other() {}\n";
 
+
+#[test]
+fn native_x_generators_use_exact_fresh_token_sites_in_direct_blocks() {
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "void run() { CHECK(DISPATCH)\nafter(); }\n#undef CHECK\nvoid ordinary() { CHECK(other()); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(X) X(First) X(Second)\n#define DISPATCH(T) if(ready) { consume<T>(); }\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "x-generator-offset",
+      "x-generator-origin",
+      "x-generator-length",
+      "x-generator-unclosed",
+      "x-generator",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(product.error_nodes == 0, mode == "x-generator", "{mode}");
+      if mode == "x-generator" {
+        assert!(
+          !product
+            .refs
+            .iter()
+            .any(|r| ["DISPATCH", "first", "second", "consume"].contains(&r.name.as_str()))
+        );
+        for name in ["after", "other"] {
+          let call = product
+            .refs
+            .iter()
+            .find(|r| r.kind == 0 && r.name == name)
+            .unwrap();
+          assert_eq!(
+            &source[call.start as usize..call.end as usize],
+            format!("{name}()")
+          );
+        }
+        assert_eq!(
+          product
+            .refs
+            .iter()
+            .filter(|r| r.kind == 0 && r.name == "CHECK")
+            .count(),
+          1
+        );
+        let mut owned = Vec::new();
+        encode_product_into(&product, &mut owned);
+        let mut streamed = Vec::new();
+        extractor
+          .extract_product_encoded(
+            path.to_str().unwrap(),
+            &source,
+            product.source_size,
+            product.source_mtime_ns,
+            &mut streamed,
+          )
+          .unwrap();
+        assert_eq!(owned, streamed);
+        use vorpal_core::tree_sitter::LanguageExt;
+        let raw =
+          vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+        let handed = extractor
+          .extract_product_from_root(path.to_str().unwrap(), &raw)
+          .unwrap();
+        let mut encoded = Vec::new();
+        encode_product_into(&handed, &mut encoded);
+        assert_eq!(owned, encoded);
+      }
+    }
+    assert_eq!(
+      extractor.extraction_identity_for_path(path.to_str().unwrap()),
+      None
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+    // A generated statement list is not one statement inside a control arm.
+    let source = "void run() { if (ready) CHECK(DISPATCH)\nafter(); }\n";
+    fs::write(&path, source).unwrap();
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), source)
+      .unwrap();
+    assert!(product.error_nodes > 0);
+    for invalid in [
+      "void run() { CHECK(DISPATCH), after() }\n",
+      "void run() { CHECK(DISPATCH)\nafter() }\n",
+    ] {
+      fs::write(&path, invalid).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), invalid)
+        .unwrap();
+      assert!(product.error_nodes > 0);
+    }
+  }
+}
+
 #[test]
 fn fresh_native_stringification_and_pasting_keep_original_names_and_arguments() {
     for newline in ["\n", "\r\n"] {

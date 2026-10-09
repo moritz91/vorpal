@@ -318,7 +318,8 @@ fn parse_with_evidence(
           {
             return None;
           }
-          if evidence.contains_expanding_tokens(&source[next..end]) {
+          if definition.replacement.native_arguments.is_none()
+            && evidence.contains_expanding_tokens(&source[next..end]) {
             return None;
           }
           let arguments = validated_arguments(&source[next..end], definition.parameters)?;
@@ -730,7 +731,7 @@ fn argument_end(source: &str, start: usize, protected: &ProtectedSpans) -> Optio
   None
 }
 
-fn validated_arguments(arguments: &str, parameters: usize) -> Option<Vec<String>> {
+pub(crate) fn validated_arguments(arguments: &str, parameters: usize) -> Option<Vec<String>> {
   let source = format!("void proof() {{ probe{arguments}; }}");
   let parsed = SupportLang::Cpp.grep(&source);
   let root = parsed.root();
