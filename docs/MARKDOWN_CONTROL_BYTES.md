@@ -20,7 +20,12 @@ python3 scripts/patch_markdown_nul_grammar.py
 
 The script is byte-idempotent and rejects an unexpected lexer layout. ABI,
 grammar rules, node kinds and schemas are unchanged; only Markdown provenance
-changes. The grammar digest invalidates products made with the old parser.
+changes. The builtin `markdown-physical-nul-v1` behavior revision extends the
+structural grammar digest, which alone cannot detect a lexer-only change.
+Product replay, injection hosts, the whole-tree manifest stamp and remote parity
+use that revision. Frozen pre-fix loose and packed products are migrated even
+when source stats are unchanged; unrelated products replay and the resulting
+generation equals a scratch build.
 
 Windows/Linux regressions cover UTF-8, LF/CRLF, consecutive NULs, control-byte
 fence diagrams, headings following fences, plain/code/HTML/link inline content,
@@ -32,8 +37,8 @@ eight existing Wiki-link/tag extension mismatches; comparison with the exact
 pre-change HEAD shows the same eight failures and no new mismatch.
 
 In the isolated normal Hades MCP, all three affected Markdown guide files are
-now parse-clean. With the native generator fixes, total health is five affected
-files / 56 diagnostics / 596 diagnostic bytes. Three files are glTF textual
-include chunks needing shared context; the others are Catch2 and one stb
-modifier site. Hades sources, productive binaries and productive MCP remain
+now parse-clean. With the native generator fixes, total health is four affected
+files / 55 diagnostics / 593 diagnostic bytes. Three files are glTF textual
+include chunks needing shared context; the other is Catch2. Hades sources,
+productive binaries and productive MCP remain
 unchanged.

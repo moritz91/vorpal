@@ -3,7 +3,7 @@
 //! Agent-mode matches are trustworthy only if the node's tree-sitter grammars behave exactly like
 //! the coordinator's. The fingerprint is a `blake3` digest over each language's observable grammar
 //! surface — name, ABI version, the full node-kind table (with namedness), and the full field
-//! table — plus the crate version and wire protocol. Two builds that disagree on any of those can
+//! table and builtin behavior revisions — plus the crate version and wire protocol. Two builds that disagree on any of those can
 //! produce different trees, so the coordinator refuses (or demotes to streaming) on mismatch;
 //! matching fingerprints plus the exact-version gate make silent divergence structurally hard.
 //!
@@ -11,7 +11,7 @@
 //! handshake carries the built-in fingerprint and the job carries the post-`LangEnv` one.
 
 use crate::lang::SgLang;
-use vorpal_language::{GrammarSurfaceEvent, LanguageExt, grammar_surface};
+use vorpal_language::{GrammarSurfaceEvent, LanguageExt, grammar_behavior_revision, grammar_surface};
 
 /// Fingerprint of every currently registered language (builtins + any registered customs).
 pub fn grammar_fingerprint() -> [u8; 32] {
@@ -46,7 +46,7 @@ fn fingerprint_langs(mut langs: Vec<SgLang>) -> [u8; 32] {
     // surfaces. The v1 byte framing is preserved exactly — it writes the FIELD COUNT
     // between the kind and field loops, so that write is deferred until the first field
     // event (or the walk's end for zero-field grammars). Metadata/parse-state events are
-    // unused here, as in v1. Pinned byte-for-byte by the legacy-equality test below.
+    // unused here, as in v1. Unpatched languages retain that historical framing.
     let mut pending_field_count: Option<u64> = None;
     grammar_surface(&ts, |event| match event {
       GrammarSurfaceEvent::Abi(abi) => {
@@ -79,6 +79,13 @@ fn fingerprint_langs(mut langs: Vec<SgLang>) -> [u8; 32] {
     if let Some(count) = pending_field_count {
       hasher.update(&count.to_le_bytes());
     }
+    if let SgLang::Builtin(builtin) = lang
+      && let Some(revision) = grammar_behavior_revision(builtin)
+    {
+      hasher.update(b"\nbehavior/v1\n");
+      hasher.update(&(revision.len() as u64).to_le_bytes());
+      hasher.update(revision);
+    }
   }
   *hasher.finalize().as_bytes()
 }
@@ -87,8 +94,8 @@ fn fingerprint_langs(mut langs: Vec<SgLang>) -> [u8; 32] {
 mod tests {
   use super::*;
 
-  /// The pre-F-M0 v1 loop, verbatim — the wire value must not move under the shared-surface
-  /// refactor (agents advertise it in Welcome; a drift would refuse every fleet handshake).
+  /// The pre-patch v1 loop: structural framing remains unchanged, but a builtin behavior
+  /// patch must make a different binary refuse an otherwise identical fleet handshake.
   fn legacy_fingerprint_langs(mut langs: Vec<SgLang>) -> [u8; 32] {
     langs.sort_by_key(|l| l.to_string());
     let mut hasher = blake3::Hasher::new();
@@ -122,12 +129,17 @@ mod tests {
   }
 
   #[test]
-  fn shared_surface_fingerprint_is_byte_identical_to_v1() {
+  fn unaffected_fingerprints_stay_v1_and_markdown_behavior_invalidates_parity() {
+    let unaffected: Vec<_> = SgLang::all_langs().into_iter()
+      .filter(|lang| !matches!(lang, SgLang::Builtin(vorpal_language::SupportLang::Markdown)))
+      .collect();
     assert_eq!(
-      fingerprint_langs(SgLang::all_langs()),
-      legacy_fingerprint_langs(SgLang::all_langs()),
-      "wire fingerprint moved under the F-M0 refactor"
+      fingerprint_langs(unaffected.clone()),
+      legacy_fingerprint_langs(unaffected),
+      "unrelated grammar fingerprints moved"
     );
+    assert_ne!(fingerprint_langs(SgLang::all_langs()), legacy_fingerprint_langs(SgLang::all_langs()),
+      "identical structural tables cannot hide different Markdown lexer behavior");
   }
 
   #[test]

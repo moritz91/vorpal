@@ -77,7 +77,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - shell: pwsh
         run: |
-          cargo test --locked -p vorpal-index --no-default-features --test cpp_member_calls --test path_prefix --test path_suffix --test resolution_eval --test cpp_macro_replay --test cpp_macro_compiler --test parse_health_paths
+          cargo test --locked -p vorpal-index --no-default-features --test cpp_member_calls --test path_prefix --test path_suffix --test resolution_eval --test cpp_macro_replay --test cpp_macro_compiler --test parse_health_paths --test markdown_replay
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-mcp --test protocol prefix
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
