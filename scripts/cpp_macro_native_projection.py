@@ -6,7 +6,26 @@ external_header identifiers, malformed transitions and literal payload remain
 conservative boundaries. Caller-provided offsets come from lexing the full output.
 """
 import json
+import hashlib
 import re
+
+
+def validated_hash_offsets(observation, data):
+    if (not isinstance(observation, dict)
+            or set(observation) != {'kind', 'version', 'bytes', 'sha256', 'offsets'}
+            or observation['kind'] != 'native_hash_offsets'
+            or type(observation['version']) is not int or observation['version'] != 1
+            or type(observation['bytes']) is not int or observation['bytes'] != len(data)
+            or not isinstance(observation['sha256'], str)
+            or observation['sha256'].lower() != hashlib.sha256(data).hexdigest()):
+        raise ValueError('native hash lexer buffer identity differs')
+    offsets = observation['offsets']
+    if (not isinstance(offsets, list) or len(offsets) > 1048576
+            or any(type(offset) is not int or not 0 <= offset < len(data)
+                   or data[offset] != ord('#') for offset in offsets)
+            or offsets != sorted(set(offsets))):
+        raise ValueError('native hash lexer offsets are invalid')
+    return set(offsets)
 
 
 def project_root(data, directive_offsets, source, physical, authored_external_header=False):

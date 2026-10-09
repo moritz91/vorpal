@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 import time
-from cpp_macro_native_projection import project_root
+from cpp_macro_native_projection import project_root, validated_hash_offsets
 
 
 def digest(data):
@@ -39,6 +39,8 @@ def main():
     parser.add_argument("--python-bindings", required=True)
     parser.add_argument("--compiler", default="cl.exe")
     parser.add_argument("--msvc-version", default="19.44")
+    parser.add_argument("--native-hash-lexer", action="store_true",
+                        help="use the matching observer's raw lexer for full-stream hash offsets")
     args = parser.parse_args()
     ready = Path(os.environ["VORPAL_CPP_COMPILER_READY"])
     deadline = time.monotonic() + 10
@@ -106,16 +108,22 @@ def main():
 
     def native_tokens(file, label):
         data = file.read_bytes()
-        virtual = str(scratch / (label + "-full.cc"))
         index = cindex.Index.create()
-        tu = index.parse(virtual, args=["-std=c++20", "-fms-extensions"],
-                         unsaved_files=[(virtual, data.decode("utf-8"))],
-                         options=cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES)
-        tokens = tu.get_tokens(extent=tu.get_extent(virtual, (0, len(data))))
         # A fake #line inside a raw string is payload. Lex the complete native
         # output BEFORE interpreting markers, so physical token boundaries govern.
-        directive_offsets = {t.location.offset for t in tokens
-                             if t.kind == cindex.TokenKind.PUNCTUATION and t.spelling == "#"}
+        if args.native_hash_lexer:
+            hashes = scratch / (label + "-hashes.json")
+            run([args.observer, "--native-hash-offsets", str(file)], hashes,
+                scratch / (label + "-hashes.stderr"))
+            directive_offsets = validated_hash_offsets(load(hashes), data)
+        else:
+            virtual = str(scratch / (label + "-full.cc"))
+            tu = index.parse(virtual, args=["-std=c++20", "-fms-extensions"],
+                             unsaved_files=[(virtual, data.decode("utf-8"))],
+                             options=cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES)
+            tokens = tu.get_tokens(extent=tu.get_extent(virtual, (0, len(data))))
+            directive_offsets = {t.location.offset for t in tokens
+                                 if t.kind == cindex.TokenKind.PUNCTUATION and t.spelling == "#"}
         inputs, resolved_paths = set(), {}
 
         def input_path(path):

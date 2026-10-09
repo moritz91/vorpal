@@ -1,9 +1,10 @@
 import pathlib
+import hashlib
 import sys
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from cpp_macro_native_projection import project_root
+from cpp_macro_native_projection import project_root, validated_hash_offsets
 
 
 class NativeProjection(unittest.TestCase):
@@ -49,6 +50,20 @@ class NativeProjection(unittest.TestCase):
         data = b'#line 1 "root.cc"\n \t\v\f#pragma external_header(push)\n#line 1 "sdk.h"\n\t#pragma external_header(pop)\n#line 2 "root.cc"\nint after;\n'
         offsets = {data.index(b'#', start) for start in [0, data.index(b' \t'), data.index(b'#line 1 "sdk'), data.index(b'\t#pragma'), data.index(b'#line 2')]}
         self.assertEqual(self.project(data, offsets), b'int after;\n')
+
+    def test_native_hash_packet_requires_exact_buffer_identity_and_bounded_offsets(self):
+        data = b'#line 1 "root.cc"\n'
+        packet = {'kind': 'native_hash_offsets', 'version': 1, 'bytes': len(data),
+                  'sha256': hashlib.sha256(data).hexdigest().upper(), 'offsets': [0]}
+        self.assertEqual(validated_hash_offsets(packet, data), {0})
+        for update in [{'version': True}, {'bytes': len(data)+1}, {'sha256': None},
+                       {'sha256': '0'*64}, {'offsets': [0, 0]}, {'offsets': [True]},
+                       {'offsets': [-1]}, {'offsets': [len(data)]}, {'offsets': [1]},
+                       {'unexpected': 'field'}]:
+            with self.assertRaises(ValueError):
+                validated_hash_offsets({**packet, **update}, data)
+        with self.assertRaises(ValueError):
+            validated_hash_offsets(packet, data+b'int changed;')
 
 
 if __name__ == '__main__':

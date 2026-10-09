@@ -34,7 +34,7 @@ The bundled provider recognizes only balanced MSVC external-header diagnostic
 frames at physical lexer hashes and matching nested file transitions. Original
 marker inputs are read afresh under explicit count/byte limits; any authored
 `external_header` spelling, unavailable input or malformed frame disables proof.
-Unknown directives and raw-literal payload remain intact. Five stdlib projection
+Unknown directives and raw-literal payload remain intact. Six stdlib projection
 controls pass on Windows/Linux, including indented hashes and vertical whitespace.
 Real native LF/CRLF, nested external headers, authored-header and unknown-pragma
 controls pass; an external-header spelling inside a literal conservatively
@@ -53,6 +53,16 @@ proof replay. Original native tokens/definitions/anchors/callees are unchanged
 in the registry and large Lua controls, and native-only quiet-header invalidation
 still passes. More latency headroom remains desirable. The installed `.2` WSL
 tunnel has not been changed or given compiler recovery.
+
+An explicit `--native-hash-lexer` provider option now uses the matching observer's
+raw lexer for full-native-stream hash boundaries. All sixteen captured native
+streams have exactly the same physical offsets as independent CIndex tokenization.
+The driver validates full buffer identity and bounded offsets; CIndex root token
+agreement and fresh native before/after capture remain. The isolated release WSL
+proxy with a normal 30-second transport reproduces the same health at 21.88 / 17.04
+seconds and a stable generation. Native LF/CRLF, unknown/authored directive and
+MSVC-only quiet-header edit/restoration controls still pass. This option requires
+the rebuilt observer and does not create a native replay cache.
 LLVM developer tools are explicit local prerequisites, not release assets.
 Remaining unsupported directives/macros and genuine source errors stay visible.
 

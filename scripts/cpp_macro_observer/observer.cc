@@ -245,8 +245,46 @@ class ObserveAction : public PreprocessorFrontendAction {
     } while (token.isNot(tok::eof));
   }
 };
+
+// Lex an already captured native stream only for physical hash boundaries. No
+// preprocessing, include resolution or semantic parse occurs in this mode.
+int nativeHashOffsets(const char *path) {
+  auto input = llvm::MemoryBuffer::getFile(path);
+  if (!input || (*input)->getBufferSize() > 128 * 1024 * 1024) return 1;
+  auto buffer = llvm::MemoryBuffer::getMemBufferCopy((*input)->getBuffer(), path);
+  auto bytes = buffer->getBufferSize();
+  auto digest = hash(buffer->getBuffer());
+  CompilerInstance ci;
+  ci.createDiagnostics();
+  ci.createFileManager();
+  ci.createSourceManager(ci.getFileManager());
+  auto &options = ci.getLangOpts();
+  options.CPlusPlus = options.CPlusPlus11 = options.CPlusPlus14 = true;
+  options.CPlusPlus17 = options.CPlusPlus20 = true;
+  options.MicrosoftExt = options.LineComment = options.Digraphs = true;
+  auto &sm = ci.getSourceManager();
+  auto file = sm.createFileID(std::move(buffer));
+  Lexer lexer(file, sm.getBufferOrFake(file), sm, options);
+  lexer.SetCommentRetentionState(false);
+  llvm::json::Array offsets;
+  Token token;
+  do {
+    lexer.LexFromRawLexer(token);
+    if (token.is(tok::hash)) {
+      auto offset = sm.getFileOffset(token.getLocation());
+      // Match the CIndex spelling-based control: digraphs are not #line text.
+      if (sm.getBufferData(file)[offset] == '#') offsets.push_back(int64_t(offset));
+      if (offsets.size() > 1048576) return 1;
+    }
+  } while (token.isNot(tok::eof));
+  emit(llvm::json::Object{{"kind", "native_hash_offsets"}, {"version", 1},
+    {"bytes", int64_t(bytes)}, {"sha256", digest}, {"offsets", std::move(offsets)}});
+  return 0;
+}
 int main(int argc, char **argv) {
   if (argc < 2) return 2;
+  if (argc == 3 && std::string(argv[1]) == "--native-hash-offsets")
+    return nativeHashOffsets(argv[2]);
   std::vector<std::string> args{VORPAL_CLANG_DRIVER, "--driver-mode=cl"};
   for (int i = 1; i < argc; ++i) args.emplace_back(argv[i]);
   auto fs = llvm::makeIntrusiveRefCnt<ObservedFS>();

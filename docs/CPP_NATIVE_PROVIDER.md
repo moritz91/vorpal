@@ -27,6 +27,7 @@ cppMacroCompiler:
     - C:/tools/llvm19/bin/libclang.dll
     - --python-bindings
     - C:/tools/llvm19-python
+    - --native-hash-lexer
   directory: C:/dev/project
   translationUnits: [C:/dev/project/tests/main.cc]
   timeoutSeconds: 60
@@ -79,6 +80,16 @@ need hash-spelling queries; literal contents never become directive offsets.
 The observer copies filesystem buffers into owned memory before reusing their
 digests by SourceManager FileID within one fresh preprocessing action. Neither
 memo survives into another stream/action/capture or authorizes product replay.
+
+`--native-hash-lexer` is an explicit optimization requiring a rebuilt matching
+observer. Its `--native-hash-offsets` mode raw-lexes the already captured native
+stream as C++20/MS extensions, without preprocessing, includes or semantic
+parsing. Only actual physical `#` tokens are emitted; the driver verifies the
+entire buffer SHA-256, byte length and bounded unique ordered offsets before
+projection. CIndex still independently tokenizes the projected root for native
+before/after/observed token agreement. Omitting the option retains the CIndex
+full-stream path; a failed selected raw-lexer run declines the capture. Six
+stdlib integrity/projection controls run on Windows/Linux CI/release gates.
 
 ## Provider protocol v1
 
