@@ -163,6 +163,8 @@ mod native {
     native_directives: Vec<String>,
     definitions: Vec<Buffer>,
     expansions: Vec<Site>,
+    #[serde(default)]
+    literal_arguments: Vec<Site>,
     expanded_names: BTreeSet<String>,
     callee_sites: Vec<Callee>,
   }
@@ -471,6 +473,153 @@ mod native {
     Some(())
   }
 
+  fn refine_native_literal_arguments(
+    source: &str,
+    packet: &Packet,
+    evidence: &mut crate::cpp_macro_evidence::Evidence,
+  ) -> Option<()> {
+    use vorpal_core::tree_sitter::LanguageExt;
+    use vorpal_language::SupportLang;
+    if packet.literal_arguments.is_empty() {
+      return Some(());
+    }
+    if packet.literal_arguments.len() > 16384 {
+      return None;
+    }
+    let parsed = SupportLang::Cpp.grep(source);
+    let root = parsed.root();
+    let identifiers: BTreeSet<_> = root
+      .dfs()
+      .filter(|n| n.kind().as_ref() == "identifier")
+      .map(|n| (n.range().start, n.range().end))
+      .collect();
+    let mut literals = std::collections::BTreeMap::new();
+    let mut templates = std::collections::BTreeMap::new();
+    for site in &packet.literal_arguments {
+      let anchor = site.definition.as_ref()?;
+      if anchor.parameters != 0
+        || !identifiers.contains(&(site.start, site.end))
+        || source.get(site.start..site.end)? != site.name
+        || !packet.expanded_names.contains(&site.name)
+        || !packet
+          .callee_sites
+          .iter()
+          .any(|c| c.start == site.start && c.name == site.name)
+      {
+        return None;
+      }
+      let buffer = packet.definitions.get(anchor.buffer)?;
+      let value = templates
+        .entry((
+          anchor.buffer,
+          anchor.name_offset,
+          anchor.end,
+          site.name.clone(),
+        ))
+        .or_insert_with(|| {
+          let parsed = SupportLang::Cpp.grep(&buffer.source);
+          let definition = parsed.root().dfs().find(|n| {
+            n.kind().as_ref() == "preproc_def"
+              && n
+                .field("name")
+                .is_some_and(|n| n.range().start == anchor.name_offset && n.text() == site.name)
+          })?;
+          let value = definition.field("value")?;
+          let text = value.text().trim().to_owned();
+          if value.range().start.checked_add(text.len())? != anchor.end || text.len() > 128 {
+            return None;
+          }
+          let proof = SupportLang::Cpp.grep(format!("void proof() {{ auto value = ({text}); }}"));
+          let root = proof.root();
+          let values: Vec<_> = root
+            .dfs()
+            .filter(|n| n.kind().as_ref() == "number_literal")
+            .collect();
+          (!root.has_error() && values.len() == 1 && values[0].text() == text).then_some(text)
+        })
+        .as_ref()?
+        .clone();
+      if literals.insert(site.start, (site.end, value)).is_some() {
+        return None;
+      }
+    }
+    if literals
+      .iter()
+      .zip(literals.iter().skip(1))
+      .any(|((_, (end, _)), (start, _))| end > start)
+    {
+      return None;
+    }
+    let calls: std::collections::BTreeMap<_, _> = root
+      .dfs()
+      .filter(|n| n.kind().as_ref() == "call_expression")
+      .filter_map(|n| Some((n.field("function")?.range().start, n)))
+      .collect();
+    // Work from the independently proven direct template. A numeric object-like
+    // expansion cannot stringify/ignore calls or manufacture unevaluated syntax.
+    // All other nested effects stay opaque, even if their final syntax is valid.
+    for index in 0..evidence.bindings.len() {
+      let binding = &evidence.bindings[index];
+      if binding.definition.replacement.native_arguments.is_some() {
+        continue;
+      }
+      let Some(call) = calls.get(&binding.active.start) else {
+        continue;
+      };
+      let Some(arguments) = call
+        .field("arguments")
+        .filter(|n| n.range().end == binding.active.end)
+      else {
+        continue;
+      };
+      let range = arguments.range();
+      let parts: Vec<_> = literals.range(range.clone()).collect();
+      if parts.is_empty() {
+        continue;
+      }
+      let mut proof_arguments = String::new();
+      let mut cursor = range.start;
+      for (&start, (end, value)) in parts {
+        if *end > range.end || start < cursor {
+          return None;
+        }
+        proof_arguments.push_str(source.get(cursor..start)?);
+        proof_arguments.push_str(value);
+        cursor = *end;
+      }
+      proof_arguments.push_str(source.get(cursor..range.end)?);
+      if evidence.contains_expanding_tokens(&proof_arguments) {
+        continue;
+      }
+      let original = crate::cpp_macro_recovery::validated_arguments(
+        &arguments.text(),
+        binding.definition.parameters,
+      )?;
+      let expanded = crate::cpp_macro_recovery::validated_arguments(
+        &proof_arguments,
+        binding.definition.parameters,
+      )?;
+      let Some(proof) = binding
+        .definition
+        .replacement
+        .instantiate(&expanded.iter().map(String::as_str).collect::<Vec<_>>())
+      else {
+        continue;
+      };
+      if evidence.contains_expanding_tokens(&proof) {
+        continue;
+      }
+      if let Some(replacement) = crate::cpp_macro_evidence::native_literal_statement(
+        &binding.definition.replacement,
+        proof,
+        original,
+      ) {
+        evidence.bindings[index].definition.replacement = std::sync::Arc::new(replacement);
+      }
+    }
+    Some(())
+  }
+
   fn function_prefix_sites(
     packet: &Packet,
     root: &crate::ParsedRoot,
@@ -661,6 +810,7 @@ mod native {
     let (mut evidence, ranges) =
       crate::cpp_macro_compiler_audit::prepare_evidence(path, source, &observation).ok()?;
     add_native_generators(source, &packet, &mut evidence)?;
+    refine_native_literal_arguments(source, &packet, &mut evidence)?;
     let bindings: std::collections::BTreeMap<_, _> = evidence
       .bindings
       .iter()

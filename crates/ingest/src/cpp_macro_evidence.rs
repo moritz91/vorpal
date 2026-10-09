@@ -37,6 +37,7 @@ pub(crate) struct StatementReplacement {
   substitutions: Vec<(Range<usize>, usize)>,
   native_operators: Vec<NativeOperator>,
   pub(crate) native_arguments: Option<Vec<String>>,
+  native_runtime_parameters: Option<BTreeSet<usize>>,
   pub(crate) requires_semicolon: bool,
 }
 
@@ -55,30 +56,59 @@ enum NativePiece {
 impl StatementReplacement {
   #[cfg(feature = "builtin-parser")]
   pub(crate) fn runtime_parameters(&self, count: usize) -> Option<BTreeSet<usize>> {
-    if self.native_arguments.is_some() { return Some(BTreeSet::new()); }
+    if let Some(arguments) = &self.native_arguments {
+      return (arguments.len() == count)
+        .then(|| self.native_runtime_parameters.clone())
+        .flatten();
+    }
     // This is an ephemeral proof document. No substituted source or generated
     // definition can enter a product. Ignored/unevaluated parameters are not
     // evidence that an original argument call executes.
-    let names: Vec<_> = (0..count).map(|i| format!("vorpalProofArgument{i}")).collect();
+    let names: Vec<_> = (0..count)
+      .map(|i| format!("vorpalProofArgument{i}"))
+      .collect();
     if names.iter().any(|name| self.source.contains(name)) {
       return None;
     }
     let arguments: Vec<_> = names.iter().map(String::as_str).collect();
     let instantiated = self.instantiate(&arguments)?;
     let parsed = SupportLang::Cpp.grep(format!("void proof() {{ {instantiated} }}"));
-    Some(parsed.root().dfs().filter(|n| n.children().next().is_none())
-      .filter(|n| !n.ancestors().any(|p| matches!(p.kind().as_ref(),
-        "sizeof_expression" | "alignof_expression" | "decltype" | "noexcept"
-        | "requires_expression" | "type_descriptor" | "static_assert_declaration"
-        | "string_literal" | "raw_string_literal" | "char_literal" | "comment")))
-      .filter_map(|n| names.iter().position(|name| n.text().as_ref() == name))
-      .collect())
+    Some(
+      parsed
+        .root()
+        .dfs()
+        .filter(|n| n.children().next().is_none())
+        .filter(|n| {
+          !n.ancestors().any(|p| {
+            matches!(
+              p.kind().as_ref(),
+              "sizeof_expression"
+                | "alignof_expression"
+                | "decltype"
+                | "noexcept"
+                | "requires_expression"
+                | "type_descriptor"
+                | "static_assert_declaration"
+                | "string_literal"
+                | "raw_string_literal"
+                | "char_literal"
+                | "comment"
+            )
+          })
+        })
+        .filter_map(|n| names.iter().position(|name| n.text().as_ref() == name))
+        .collect(),
+    )
   }
 
   #[cfg(feature = "builtin-parser")]
   pub(crate) fn instantiate(&self, arguments: &[&str]) -> Option<String> {
     if let Some(expected) = &self.native_arguments {
-      return arguments.iter().copied().eq(expected.iter().map(String::as_str)).then(|| self.source.clone());
+      return arguments
+        .iter()
+        .copied()
+        .eq(expected.iter().map(String::as_str))
+        .then(|| self.source.clone());
     }
     if !self.native_operators.is_empty() {
       return native_operators::instantiate(self, arguments);
@@ -429,9 +459,10 @@ fn intact_metadata_groups<D: vorpal_core::Doc>(
         let inverse_objc = keyword == "ifndef"
           && actual.get(&directive.span.start).is_some_and(|signature| {
             signature.kind == "preproc_ifdef"
-              && signature.fields.iter().any(|(field, _, text)| {
-                field == "name" && text == "__OBJC__"
-              })
+              && signature
+                .fields
+                .iter()
+                .any(|(field, _, text)| field == "name" && text == "__OBJC__")
           });
         let suffix = if inverse_objc {
           "#else\n#endif\n"
@@ -783,8 +814,7 @@ impl Audit {
       root
         .dfs()
         .filter(|node| {
-          node.kind().ends_with("identifier")
-            && !protected.contains(node.range().start)
+          node.kind().ends_with("identifier") && !protected.contains(node.range().start)
         })
         .map(|node| node.text().into_owned()),
     );
@@ -923,9 +953,9 @@ impl Audit {
     // An opaque boundary is irreversible for this audit. Metadata proof cannot
     // revive bindings after it, so do not reprove SDK groups on that dead path.
     let intact_groups = if !self.opaque_environment
-      && root.children().any(|n| {
-        n.has_error() && matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef")
-      })
+      && root
+        .children()
+        .any(|n| n.has_error() && matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef"))
     {
       intact_metadata_groups(source, &root)
     } else {
@@ -1043,7 +1073,10 @@ impl Audit {
             self.invalidate_environment(environment);
           }
         }
-        "preproc_ifdef" | "preproc_if" | "conditional_function_definition" | "function_definition"
+        "preproc_ifdef"
+        | "preproc_if"
+        | "conditional_function_definition"
+        | "function_definition"
           if if node.kind().as_ref() == "function_definition" {
             conditional_return_metadata(source, &node)
           } else if node.kind().as_ref() == "conditional_function_definition" {
@@ -1052,7 +1085,9 @@ impl Audit {
             // but must not hide damaged directives or expanding conditions.
             node.field("prefixes").is_some_and(|group| {
               !group.has_error()
-                && group.field("condition").is_some_and(|condition| nonexpanding_condition(&condition.text()))
+                && group
+                  .field("condition")
+                  .is_some_and(|condition| nonexpanding_condition(&condition.text()))
             }) && !node.dfs().any(|n| {
               n.is_error() && n.text().contains('#')
                 || n.has_error()
@@ -1062,7 +1097,9 @@ impl Audit {
           } else {
             (!node.has_error() || intact_groups.contains(&node.range().start))
               && (node.kind().as_ref() == "preproc_ifdef"
-                || node.field("condition").is_some_and(|condition| nonexpanding_condition(&condition.text())))
+                || node
+                  .field("condition")
+                  .is_some_and(|condition| nonexpanding_condition(&condition.text())))
           } =>
         {
           // Definedness and the admitted literal/logical conditions do not
@@ -1366,6 +1403,7 @@ pub(crate) fn statement_replacement(
     substitutions,
     native_operators: Vec::new(),
     native_arguments: None,
+    native_runtime_parameters: None,
     requires_semicolon,
   })
 }
@@ -1384,10 +1422,36 @@ pub(crate) fn native_statement_replacement(
 /// Fully expanded native tokens are a syntax proof for this exact invocation,
 /// not a replacement translation unit or a reusable macro definition.
 #[cfg(feature = "builtin-parser")]
-pub(crate) fn native_generator_statement(source: String, arguments: Vec<String>) -> Option<StatementReplacement> {
+pub(crate) fn native_generator_statement(
+  source: String,
+  arguments: Vec<String>,
+) -> Option<StatementReplacement> {
   complete_statement(&source).then_some(StatementReplacement {
-    source, substitutions: Vec::new(), native_operators: Vec::new(),
-    native_arguments: Some(arguments), requires_semicolon: false,
+    source,
+    substitutions: Vec::new(),
+    native_operators: Vec::new(),
+    native_arguments: Some(arguments),
+    native_runtime_parameters: Some(BTreeSet::new()),
+    requires_semicolon: false,
+  })
+}
+
+/// A direct statement with fresh literal-only nested argument effects. Retain
+/// the original evaluated-parameter mask and original semicolon requirement.
+#[cfg(feature = "builtin-parser")]
+pub(crate) fn native_literal_statement(
+  template: &StatementReplacement,
+  source: String,
+  arguments: Vec<String>,
+) -> Option<StatementReplacement> {
+  let mask = template.runtime_parameters(arguments.len())?;
+  complete_statement(&source).then_some(StatementReplacement {
+    source,
+    substitutions: Vec::new(),
+    native_operators: Vec::new(),
+    native_arguments: Some(arguments),
+    native_runtime_parameters: Some(mask),
+    requires_semicolon: template.requires_semicolon,
   })
 }
 

@@ -216,6 +216,27 @@ in the source. Ordinary same-name definitions after undef remain named owners.
 Nested, thread-local and panic-unwinding contexts restore the prior scanner role;
 default parsing and metadata-only parsing gain no generator authorization.
 
-The four input-test diagnostics involve `SDL_BUTTON_LEFT` inside `ASSERT`
-arguments, not `TEST` function heads. They require separate safe argument-expansion
-evidence; function-prefix support alone is not reported as clearing them.
+The former four input-test diagnostics involved `SDL_BUTTON_LEFT` inside `ASSERT`
+arguments, not `TEST` function heads. Function-prefix support alone did not clear
+them; the numeric argument evidence below does.
+
+## Numeric object macros inside native statement arguments
+
+The provider may report optional `literalArguments` physical sites, limited to
+object-like macros inside an anchored original function-like expansion. Each
+site carries the physical definition anchor and is revalidated against current
+header/source bytes. The parent requires an original identifier at that span and
+a definition consisting of one numeric literal. Other expressions, function-like
+effects, overlapping/duplicate sites and stale anchors decline this proof.
+
+Only the ephemeral argument proof substitutes that literal. Original source and
+argument spans remain unchanged, and any other expanding token still blocks
+argument recovery. The original statement template supplies the evaluated
+parameter mask and the original do/while semicolon requirement. Ignored or
+unevaluated calls remain omitted; ordinary evaluated argument calls keep their
+original ranges. This adds no replay permission.
+
+The fresh isolated Hades index and normal native MCP now have 10 error-bearing
+files / 240 diagnostics / 951 diagnostic bytes. The input tests are clean, and
+four original `GetMouseButtonState` call references are additionally resolved.
+The productive installed release and MCP remain unchanged.

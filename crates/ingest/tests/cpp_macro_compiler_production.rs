@@ -7,6 +7,109 @@ use vorpal_ingest::{ExtractionEnv, OutlineExtractor, encode_product_into};
 const SOURCE: &str = "#include <unknown-sdk.h>\nvoid run() { CHECK(value())\nafter(); }\n#undef CHECK\nvoid CHECK(int);\nvoid ordinary() { CHECK(other()); }\nvoid value() {}\nvoid after() {}\nvoid other() {}\n";
 
 #[test]
+fn nested_native_numeric_argument_macros_preserve_runtime_calls_and_original_semicolons() {
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "void run() { CHECK(value() + BUTTON)\nafter(); }\n#undef CHECK\nvoid ordinary() { CHECK(other()); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    let header = "#define CHECK(x) if(x) { consume(); }\n#define BUTTON 1\n";
+    fs::write(dir.path().join("proof.h"), header).unwrap();
+    for mode in [
+      "literal-argument-anchor",
+      "literal-argument-offset",
+      "literal-argument-duplicate",
+      "literal-argument",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "literal-argument",
+        "{mode}"
+      );
+      if mode == "literal-argument" {
+        for name in ["value", "after", "other"] {
+          let call = product
+            .refs
+            .iter()
+            .find(|r| r.kind == 0 && r.name == name)
+            .unwrap();
+          assert_eq!(
+            &source[call.start as usize..call.end as usize],
+            format!("{name}()")
+          );
+        }
+        assert!(
+          !product
+            .refs
+            .iter()
+            .any(|r| ["BUTTON", "consume"].contains(&r.name.as_str()) && r.kind == 0)
+        );
+      }
+    }
+    for replacement in ["sizeof", "(1)", "1 + 2"] {
+      fs::write(
+        dir.path().join("proof.h"),
+        header.replace("BUTTON 1", &format!("BUTTON {replacement}")),
+      )
+      .unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &source)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(x) do { consume(x); } while(0)\n#define BUTTON 1\n",
+    )
+    .unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    let terminated = source.replace("CHECK(value() + BUTTON)", "CHECK(value() + BUTTON);");
+    fs::write(&path, &terminated).unwrap();
+    assert_eq!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &terminated)
+        .unwrap()
+        .error_nodes,
+      0
+    );
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(x) { ignored(); }\n#define BUTTON 1\n",
+    )
+    .unwrap();
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && r.name == "value")
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+  }
+}
+
+#[test]
 fn native_function_head_generators_retain_anonymous_original_body_boundaries() {
   for newline in ["\n", "\r\n"] {
     let dir = tempfile::tempdir().unwrap();

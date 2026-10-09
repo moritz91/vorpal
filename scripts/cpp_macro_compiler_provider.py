@@ -7,6 +7,7 @@ The launcher owns this process tree and its timeout. LLVM/python dependencies ar
 explicit local paths; this script does not download tools or alter the checkout.
 """
 import argparse
+from bisect import bisect_right
 import hashlib
 import json
 import os
@@ -179,7 +180,7 @@ def main():
     before, directives = native_tokens(before_file, "before")
     after, after_directives = native_tokens(after_file, "after")
     records = [r for r in rows if r["kind"] == "macro"]
-    definitions, buffers, expansions, callees = [], {}, [], {}
+    definitions, buffers, expansions, callees, literal_arguments = [], {}, [], {}, []
     for record in records:
         begin, end = record["begin"], record.get("end_exclusive", {})
         if begin["nested"] or not begin.get("path") or not end.get("path"):
@@ -193,7 +194,9 @@ def main():
         callees[start] = {"name": record["name"], "start": start}
         definition, definition_end = record.get("definition", {}), record.get("definition_end_exclusive", {})
         anchor = None
-        if record.get("function_like") and definition.get("path") and definition_end.get("path"):
+        literal = (not record.get("function_like") and len(record.get("replacement_tokens", [])) == 1
+                   and record["replacement_tokens"][0][:1].isdigit())
+        if (record.get("function_like") or literal) and definition.get("path") and definition_end.get("path"):
             header = Path(definition["path"]).resolve()
             if header.is_file() and Path(definition_end["path"]).resolve() == header:
                 data = header.read_bytes()
@@ -205,13 +208,23 @@ def main():
                 assert definitions[buffers[key]]["source"].encode() == data
                 anchor = {"buffer": buffers[key], "nameOffset": definition["offset"],
                           "end": definition_end["offset"], "parameters": record["parameters"]}
-        expansions.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
+        if literal and anchor is not None:
+            literal_arguments.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
+        expansions.append({"name": record["name"], "start": start, "end": stop,
+                           "definition": anchor if record.get("function_like") else None})
     outer = []
     for record in sorted(expansions, key=lambda r: (r["start"], -r["end"])):
         if outer and record["start"] < outer[-1]["end"]:
             assert record["end"] <= outer[-1]["end"]
         else:
             outer.append(record)
+    outer_starts = [r["start"] for r in outer]
+    def in_argument(record):
+        index = bisect_right(outer_starts, record["start"]) - 1
+        return (index >= 0 and outer[index]["definition"] is not None
+                and outer[index]["start"] < record["start"]
+                and record["end"] <= outer[index]["end"])
+    literal_arguments = [r for r in literal_arguments if in_argument(r)]
     assert source.read_bytes() == original and Path(args.plan).read_bytes() == plan_bytes
     assert all(Path(b["path"]).read_bytes() == b["source"].encode() for b in definitions)
     packet = {"version": 1, "requestId": request["requestId"], "path": request["path"], "source": request["source"],
@@ -224,7 +237,7 @@ def main():
               "observedTokenSites": [{"offset": r["offset"], "fromMacro": r["from_macro"]}
                                      for r in rows if r["kind"] == "root_token"],
               "nativeDirectives": sorted(set(directives + after_directives)),
-              "definitions": definitions, "expansions": outer,
+              "definitions": definitions, "expansions": outer, "literalArguments": literal_arguments,
               "expandedNames": sorted({r["name"] for r in records}), "calleeSites": list(callees.values())}
     encoded = json.dumps(packet, ensure_ascii=False).encode()
     if len(encoded) > 32 * 1024 * 1024:

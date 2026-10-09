@@ -85,7 +85,9 @@ fn compiler_provider_process() {
   let Ok(header) = fs::read_to_string(&header_path) else {
     process::exit(8);
   };
-  let invocation = if mode.starts_with("x-generator") {
+  let invocation = if mode.starts_with("literal-argument") {
+    "CHECK(value() + BUTTON)"
+  } else if mode.starts_with("x-generator") {
     "CHECK(DISPATCH)"
   } else if mode.starts_with("function-prefix") {
     "CHECK(42)"
@@ -111,6 +113,32 @@ fn compiler_provider_process() {
       "definition":{"buffer":0,"nameOffset":header.find("CHECK").unwrap(),"end":header.trim_end().len(),"parameters":1}}],
     "expandedNames":["CHECK"],"calleeSites":[{"name":"CHECK","start":start}]
   });
+  if mode.starts_with("literal-argument") {
+    let literal_start = source[start..].find("BUTTON").unwrap() + start;
+    packet["expansions"][0]["definition"]["end"] =
+      json!(header.lines().next().unwrap().trim_end().len());
+    packet["expandedNames"] = json!(["CHECK", "BUTTON"]);
+    packet["calleeSites"]
+      .as_array_mut()
+      .unwrap()
+      .push(json!({"name":"BUTTON","start":literal_start}));
+    packet["literalArguments"] = json!([{"name":"BUTTON", "start":literal_start, "end":literal_start+6,
+      "definition":{"buffer":0,"nameOffset":header.find("BUTTON").unwrap(),"end":header.trim_end().len(),"parameters":0}}]);
+    if mode == "literal-argument-anchor" {
+      packet["literalArguments"][0]["definition"]["nameOffset"] =
+        json!(header.find("CHECK").unwrap());
+    }
+    if mode == "literal-argument-offset" {
+      packet["literalArguments"][0]["start"] = json!(source.len());
+    }
+    if mode == "literal-argument-duplicate" {
+      let site = packet["literalArguments"][0].clone();
+      packet["literalArguments"]
+        .as_array_mut()
+        .unwrap()
+        .push(site);
+    }
+  }
   if mode.starts_with("function-prefix") {
     let tokens = vec!["void", "test_42", "(", ")"];
     for key in ["nativeBefore", "nativeAfter", "observedTokens"] {
