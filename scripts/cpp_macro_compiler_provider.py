@@ -11,11 +11,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
 import time
+from cpp_macro_native_projection import project_root
 
 
 def digest(data):
@@ -85,6 +85,8 @@ def main():
         # Only digests leave this process. Environment values and flags can carry
         # secrets; they are never emitted as diagnostics or packet fields.
         value = {"compiler": digest(compiler.read_bytes()),
+                 "provider": digest(Path(__file__).read_bytes()),
+                 "projection": digest(Path(__file__).with_name('cpp_macro_native_projection.py').read_bytes()),
                  "observer": digest(Path(args.observer).read_bytes()),
                  "libclang": digest(Path(args.libclang).read_bytes()),
                  "plan": digest(Path(args.plan).read_bytes()),
@@ -113,20 +115,35 @@ def main():
         # A fake #line inside a raw string is payload. Lex the complete native
         # output BEFORE interpreting markers, so physical token boundaries govern.
         directive_offsets = {t.location.offset for t in tokens if t.spelling == "#"}
-        active, offset, root = False, 0, []
-        for line in data.splitlines(keepends=True):
-            marker = re.match(rb'^#(?:line)?\s+\d+\s+(".*?")', line)
-            if marker and offset in directive_offsets:
-                active = physical(json.loads(marker[1])) == physical(source)
-            elif active:
-                root.append(line)
-            offset += len(line)
-        text = b"".join(root).decode("utf-8")
+        inputs = set()
+
+        def input_path(path):
+            resolved = physical(path)
+            inputs.add(resolved)
+            return resolved
+
+        projected = project_root(data, directive_offsets, source, input_path)
+        # A matching frame can also be authored in a header, or emitted through
+        # a pragma macro. Inspect every physical file named by an actual marker,
+        # including strings/comments conservatively; no name allowlist is proof.
+        if len(inputs) > 2048:
+            raise RuntimeError("native frame input count exceeds limit")
+        total, authored = 0, False
+        for path in inputs:
+            with Path(path).open('rb') as stream:
+                content = stream.read(4 * 1024 * 1024 + 1)
+            total += len(content)
+            if len(content) > 4 * 1024 * 1024 or total > 32 * 1024 * 1024:
+                raise RuntimeError("native frame input bytes exceed limit")
+            authored |= b'external_header' in content
+        if authored:
+            projected = project_root(data, directive_offsets, source, physical, True)
+        text = projected.decode("utf-8")
         virtual = str(scratch / (label + "-root.cc"))
         tu = index.parse(virtual, args=["-std=c++20", "-fms-extensions"], unsaved_files=[(virtual, text)])
         tokens = [t for t in tu.get_tokens(extent=tu.get_extent(virtual, (0, len(text.encode()))))
                   if t.kind != cindex.TokenKind.COMMENT]
-        lines = text.splitlines(keepends=True)
+        lines = text.split('\n')
         directives = {t.location.line for t in tokens if t.spelling == "#"
                       and not lines[t.location.line-1][:t.location.column-1].strip()}
         return ([t.spelling for t in tokens if t.location.line not in directives],

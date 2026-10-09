@@ -55,6 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Native output projection controls
+        run: python3 -m unittest discover -s scripts/tests -p test_cpp_macro_native_projection.py
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.98.0  # keep in sync with rust-toolchain.toml
@@ -67,6 +69,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Native output projection controls
+        run: python -m unittest discover -s scripts/tests -p test_cpp_macro_native_projection.py
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.98.0

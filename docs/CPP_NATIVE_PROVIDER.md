@@ -55,7 +55,19 @@ include order, forced input headers, language and native preprocessor settings.
 The driver runs native `/E`, then the physical observer, then native `/E` again.
 Independently lexed root token streams must agree; only CRLF inside complete raw
 literal payloads may differ. Token boundaries protect fake `#line`/`#pragma` text
-inside literals. Actual unknown native directives decline recovery. Source,
+inside literals. Balanced MSVC `external_header(push/pop)` diagnostic frames
+are omitted from the ephemeral native-output root projection only when each
+hash is an actual lexer token and the immediately following physical `#line`
+transition matches the full nested frame stack. Indented hashes and LF/CRLF
+are handled by physical byte offsets; vertical whitespace is not a line break.
+Every physical file named by an actual marker is read afresh (at most 2,048
+files, 4 MiB per file / 32 MiB total). Missing/unreadable/oversized inputs decline
+capture. Any occurrence of `external_header` in those original buffers, including
+comments and literal payloads conservatively, disables frame omission. This
+keeps authored header/pragma-macro forms as boundaries rather than treating the
+spelling alone as generated proof. Malformed/unbalanced frames and actual unknown
+native directives decline recovery. Native compiler flags and original source
+bytes are unchanged. Source,
 definition buffers, native toolchain/environment/plan and native before/after
 streams must remain stable. Clang filesystem observations alone never authorize
 native replay: a native-only optional header can change MSVC behavior while its

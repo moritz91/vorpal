@@ -22,13 +22,25 @@ Ignored, stringified and unevaluated arguments cannot invent runtime calls.
 
 The corrected native Windows Hades comparison uses the same C++ header routing
 and metadata roots in both runs: 1,744 files, 26 damaged files / 1,952 diagnostics
-without native proof, versus 19 / 558 with the sixteen configured native units.
-Damaged bytes fall from 122,952 to 1,121. The normal MCP health query reproduces
+without native proof, versus 15 / 378 with the sixteen configured native units.
+Damaged bytes fall from 122,952 to 951. The normal MCP health query reproduces
 the latter result. Unsupported TEST/TEST_CALL expansions do not acquire generated
 owners or runtime macro edges. A real MSVC-only optional-header control changes a
 quiet MCP generation despite restored directory timestamps, and removal restores
 the initial generation. Historical report-only observations below describe the
 earlier audit seams; the fresh production adapter is separate from those APIs.
+
+The bundled provider recognizes only balanced MSVC external-header diagnostic
+frames at physical lexer hashes and matching nested file transitions. Original
+marker inputs are read afresh under explicit count/byte limits; any authored
+`external_header` spelling, unavailable input or malformed frame disables proof.
+Unknown directives and raw-literal payload remain intact. Five stdlib projection
+controls pass on Windows/Linux, including indented hashes and vertical whitespace.
+Real native LF/CRLF, nested external headers, authored-header and unknown-pragma
+controls pass; an external-header spelling inside a literal conservatively
+declines frame omission. The real native-only optional-header quiet-MCP control
+still changes/restores its generation. Two debug full-index MCP requests take
+97.75 seconds in this run; release latency and WSL deployment remain unchecked.
 
 This configuration has only been exercised with a native Windows MCP process.
 The installed `.2` WSL tunnel has not been changed or given compiler recovery.
