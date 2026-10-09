@@ -2320,6 +2320,8 @@ static const TSStateId ts_primary_state_ids[STATE_COUNT] = {
 static bool ts_lex(TSLexer *lexer, TSStateId state) {
   START_LEXER();
   eof = lexer->eof(lexer);
+  // vorpal: CommonMark 2.3 classifies physical NUL as U+FFFD; retain source spans.
+  if (lookahead == 0 && !eof) lookahead = 0xfffd;
   switch (state) {
     case 0:
       if (eof) ADVANCE(2183);

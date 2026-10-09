@@ -7,7 +7,7 @@ The current generator follow-up is documented in
 statement lists, function prefixes, complete function/declaration lists,
 case/loop prefixes and numeric object macros inside statement arguments.
 The isolated Hades MCP is
-8 error-bearing files / 132 diagnostics / 947 diagnostic bytes; productive `.3`
+5 error-bearing files / 56 diagnostics / 596 diagnostic bytes; productive `.3`
 remains 15 / 378 / 951. All 41 state-storage definitions and 41 declarations are
 clean using physical-file projection in their genuine CMake Unity context.
 Missing/repeated visits and unsupported pragmas remain conservative boundaries;
@@ -16,6 +16,11 @@ are clean in an explicitly validated scalar stb implementation context;
 both `STBI__IDCT_1D` lists are also clean, leaving one stb diagnostic. SIMD contexts with differing compiler
 token streams still decline. Physical trailing comments do not extend native
 replacement token endpoints; literal payload and `#`/`##` remain significant.
+The three Lua-guide diagrams contain physical control/NUL bytes. Their visual
+encoding is unusual, but CommonMark accepts the text: block/inline lexers now
+classify physical NUL as U+FFFD while retaining every original byte and span.
+This clears those three documents without changing them; rendering replacement
+semantics do not rewrite the indexed source. Actual EOF remains distinct.
 Historical measurements below describe their corresponding earlier stages.
 
 `cppMacroCompiler` now connects fresh native observations to normal owned,

@@ -303,9 +303,11 @@
     "abi": 15,
     "commit": "f969cd3ae3f9",
     "license": "MIT",
-    "patches": [],
+    "patches": [
+      "Classify physical NUL as CommonMark U+FFFD in block/inline lexers, preserving original bytes/spans and distinguishing actual EOF; reproduce with scripts/patch_markdown_nul_grammar.py."
+    ],
     "repository": "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
-    "source_digest": "xxh3:3e3be8946649fe0b",
+    "source_digest": "xxh3:54c2cd8f349ab889",
     "version": "0.5.3"
   },
   "tree-sitter-nix": {
