@@ -38,6 +38,20 @@ Preserve the project's existing language routing (`languageGlobs`); a C++ header
 misrouted as C is a different parser input and is not a valid recovery comparison.
 Use the original project's Visual Studio developer environment for native MSVC.
 The driver does not infer a Windows compiler environment from a Linux/WSL build.
+`scripts/cpp_native_mcp.ps1` launches the Windows MCP with an explicit developer
+shell path, source authorization, external index and retained configuration. It
+preserves UTF-8 stdio when invoked from WSL or a stdio tunnel command:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:/dev/vorpal/scripts/cpp_native_mcp.ps1 `
+  -VorpalPath C:/tools/vorpal.exe -SourcePath C:/dev/project `
+  -IndexPath C:/cache/project-index -ConfigPath C:/audit/project.json `
+  -VsDevShellPath 'C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/Tools/Launch-VsDevShell.ps1'
+```
+
+The launcher requires an external index path and propagates the server exit
+status. `-NoWatchRebuild` and `-NoAutoWarm` are optional controls for isolated
+quiet-query checks; neither implicitly changes the production tunnel profile.
 Nothing downloads or installs tools, changes source files, or enables recovery
 merely because a name is uppercase. Unknown directives, missing tools, failures,
 unsupported expansions and genuine syntax errors retain raw syntax/diagnostics.
