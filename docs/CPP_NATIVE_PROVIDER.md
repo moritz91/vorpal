@@ -73,6 +73,13 @@ streams must remain stable. Clang filesystem observations alone never authorize
 native replay: a native-only optional header can change MSVC behavior while its
 Clang observation is unchanged.
 
+Projection path resolutions are memoized only within one native stream and
+rechecked against current redirects before returning. Only punctuation tokens
+need hash-spelling queries; literal contents never become directive offsets.
+The observer copies filesystem buffers into owned memory before reusing their
+digests by SourceManager FileID within one fresh preprocessing action. Neither
+memo survives into another stream/action/capture or authorizes product replay.
+
 ## Provider protocol v1
 
 The configured program runs directly, with no shell interpolation. Environment

@@ -11,8 +11,10 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/JSON.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/VirtualFileSystem.h"
+#include <unordered_map>
 
 using namespace clang;
 namespace vfs = llvm::vfs;
@@ -55,6 +57,10 @@ public:
     auto result = file->getBuffer(name, size, null, vol);
     llvm::json::Object row{{"kind", "buffer"}, {"path", path}, {"ok", bool(result)}};
     if (result) {
+      // SourceManager must own immutable bytes before a FileID digest can be
+      // reused. A file-backed mmap could otherwise observe an external edit.
+      result = llvm::MemoryBuffer::getMemBufferCopy(
+          (*result)->getBuffer(), (*result)->getBufferIdentifier());
       row["sha256"] = hash((*result)->getBuffer());
       row["bytes"] = int64_t((*result)->getBufferSize());
     } else row["error"] = result.getError().value();
@@ -156,13 +162,20 @@ public:
 class Observer : public PPCallbacks {
   Preprocessor &pp;
   SourceManager &sm;
+  // One fresh preprocessing action only, keyed by the actual immutable buffer
+  // identity, never by a path and never retained across files/requests.
+  std::unordered_map<unsigned, std::string> bufferHashes;
   llvm::json::Object location(SourceLocation loc) {
     auto spelling = sm.getSpellingLoc(loc);
     llvm::json::Object row{{"nested", loc.isMacroID()}};
     if (spelling.isValid()) {
       row["path"] = sm.getFilename(spelling).str();
       row["offset"] = int64_t(sm.getFileOffset(spelling));
-      row["buffer_sha256"] = hash(sm.getBufferData(sm.getFileID(spelling)));
+      auto file = sm.getFileID(spelling);
+      auto entry = bufferHashes.find(file.getHashValue());
+      if (entry == bufferHashes.end())
+        entry = bufferHashes.emplace(file.getHashValue(), hash(sm.getBufferData(file))).first;
+      row["buffer_sha256"] = entry->second;
     }
     return row;
   }

@@ -114,11 +114,15 @@ def main():
         tokens = tu.get_tokens(extent=tu.get_extent(virtual, (0, len(data))))
         # A fake #line inside a raw string is payload. Lex the complete native
         # output BEFORE interpreting markers, so physical token boundaries govern.
-        directive_offsets = {t.location.offset for t in tokens if t.spelling == "#"}
-        inputs = set()
+        directive_offsets = {t.location.offset for t in tokens
+                             if t.kind == cindex.TokenKind.PUNCTUATION and t.spelling == "#"}
+        inputs, resolved_paths = set(), {}
 
         def input_path(path):
-            resolved = physical(path)
+            spelling = str(path)
+            if spelling not in resolved_paths:
+                resolved_paths[spelling] = physical(path)
+            resolved = resolved_paths[spelling]
             inputs.add(resolved)
             return resolved
 
@@ -136,6 +140,11 @@ def main():
             if len(content) > 4 * 1024 * 1024 or total > 32 * 1024 * 1024:
                 raise RuntimeError("native frame input bytes exceed limit")
             authored |= b'external_header' in content
+        # This memo exists only inside one native stream projection. Recheck all
+        # spellings before returning; no canonical path or header bytes survive
+        # into the next stream/capture or authorize product replay.
+        if any(physical(path) != resolved for path, resolved in resolved_paths.items()):
+            raise RuntimeError("native input redirect changed during projection")
         if authored:
             projected = project_root(data, directive_offsets, source, physical, True)
         text = projected.decode("utf-8")

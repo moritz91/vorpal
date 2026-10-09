@@ -42,8 +42,17 @@ declines frame omission. The real native-only optional-header quiet-MCP control
 still changes/restores its generation. Two debug full-index MCP requests take
 97.75 seconds in this run; release latency and WSL deployment remain unchecked.
 
-This configuration has only been exercised with a native Windows MCP process.
-The installed `.2` WSL tunnel has not been changed or given compiler recovery.
+An isolated WSL tunnel-client proxy now exercises the native Windows MCP process
+through PowerShell with the MSVC environment and UTF-8 stdio. Two release health
+requests reproduce the same 15-file / 378-diagnostic / 951-byte health and the
+same generation; a normal 30-second proxy transport passes at 27.76 / 28.38
+seconds (an earlier run takes 22.63 / 22.71 seconds). Proxy shutdown leaves no
+candidate Windows MCP process. This follows per-stream path-resolution memoization
+with redirect rechecks and per-action immutable buffer digest reuse, not native
+proof replay. Original native tokens/definitions/anchors/callees are unchanged
+in the registry and large Lua controls, and native-only quiet-header invalidation
+still passes. More latency headroom remains desirable. The installed `.2` WSL
+tunnel has not been changed or given compiler recovery.
 LLVM developer tools are explicit local prerequisites, not release assets.
 Remaining unsupported directives/macros and genuine source errors stay visible.
 
