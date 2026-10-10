@@ -40,6 +40,22 @@ Fresh native empty object and literal warning push/pop proofs now yield exact
 macro_annotation sites. Original marker spans remain visible without fictitious
 runtime callees; ordinary same-name calls and genuine missing semicolons survive.
 The only remaining Catch2 diagnostics are inactive Objective-C macro qualifiers.
+The glTF include-context audit now composes the six explicitly selected text
+includes from the original mesh_asset_parse.cc in source order. Every composed
+byte maps to a physical file and range; replaced include directives remain in
+separate provenance. The shared syntax has zero diagnostics and its original
+CMake translation unit passes native MSVC /Zs. ReadScalar retains its template
+prefix in gltf_io.cc and body in gltf_accessors.cc; ReadQuatAccessor retains its
+body tail in gltf_materials.cc. No synthetic delimiters or source edits are used.
+This is a read-only audit, not production recovery: existing FileProduct and
+outline ranges cannot represent complete multi-file definitions yet. The normal
+MCP health remains 4 files / 5 diagnostics / 35 bytes. Conditional/repeated or
+unreached selected includes, redirected paths, ambiguous empty spans, uncertain
+lexing and missing physical final newlines decline. Ordered physical hashes are
+checked afresh, without authorizing replay. Tests retain genuine syntax errors
+and original argument-call spans across LF/CRLF/UTF-8 boundaries.
+CLI: cargo run -p vorpal-ingest --example include_context_audit -- ROOT INCLUDE...
+
 Historical measurements below describe their corresponding earlier stages.
 
 `cppMacroCompiler` now connects fresh native observations to normal owned,

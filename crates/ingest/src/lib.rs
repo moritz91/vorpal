@@ -13,6 +13,7 @@
 //! A single [`Ingestor`] is a single-writer-per-shard sink (§7.5); scale-out shards it by path.
 
 pub mod cpp_directive_audit;
+pub mod cpp_include_context;
 pub mod cpp_macro_evidence;
 pub mod cpp_macro_freshness;
 pub mod cpp_macro_compiler;

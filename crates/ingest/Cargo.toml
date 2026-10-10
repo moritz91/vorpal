@@ -62,3 +62,7 @@ workspace = true
 [[example]]
 name = "macro_audit"
 required-features = ["builtin-parser"]
+
+[[example]]
+name = "include_context_audit"
+required-features = ["builtin-parser"]
