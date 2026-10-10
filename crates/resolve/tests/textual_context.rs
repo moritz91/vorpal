@@ -88,6 +88,27 @@ fn missing_conflicting_or_mixed_owner_never_falls_back_to_file_node() {
 }
 
 #[test]
+fn physical_definition_owners_require_the_same_proof_and_file_owners_are_explicit() {
+  let itn = Interner::new();
+  let mut table = SymbolTable::new();
+  table.insert_context(&itn, NodeId::new(91), 123, "root.cc", "proof");
+  table.insert_file(&itn, "head.cc", NodeId::new(5));
+  for (from, proof, expected) in [
+    (91, "proof", Some(91)),
+    (91, "mixed", None),
+    (92, "proof", None),
+    (5, "proof", Some(5)),
+  ] {
+    let reference = Reference::new(&itn, NodeId::new(from), "head.cc", "target", RefKind::Call)
+      .with_source_context(Some(itn.reference_context_id("root.cc", proof, None)));
+    assert_eq!(
+      table.reference_owner(&itn, &reference),
+      expected.map(NodeId::new)
+    );
+  }
+}
+
+#[test]
 fn spill_preserves_session_context_and_original_physical_site() {
   let itn = Interner::new();
   let path = std::env::temp_dir().join(format!("vorpal-context-spill-{}", std::process::id()));

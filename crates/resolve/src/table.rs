@@ -104,7 +104,15 @@ impl<'i> SymbolTable<'i> {
   pub fn reference_owner(&self, interner: &'i Interner, reference: &crate::Reference<'i>) -> Option<NodeId> {
     let Some(id) = reference.source_context else { return Some(reference.from); };
     let context = interner.reference_context(id);
-    let Some(external) = context.owner_external else { return Some(reference.from); };
+    let Some(external) = context.owner_external else {
+      return match self.context_scopes.get(&reference.from) {
+        Some(scope) => (*scope == context.scope).then_some(reference.from),
+        // A real file-level occurrence has no definition provenance. An absent
+        // definition owner must not masquerade as that file-level case.
+        None => (self.files.get(&reference.from_path) == Some(&reference.from))
+          .then_some(reference.from),
+      };
+    };
     let owner = self.context_owners.get(&external).copied().flatten()?;
     (self.context_scopes.get(&owner) == Some(&context.scope)).then_some(owner)
   }
