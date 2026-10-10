@@ -346,3 +346,46 @@ The isolated normal native MCP now reports **4 error-bearing files / 55 diagnost
 clean. Catch2 and three textual glTF include chunks remain. Productive `.3` and
 the Hades checkout are unchanged. Windows/Linux regressions and native MSVC
 positive/negative controls pass; differing SIMD compiler streams still decline.
+
+### Native exception prefixes and directive inventory
+
+`controlMacros` optionally supplies fresh zero-parameter object definitions that
+are exactly `try` or `catch (...)`. `TryPrefix` and `CatchAllPrefix` consume only
+the original identifier in existing `try_statement`/`catch_clause` nodes. A
+function-like handler with a literal `catch (parameter)` replacement requires one
+fresh parameter, a separately parsed original parameter list and a matching
+contiguous macro-origin token slice. `CatchParameterPrefix` keeps that authored
+parameter list. An object catch-all creates no fabricated parameter nodes.
+Bodies, ordinary calls after undef and real syntax errors preserve their spans;
+empty/multiple parameters, changed types, incorrect origins and stale anchors decline.
+
+The observer records literal `__pragma(warning(push/pop))` tokens at the physical
+callback because MSVC `/E` retains these operators while LLVM consumes them.
+The entire token stream still has to agree. Parameterized/expanding operands,
+numeric push levels and other operators are not substituted or discarded.
+
+The native directive inventory is ordered and must be identical before and after
+observation. Only literal physical hash-pragma callbacks can supply `pragmaOffsets`.
+The parent independently parses those source offsets and admits matching warning
+push/pop, one numeric warning-disable code, and optimize with an empty option
+string plus on/off. Counts, order and complete directive spellings must match;
+unknown native directives, expanded operands, other optimization strings, stale
+offsets and missing/duplicate observations decline. Whitespace inside strings
+remains significant. Observer-only diagnostic callbacks absent from native `/E`
+provide no native directive proof and do not change existing token-agreement behavior.
+Every original directive remains in the source tree; this is not source masking.
+
+Windows/Linux production, audit, evidence/recovery, language and replay/resolver
+checks pass, along with the unchanged complete corpus and all 179 stock C++ cases.
+The explicit native script `scripts/tests/run_cpp_macro_warning_pragmas.py` covers
+LF/CRLF positive and negative MSVC syntax/token controls. Catch2's original header
+passes native `/Zs`; all 79,049 native and observed token spellings agree in its
+explicit MSVC benchmark context, including ten literal warning operators.
+Eight try prefixes, seven catch-all prefixes and one typed handler are proven.
+
+The isolated normal MCP now reports **4 error-bearing files / 12 diagnostics /
+90 diagnostic bytes**. Catch2 accounts for nine diagnostics / 68 bytes; three
+glTF textual include chunks account for the remainder. The original sources and
+productive `.3` remain unchanged. Catch2's inactive Objective-C annotations,
+split conditional handler and remaining unproven contexts need further work;
+this measurement does not claim they are supported or error-free.

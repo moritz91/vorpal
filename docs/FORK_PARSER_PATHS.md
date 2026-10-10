@@ -6,12 +6,12 @@ The current generator follow-up is documented in
 [CPP_NATIVE_PROVIDER.md](CPP_NATIVE_PROVIDER.md). Fresh native proofs cover
 statement lists, function prefixes, complete function/declaration lists,
 case/loop prefixes, numeric object macros inside statement arguments and native
-object-like inline specifiers.
+object-like inline specifiers and exact native try/catch handler prefixes.
 The isolated Hades MCP is
-4 error-bearing files / 55 diagnostics / 593 diagnostic bytes; productive `.3`
+4 error-bearing files / 12 diagnostics / 90 diagnostic bytes; productive `.3`
 remains 15 / 378 / 951. All 41 state-storage definitions and 41 declarations are
 clean using physical-file projection in their genuine CMake Unity context.
-Missing/repeated visits and unsupported pragmas remain conservative boundaries;
+Missing/repeated visits and unsupported native pragmas remain conservative boundaries;
 glTF chunks still need shared include context. All 24 `STBI__CASE` invocations
 are clean in an explicitly validated scalar stb implementation context;
 both `STBI__IDCT_1D` lists and `stbi_inline` are also clean. SIMD contexts with differing compiler
@@ -22,6 +22,10 @@ encoding is unusual, but CommonMark accepts the text: block/inline lexers now
 classify physical NUL as U+FFFD while retaining every original byte and span.
 This clears those three documents without changing them; rendering replacement
 semantics do not rewrite the indexed source. Actual EOF remains distinct.
+Catch2 improves from 52 diagnostics / 571 bytes to 9 / 68. Its exception-prefix
+proofs require fully matched native streams, literal directive inventory and fresh
+physical definitions. Ordinary body calls and typed handler parameters retain
+original spans; object catch-all prefixes invent no parameter nodes.
 Historical measurements below describe their corresponding earlier stages.
 
 `cppMacroCompiler` now connects fresh native observations to normal owned,

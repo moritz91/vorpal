@@ -161,12 +161,16 @@ mod native {
     #[serde(default)]
     observed_token_sites: Vec<TokenSite>,
     native_directives: Vec<String>,
+    #[serde(default)]
+    pragma_offsets: Vec<usize>,
     definitions: Vec<Buffer>,
     expansions: Vec<Site>,
     #[serde(default)]
     literal_arguments: Vec<Site>,
     #[serde(default)]
     specifier_macros: Vec<Site>,
+    #[serde(default)]
+    control_macros: Vec<Site>,
     expanded_names: BTreeSet<String>,
     callee_sites: Vec<Callee>,
   }
@@ -190,6 +194,78 @@ mod native {
           .read_to_end(&mut bytes)
           .is_ok()
           && bytes == source.as_bytes()
+      })
+  }
+
+  fn validated_native_pragmas(packet: &Packet, source: &str) -> bool {
+    use vorpal_core::tree_sitter::LanguageExt;
+    use vorpal_language::SupportLang;
+    fn compact(text: &str) -> String {
+      let mut result = String::new();
+      let mut quoted = false;
+      let mut escaped = false;
+      for c in text.chars() {
+        if quoted || !c.is_ascii_whitespace() {
+          result.push(c);
+        }
+        if escaped {
+          escaped = false;
+        } else if quoted && c == '\\' {
+          escaped = true;
+        } else if c == '"' {
+          quoted = !quoted;
+        }
+      }
+      result
+    }
+    fn approved(text: &str) -> bool {
+      matches!(
+        text,
+        "#pragmawarning(push)"
+          | "#pragmawarning(pop)"
+          | "#pragmaoptimize(\"\",off)"
+          | "#pragmaoptimize(\"\",on)"
+      ) || text
+        .strip_prefix("#pragmawarning(disable:")
+        .and_then(|s| s.strip_suffix(')'))
+        .is_some_and(|s| !s.is_empty() && s.len() <= 5 && s.bytes().all(|b| b.is_ascii_digit()))
+    }
+    if packet.pragma_offsets.len() != packet.native_directives.len()
+      || packet.pragma_offsets.len() > 16384
+      || packet.pragma_offsets.windows(2).any(|p| p[0] >= p[1])
+    {
+      return false;
+    }
+    if packet.native_directives.is_empty() {
+      return true;
+    }
+    let parsed = SupportLang::Cpp.grep(source);
+    let directives: std::collections::BTreeMap<_, _> = parsed
+      .root()
+      .dfs()
+      .filter(|n| {
+        n.kind().as_ref() == "preproc_call"
+          && n.field("directive").is_some_and(|d| d.text() == "#pragma")
+      })
+      .map(|n| (n.range().start, n))
+      .collect();
+    packet
+      .pragma_offsets
+      .iter()
+      .zip(&packet.native_directives)
+      .all(|(offset, native)| {
+        let Some(node) = directives.get(offset) else {
+          return false;
+        };
+        let Some(argument) = node.field("argument") else {
+          return false;
+        };
+        let text = argument.text();
+        let Some(end) = crate::cpp_macro_evidence::replacement_token_end(&text) else {
+          return false;
+        };
+        let authored = compact(&format!("#pragma{}", &text[..end]));
+        approved(&authored) && authored == compact(native)
       })
   }
 
@@ -286,7 +362,7 @@ mod native {
       || packet.source != source
       || !packet.complete
       || packet.volatile_inputs
-      || !packet.native_directives.is_empty()
+      || !validated_native_pragmas(&packet, source)
       || packet.native_context_before.is_empty()
       || packet.observed_context.is_empty()
       || packet.native_context_before != packet.native_context_after
@@ -655,16 +731,21 @@ mod native {
     Some(())
   }
 
-  fn inline_specifier_sites(
+  fn object_prefix_sites(
     packet: &Packet,
     source: &str,
   ) -> Option<Vec<vorpal_language::CppProvenMacroSite>> {
     use vorpal_core::tree_sitter::LanguageExt;
     use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, SupportLang};
-    if packet.specifier_macros.len() > 16384 {
+    if packet
+      .specifier_macros
+      .len()
+      .checked_add(packet.control_macros.len())?
+      > 16384
+    {
       return None;
     }
-    if packet.specifier_macros.is_empty() {
+    if packet.specifier_macros.is_empty() && packet.control_macros.is_empty() {
       return Some(Vec::new());
     }
     let mut origins: std::collections::BTreeMap<usize, Vec<usize>> =
@@ -674,7 +755,12 @@ mod native {
     }
     let mut definitions = std::collections::BTreeMap::new();
     let mut sites = Vec::new();
-    for site in &packet.specifier_macros {
+    for (site, control) in packet
+      .specifier_macros
+      .iter()
+      .map(|s| (s, false))
+      .chain(packet.control_macros.iter().map(|s| (s, true)))
+    {
       let anchor = site.definition.as_ref()?;
       if anchor.parameters != 0
         || site.start.checked_add(site.name.len())? != site.end
@@ -716,28 +802,160 @@ mod native {
             return None;
           }
           let text = text.get(..length)?.trim();
-          matches!(text, "inline" | "__forceinline" | "__inline").then(|| text.to_owned())
+          Some(text.to_owned())
         })
         .as_ref()?;
+      let (kind, tokens): (_, Vec<&str>) = if control {
+        match value
+          .chars()
+          .filter(|c| !c.is_ascii_whitespace())
+          .collect::<String>()
+          .as_str()
+        {
+          "try" => (CppProvenMacroKind::TryPrefix, vec!["try"]),
+          "catch(...)" => (
+            CppProvenMacroKind::CatchAllPrefix,
+            vec!["catch", "(", "...", ")"],
+          ),
+          _ => return None,
+        }
+      } else if matches!(value.as_str(), "inline" | "__forceinline" | "__inline") {
+        (CppProvenMacroKind::InlineSpecifier, vec![value.as_str()])
+      } else {
+        return None;
+      };
       let mut offsets = origins.range(site.start..site.end);
       let (&offset, indices) = offsets.next()?;
       if offsets.next().is_some()
         || offset != site.start
-        || indices.len() != 1
-        || !packet.observed_token_sites[indices[0]].from_macro
-        || packet.observed_tokens.get(indices[0])? != value
+        || indices.len() != tokens.len()
+        || indices.last()?.checked_sub(indices[0])?.checked_add(1)? != indices.len()
+        || indices.iter().zip(tokens).any(|(&i, token)| {
+          !packet.observed_token_sites[i].from_macro
+            || packet
+              .observed_tokens
+              .get(i)
+              .is_none_or(|observed| observed != token)
+        })
       {
         return None;
       }
-      // Object modifiers consume only their original name; calls/arguments and
-      // declaration bodies remain ordinary source syntax under an exact site.
+      // Object prefixes consume only their original name; calls and authored
+      // declaration/handler bodies remain ordinary syntax under an exact site.
       sites.push(CppProvenMacroSite {
         offset: u32::try_from(site.start).ok()?,
         name: site.name.clone(),
-        kind: CppProvenMacroKind::InlineSpecifier,
+        kind,
       });
     }
     Some(sites)
+  }
+
+  fn typed_handler_sites(
+    packet: &Packet,
+    source: &str,
+  ) -> Option<Vec<vorpal_language::CppProvenMacroSite>> {
+    use vorpal_core::tree_sitter::LanguageExt;
+    use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, SupportLang};
+    let mut origins: std::collections::BTreeMap<usize, Vec<usize>> =
+      std::collections::BTreeMap::new();
+    for (i, site) in packet.observed_token_sites.iter().enumerate() {
+      origins.entry(site.offset).or_default().push(i);
+    }
+    let mut result = Vec::new();
+    for expansion in &packet.expansions {
+      let Some(anchor) = &expansion.definition else {
+        continue;
+      };
+      let Some(indices) = origins.get(&expansion.start) else {
+        continue;
+      };
+      if packet
+        .observed_tokens
+        .get(indices[0])
+        .is_none_or(|s| s != "catch")
+      {
+        continue;
+      }
+      let buffer = packet.definitions.get(anchor.buffer)?;
+      let parsed = SupportLang::Cpp.grep(&buffer.source);
+      let definition = parsed.root().dfs().find(|n| {
+        n.kind().as_ref() == "preproc_function_def"
+          && n
+            .field("name")
+            .is_some_and(|n| n.range().start == anchor.name_offset && n.text() == expansion.name)
+      })?;
+      let parameters = definition.field("parameters")?.text();
+      let parameter = parameters.strip_prefix('(')?.strip_suffix(')')?.trim();
+      if anchor.parameters != 1
+        || parameter.is_empty()
+        || !parameter
+          .bytes()
+          .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        || !parameter.as_bytes()[0].is_ascii_alphabetic() && !parameter.starts_with('_')
+      {
+        return None;
+      }
+      let value = definition.field("value")?;
+      let text = value.text();
+      let end = crate::cpp_macro_evidence::replacement_token_end(&text)?;
+      if value.range().start.checked_add(end)? != anchor.end
+        || text[..end]
+          .chars()
+          .filter(|c| !c.is_ascii_whitespace())
+          .collect::<String>()
+          != format!("catch({parameter})")
+      {
+        return None;
+      }
+      let name_end = expansion.start.checked_add(expansion.name.len())?;
+      if source.get(expansion.start..name_end)? != expansion.name {
+        return None;
+      }
+      let argument_start =
+        crate::cpp_macro_recovery::invocation_spacing(source.as_bytes(), name_end)?;
+      let arguments = source.get(argument_start..expansion.end)?;
+      // Parse only the original parameter spelling for proof. The production tree
+      // always reads the unchanged source, never this ephemeral declaration.
+      let proof_text = format!("void proof{arguments};");
+      let proof = SupportLang::Cpp.grep(&proof_text);
+      let parameters = proof
+        .root()
+        .dfs()
+        .find(|n| n.kind().as_ref() == "parameter_list")?;
+      let declarations: Vec<_> = parameters
+        .children()
+        .filter(|n| n.is_named() && n.kind().as_ref() != "comment")
+        .collect();
+      if proof.root().has_error()
+        || declarations.len() != 1
+        || declarations[0].kind().as_ref() != "parameter_declaration"
+      {
+        return None;
+      }
+      let mut tokens = vec!["catch".to_owned()];
+      tokens.extend(
+        parameters
+          .dfs()
+          .filter(|n| n.children().next().is_none() && n.kind().as_ref() != "comment")
+          .map(|n| n.text().into_owned()),
+      );
+      if indices.len() != tokens.len()
+        || indices.last()?.checked_sub(indices[0])?.checked_add(1)? != indices.len()
+        || origins.range(name_end..expansion.end).next().is_some()
+        || indices.iter().zip(tokens).any(|(&i, token)| {
+          !packet.observed_token_sites[i].from_macro || packet.observed_tokens[i] != token
+        })
+      {
+        return None;
+      }
+      result.push(CppProvenMacroSite {
+        offset: u32::try_from(expansion.start).ok()?,
+        name: expansion.name.clone(),
+        kind: CppProvenMacroKind::CatchParameterPrefix,
+      });
+    }
+    Some(result)
   }
 
   fn function_prefix_sites(
@@ -836,11 +1054,18 @@ mod native {
       if name != &expansion.name || arguments.range().end != expansion.end {
         continue;
       }
-      crate::cpp_macro_recovery::validated_arguments(&arguments.text(), anchor.parameters)?;
       let mut positions = origins.range(expansion.start..expansion.end);
       let Some((&offset, indices)) = positions.next() else {
         continue;
       };
+      // Native handler keywords cannot authorize a function-generator role.
+      if packet
+        .observed_tokens
+        .get(indices[0])
+        .is_some_and(|s| matches!(s.as_str(), "catch" | "try"))
+      {
+        continue;
+      }
       if offset != expansion.start || positions.next().is_some() {
         return None;
       }
@@ -881,6 +1106,9 @@ mod native {
       {
         continue;
       }
+      // Typed handler arguments are not function-generator arguments. Validate
+      // arity/syntax only after the independent token proof establishes this role.
+      crate::cpp_macro_recovery::validated_arguments(&arguments.text(), anchor.parameters)?;
       result.push(CppProvenMacroSite {
         offset: u32::try_from(expansion.start).ok()?,
         name: expansion.name.clone(),
@@ -1247,7 +1475,8 @@ mod native {
     let mut sites = function_prefix_sites(&packet, &root)?;
     sites.extend(declaration_list_sites(&packet, &root)?);
     sites.extend(case_loop_prefix_sites(&packet, &root)?);
-    sites.extend(inline_specifier_sites(&packet, source)?);
+    sites.extend(object_prefix_sites(&packet, source)?);
+    sites.extend(typed_handler_sites(&packet, source)?);
     if !sites.is_empty() {
       use vorpal_core::tree_sitter::LanguageExt;
       use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite};

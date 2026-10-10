@@ -603,12 +603,21 @@ rules['base_class_clause'] = decltype_base(rules['base_class_clause'])
 rules['decltype']['members'][2] = choice(symbol('expression'), symbol('comma_expression'))
 # Proof-backed statement names come only from a scoped external scanner context.
 # Without that context the new branch is unreachable, including ordinary calls.
-for name in ['_proven_statement_macro', '_proven_open_if_macro', '_proven_function_macro', '_proven_declaration_macro', '_proven_case_loop_macro', '_proven_inline_specifier_macro']:
+for name in ['_proven_statement_macro', '_proven_open_if_macro', '_proven_function_macro', '_proven_declaration_macro', '_proven_case_loop_macro', '_proven_inline_specifier_macro', '_proven_try_macro', '_proven_catch_all_macro', '_proven_catch_parameter_macro']:
     external = symbol(name)
     if external not in grammar['externals']:
         grammar['externals'].append(external)
 if symbol('_proven_inline_specifier_macro') not in rules['storage_class_specifier']['members']:
     rules['storage_class_specifier']['members'].append(symbol('_proven_inline_specifier_macro'))
+rules['try_statement']['members'][0] = choice(
+    {'type': 'STRING', 'value': 'try'},
+    {'type': 'ALIAS', 'content': symbol('_proven_try_macro'), 'named': False, 'value': 'try'})
+rules['catch_clause'] = seq(choice(
+    seq(choice({'type': 'STRING', 'value': 'catch'},
+        {'type': 'ALIAS', 'content': symbol('_proven_catch_parameter_macro'), 'named': False, 'value': 'catch'}),
+        {'type': 'FIELD', 'name': 'parameters', 'content': symbol('parameter_list')}),
+    {'type': 'ALIAS', 'content': symbol('_proven_catch_all_macro'), 'named': False, 'value': 'catch'}),
+    {'type': 'FIELD', 'name': 'body', 'content': symbol('compound_statement')})
 closed_macro_statement = {'type': 'PREC_RIGHT', 'value': 1, 'content': seq(
     {'type': 'FIELD', 'name': 'name', 'content': alias_rule('_proven_statement_macro', 'identifier')},
     {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')},

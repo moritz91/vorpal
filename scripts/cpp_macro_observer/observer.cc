@@ -181,6 +181,28 @@ class Observer : public PPCallbacks {
     }
     return row;
   }
+  void emitLiteralMsvcWarning(SourceLocation loc, SourceLocation expansion) {
+    // MSVC /E retains these operator tokens; LLVM consumes them in preprocessing.
+    // Observe the literal physical spelling at the actual pragma callback, without
+    // dropping native tokens or substituting expanded/parameterized operands.
+    auto cursor = sm.getSpellingLoc(loc);
+    std::vector<std::string> parts;
+    for (unsigned i = 0; i < 7; ++i) {
+      if (cursor.isInvalid()) return;
+      Token part;
+      if (Lexer::getRawToken(cursor, part, sm, pp.getLangOpts(), true)) return;
+      parts.push_back(pp.getSpelling(part));
+      cursor = Lexer::getLocForEndOfToken(part.getLocation(), 0, sm, pp.getLangOpts());
+    }
+    if (parts[0] != "__pragma" || parts[1] != "(" || parts[2] != "warning"
+        || parts[3] != "(" || (parts[4] != "push" && parts[4] != "pop")
+        || parts[5] != ")" || parts[6] != ")") return;
+    for (const auto &part : parts)
+      emit(llvm::json::Object{{"kind", "root_token"}, {"spelling", part},
+        {"path", sm.getFilename(expansion).str()},
+        {"offset", int64_t(sm.getFileOffset(expansion))},
+        {"from_macro", loc.isMacroID()}});
+  }
 public:
   Observer(Preprocessor &pp, const FileEntry *physicalRoot)
       : pp(pp), sm(pp.getSourceManager()), physicalRoot(physicalRoot) {}
@@ -223,6 +245,7 @@ public:
     if (expansion.isInvalid()
         || (physicalRoot ? sm.getFileEntryForID(sm.getFileID(expansion)) != physicalRoot
                          : !sm.isWrittenInMainFile(expansion))) return;
+    if (introducer == PIK___pragma) emitLiteralMsvcWarning(loc, expansion);
     emit(llvm::json::Object{{"kind", "root_pragma"},
       {"hash_pragma", introducer == PIK_HashPragma}, {"location", location(loc)}});
   }

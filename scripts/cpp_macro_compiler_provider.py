@@ -11,6 +11,7 @@ from bisect import bisect_right
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -198,8 +199,31 @@ def main():
     after_context = context()
     before, directives = native_tokens(before_file, "before")
     after, after_directives = native_tokens(after_file, "after")
+    if directives != after_directives:
+        raise RuntimeError("native directive inventory changed during capture")
+    pragma_offsets = []
+    for row in rows:
+        if row.get("kind") != "root_pragma" or row.get("hash_pragma") is not True:
+            continue
+        loc = row["location"]
+        if loc.get("nested") is not False or physical(loc.get("path", "")) != physical(source):
+            continue
+        assert loc["buffer_sha256"].lower() == digest(original)
+        offset = loc["offset"]
+        assert type(offset) is int and 0 <= offset < len(original)
+        start = original.rfind(b"\n", 0, offset) + 1
+        if original.count(b"\n", 0, start) + 1 in literal_once_lines:
+            continue
+        end = original.find(b"\n", start)
+        line = original[start:end if end >= 0 else len(original)]
+        if not re.match(rb"[ \t]*#[ \t]*pragma[ \t]+(?:warning|optimize)\b", line):
+            # Other callbacks cannot prove this bounded native inventory. If an
+            # unknown directive survives native /E, the parent still declines.
+            continue
+        # The parent independently parses and validates the complete directive.
+        pragma_offsets.append(start + len(original[start:offset].split(b"#", 1)[0]))
     records = [r for r in rows if r["kind"] == "macro"]
-    definitions, buffers, expansions, callees, literal_arguments, specifier_macros = [], {}, [], {}, [], []
+    definitions, buffers, expansions, callees, literal_arguments, specifier_macros, control_macros = [], {}, [], {}, [], [], []
     for record in records:
         begin, end = record["begin"], record.get("end_exclusive", {})
         if begin["nested"] or not begin.get("path") or not end.get("path"):
@@ -217,7 +241,9 @@ def main():
                    and record["replacement_tokens"][0][:1].isdigit())
         specifier = (not record.get("function_like") and record.get("replacement_tokens") in
                      [["inline"], ["__forceinline"], ["__inline"]])
-        if (record.get("function_like") or literal or specifier) and definition.get("path") and definition_end.get("path"):
+        control = (not record.get("function_like") and record.get("replacement_tokens") in
+                   [["try"], ["catch", "(", "...", ")"]])
+        if (record.get("function_like") or literal or specifier or control) and definition.get("path") and definition_end.get("path"):
             header = Path(definition["path"]).resolve()
             if header.is_file() and Path(definition_end["path"]).resolve() == header:
                 data = header.read_bytes()
@@ -233,6 +259,8 @@ def main():
             literal_arguments.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
         if specifier and anchor is not None:
             specifier_macros.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
+        if control and anchor is not None:
+            control_macros.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
         expansions.append({"name": record["name"], "start": start, "end": stop,
                            "definition": anchor if record.get("function_like") else None})
     outer = []
@@ -250,6 +278,7 @@ def main():
     literal_arguments = [r for r in literal_arguments if in_argument(r)]
     outer_sites = {(r["name"], r["start"], r["end"]) for r in outer if r["definition"] is None}
     specifier_macros = [r for r in specifier_macros if (r["name"], r["start"], r["end"]) in outer_sites]
+    control_macros = [r for r in control_macros if (r["name"], r["start"], r["end"]) in outer_sites]
     assert source.read_bytes() == original and Path(args.plan).read_bytes() == plan_bytes
     assert translation_unit.read_bytes() == translation_unit_bytes
     assert all(Path(b["path"]).read_bytes() == b["source"].encode() for b in definitions)
@@ -262,9 +291,11 @@ def main():
               "observedTokens": [r["spelling"] for r in rows if r["kind"] == "root_token"],
               "observedTokenSites": [{"offset": r["offset"], "fromMacro": r["from_macro"]}
                                      for r in rows if r["kind"] == "root_token"],
-              "nativeDirectives": sorted(set(directives + after_directives)),
+              "nativeDirectives": directives,
+              "pragmaOffsets": pragma_offsets,
               "definitions": definitions, "expansions": outer, "literalArguments": literal_arguments,
               "specifierMacros": specifier_macros,
+              "controlMacros": control_macros,
               "expandedNames": sorted({r["name"] for r in records}), "calleeSites": list(callees.values())}
     encoded = json.dumps(packet, ensure_ascii=False).encode()
     if len(encoded) > 32 * 1024 * 1024:

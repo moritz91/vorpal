@@ -14859,8 +14859,22 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "STRING",
-          "value": "try"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "try"
+            },
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_proven_try_macro"
+              },
+              "named": false,
+              "value": "try"
+            }
+          ]
         },
         {
           "type": "FIELD",
@@ -14883,16 +14897,49 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "STRING",
-          "value": "catch"
-        },
-        {
-          "type": "FIELD",
-          "name": "parameters",
-          "content": {
-            "type": "SYMBOL",
-            "name": "parameter_list"
-          }
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "STRING",
+                      "value": "catch"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_proven_catch_parameter_macro"
+                      },
+                      "named": false,
+                      "value": "catch"
+                    }
+                  ]
+                },
+                {
+                  "type": "FIELD",
+                  "name": "parameters",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "parameter_list"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_proven_catch_all_macro"
+              },
+              "named": false,
+              "value": "catch"
+            }
+          ]
         },
         {
           "type": "FIELD",
@@ -22819,8 +22866,22 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "STRING",
-          "value": "@try"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "@try"
+            },
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_proven_try_macro"
+              },
+              "named": false,
+              "value": "try"
+            }
+          ]
         },
         {
           "type": "FIELD",
@@ -22853,21 +22914,54 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "STRING",
-          "value": "@catch"
-        },
-        {
-          "type": "FIELD",
-          "name": "parameters",
-          "content": {
-            "type": "ALIAS",
-            "content": {
-              "type": "SYMBOL",
-              "name": "_objc_catch_parameters"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "STRING",
+                      "value": "@catch"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_proven_catch_parameter_macro"
+                      },
+                      "named": false,
+                      "value": "catch"
+                    }
+                  ]
+                },
+                {
+                  "type": "FIELD",
+                  "name": "parameters",
+                  "content": {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_objc_catch_parameters"
+                    },
+                    "named": true,
+                    "value": "parameter_list"
+                  }
+                }
+              ]
             },
-            "named": true,
-            "value": "parameter_list"
-          }
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_proven_catch_all_macro"
+              },
+              "named": false,
+              "value": "catch"
+            }
+          ]
         },
         {
           "type": "FIELD",
@@ -33538,6 +33632,18 @@
     {
       "type": "SYMBOL",
       "name": "_proven_inline_specifier_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_try_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_catch_all_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_catch_parameter_macro"
     }
   ],
   "inline": [

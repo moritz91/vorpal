@@ -48,6 +48,117 @@ fn site(source: &str, needle: &str, open_if: bool) -> CppStatementMacroSite {
 }
 
 #[test]
+fn proven_try_handlers_keep_original_bodies_and_require_complete_syntax() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// Grüße 日本語\nvoid run() { ENTER { work(); } HANDLE { recovered(); } after(); }\nvoid ordinary() { ENTER(); HANDLE(); }".replace('\n', newline);
+    let sites = [
+      CppProvenMacroSite {
+        offset: source.find("ENTER").unwrap().try_into().unwrap(),
+        name: "ENTER".into(),
+        kind: CppProvenMacroKind::TryPrefix,
+      },
+      CppProvenMacroSite {
+        offset: source.find("HANDLE").unwrap().try_into().unwrap(),
+        name: "HANDLE".into(),
+        kind: CppProvenMacroKind::CatchAllPrefix,
+      },
+    ];
+    with_cpp_proven_macro_sites(&sites, || {
+      let parsed = SupportLang::Cpp.grep(&source);
+      assert!(!parsed.root().has_error());
+      let owner = parsed
+        .root()
+        .dfs()
+        .find(|n| n.kind().as_ref() == "try_statement")
+        .unwrap();
+      assert_eq!(owner.text(), "ENTER { work(); } HANDLE { recovered(); }");
+      assert_eq!(&source[owner.range()], owner.text());
+      assert_eq!(owner.field("body").unwrap().text(), "{ work(); }");
+      let handler = owner
+        .dfs()
+        .find(|n| n.kind().as_ref() == "catch_clause")
+        .unwrap();
+      assert_eq!(handler.text(), "HANDLE { recovered(); }");
+      assert!(handler.field("parameters").is_none());
+      assert_eq!(handler.field("body").unwrap().text(), "{ recovered(); }");
+      for name in ["ENTER()", "HANDLE()", "work()", "recovered()", "after()"] {
+        assert_eq!(
+          parsed
+            .root()
+            .dfs()
+            .filter(|n| n.kind().as_ref() == "call_expression" && n.text() == name)
+            .count(),
+          1
+        );
+      }
+      with_cpp_proven_macro_sites(&[], || {
+        assert!(SupportLang::Cpp.grep(&source).root().has_error())
+      });
+      assert!(!SupportLang::Cpp.grep(&source).root().has_error());
+    });
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    for invalid in [
+      source.replace("work();", "work()"),
+      source.replace("HANDLE { recovered(); }", ""),
+      source.replace("ENTER { work(); }", ""),
+    ] {
+      let mut invalid_sites: Vec<_> = sites
+        .iter()
+        .filter_map(|site| {
+          invalid.find(&site.name).map(|offset| CppProvenMacroSite {
+            offset: offset.try_into().unwrap(),
+            name: site.name.clone(),
+            kind: site.kind,
+          })
+        })
+        .collect();
+      invalid_sites.sort_by_key(|site| site.offset);
+      assert!(
+        with_cpp_proven_macro_sites(&invalid_sites, || SupportLang::Cpp.grep(&invalid))
+          .root()
+          .has_error(),
+        "{invalid}"
+      );
+    }
+  }
+}
+
+#[test]
+fn proven_typed_catch_keeps_authored_parameter_spans() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source =
+      "// 日本語\nvoid run() { ENTER { work(); } HANDLE /* source */ (Token&) { recovered(); } }"
+        .replace('\n', newline);
+    let sites = [
+      CppProvenMacroSite {
+        offset: source.find("ENTER").unwrap().try_into().unwrap(),
+        name: "ENTER".into(),
+        kind: CppProvenMacroKind::TryPrefix,
+      },
+      CppProvenMacroSite {
+        offset: source.find("HANDLE").unwrap().try_into().unwrap(),
+        name: "HANDLE".into(),
+        kind: CppProvenMacroKind::CatchParameterPrefix,
+      },
+    ];
+    let root = with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&source));
+    assert!(!root.root().has_error());
+    let handler = root
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "catch_clause")
+      .unwrap();
+    let parameters = handler.field("parameters").unwrap();
+    assert_eq!(parameters.text(), "(Token&)");
+    assert_eq!(&source[parameters.range()], "(Token&)");
+    assert_eq!(handler.field("body").unwrap().text(), "{ recovered(); }");
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+  }
+}
+
+#[test]
 fn complete_declaration_sites_keep_original_spans_and_decline_statement_roles() {
   use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
   for newline in ["\n", "\r\n"] {
