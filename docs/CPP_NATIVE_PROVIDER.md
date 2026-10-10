@@ -435,3 +435,35 @@ The renewed isolated normal MCP reports **4 error-bearing files / 7 diagnostics 
 Objective-C macro qualifiers and two active warning/no-op macro markers. The three
 glTF textual include fragments retain their shared-context boundary. Productive
 `.3` and Hades source remain unchanged.
+
+### Native empty and warning annotations
+
+Optional `annotationMacros` supplies exact outer object-expansion sites with fresh
+physical definitions. The parent accepts only a zero-parameter empty replacement
+or literal `__pragma(warning(push/pop))`. Empty replacements require the original
+definition name endpoint and no observed token origins anywhere in the invocation
+range. Literal warning operators require the exact contiguous macro-origin tokens
+at the original offset and unchanged complete native token agreement. Unknown
+operators, expanding operands, function-like forms, incorrect tokens/origins and
+stale anchors decline. Existing providers may omit the new field.
+
+The scoped `Annotation` scanner role consumes only the original identifier. The
+new visible `macro_annotation` kind retains its name span as a top-level/block
+item, without a fabricated runtime callee or generated declaration. Ordinary
+same-name calls after undef, original body calls and real missing semicolons keep
+their spans/errors. Expression/type interiors gain no general annotation syntax.
+Owned, streaming and Scan agree; default parsing has no annotation privilege and
+scoped contexts restore correctly. Native products remain nonreplayable.
+
+Windows/Linux production, parser, evidence/recovery, language, complete corpus and
+replay/resolver tests pass, along with Clippy, nine Python projection controls and
+38 native LF/CRLF MSVC syntax/token controls. All 179 unchanged C++ cases pass.
+C++ provenance and schema include the new kind; reproduction is byte-identical
+and retains the ASCII fast path.
+
+The isolated normal MCP now reports **4 error-bearing files / 5 diagnostics /
+35 diagnostic bytes**. Catch2 retains only two inactive Objective-C macro
+qualifier diagnostics / 13 bytes. Its active warning/no-op markers, exception
+prefixes, conditional catch and four reporter registrations are clean. Three
+genuine glTF text includes still require their shared translation context; they
+are not damaged authored files. Productive `.3` and Hades source are unchanged.

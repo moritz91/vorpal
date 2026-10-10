@@ -179,6 +179,10 @@
           "name": "macro_declaration"
         },
         {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
@@ -395,6 +399,10 @@
         {
           "type": "SYMBOL",
           "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
         },
         {
           "type": "ALIAS",
@@ -21860,6 +21868,10 @@
           "name": "macro_declaration"
         },
         {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
@@ -22512,6 +22524,10 @@
         {
           "type": "SYMBOL",
           "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
         },
         {
           "type": "ALIAS",
@@ -28265,6 +28281,10 @@
           "name": "macro_declaration"
         },
         {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
@@ -29512,6 +29532,24 @@
         }
       ]
     },
+    "macro_annotation": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_proven_annotation_macro"
+            },
+            "named": true,
+            "value": "identifier"
+          }
+        }
+      ]
+    },
     "_cli_top_level_item": {
       "type": "CHOICE",
       "members": [
@@ -29698,6 +29736,10 @@
         {
           "type": "SYMBOL",
           "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
         },
         {
           "type": "ALIAS",
@@ -29910,6 +29952,10 @@
         {
           "type": "SYMBOL",
           "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
         },
         {
           "type": "ALIAS",
@@ -31810,6 +31856,10 @@
         {
           "type": "SYMBOL",
           "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
         },
         {
           "type": "ALIAS",
@@ -33777,6 +33827,10 @@
     {
       "type": "SYMBOL",
       "name": "_proven_catch_parameter_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_annotation_macro"
     }
   ],
   "inline": [

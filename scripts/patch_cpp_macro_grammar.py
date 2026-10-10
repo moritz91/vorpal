@@ -610,10 +610,17 @@ rules['base_class_clause'] = decltype_base(rules['base_class_clause'])
 rules['decltype']['members'][2] = choice(symbol('expression'), symbol('comma_expression'))
 # Proof-backed statement names come only from a scoped external scanner context.
 # Without that context the new branch is unreachable, including ordinary calls.
-for name in ['_proven_statement_macro', '_proven_open_if_macro', '_proven_function_macro', '_proven_declaration_macro', '_proven_case_loop_macro', '_proven_inline_specifier_macro', '_proven_try_macro', '_proven_catch_all_macro', '_proven_catch_parameter_macro']:
+for name in ['_proven_statement_macro', '_proven_open_if_macro', '_proven_function_macro', '_proven_declaration_macro', '_proven_case_loop_macro', '_proven_inline_specifier_macro', '_proven_try_macro', '_proven_catch_all_macro', '_proven_catch_parameter_macro', '_proven_annotation_macro']:
     external = symbol(name)
     if external not in grammar['externals']:
         grammar['externals'].append(external)
+# Only an exact native no-runtime-token proof authorizes a bare annotation name.
+# Ordinary identifiers/calls and expression/type interiors keep ordinary syntax.
+rules['macro_annotation'] = seq({'type': 'FIELD', 'name': 'name',
+    'content': alias_rule('_proven_annotation_macro', 'identifier')})
+for entry in ['_top_level_item', '_block_item']:
+    if symbol('macro_annotation') not in rules[entry]['members']:
+        rules[entry]['members'].append(symbol('macro_annotation'))
 if symbol('_proven_inline_specifier_macro') not in rules['storage_class_specifier']['members']:
     rules['storage_class_specifier']['members'].append(symbol('_proven_inline_specifier_macro'))
 rules['try_statement']['members'][0] = choice(

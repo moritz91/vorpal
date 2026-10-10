@@ -24,6 +24,8 @@ CASES = [
     ("hash_warning", '#pragma warning(push)\n#pragma warning(disable: 4180) // original comment\n#pragma optimize("", off)\nvoid run() {}\n#pragma optimize("", on)\n#pragma warning(pop)\n', True, True),
     ("try_handler", '#define ENTER try\n#define HANDLE catch (...)\nvoid call();\nvoid run() { ENTER { call(); } HANDLE { call(); } }\n', True, True),
     ("typed_handler", '#define ENTER try\n#define HANDLE(type_1) catch (type_1)\nstruct Token {};\nvoid call();\nvoid run() { ENTER { throw Token{}; } HANDLE /* original */ (Token&) { call(); } }\n', True, True),
+    ("annotation_scope", '#define BEGIN __pragma(warning(push))\n#define EMPTY\n#define END __pragma(warning(pop))\nvoid call();\nvoid run() { BEGIN\nEMPTY\nstatic int value;\nEND\ncall(); }\n', True, True),
+    ("annotation_missing_semicolon", '#define EMPTY\nvoid call();\nvoid run() { EMPTY\ncall() }\n', False, True),
     ("conditional_handler", '#define ENTER try\nvoid call();\nvoid run() { ENTER { call(); }\n#if !defined(DISABLE)\ncatch (...) { call(); }\n#endif\n}\n', True, True),
     ("conditional_handler_missing_semicolon", '#define ENABLE 1\n#define ENTER try\nvoid call();\nvoid run() { ENTER { call(); }\n#ifdef ENABLE\ncatch (...) { call() }\n#endif\n}\n', False, True),
     ("registration", 'template<class T> struct Registry { explicit Registry(const char*); };\nstruct Reporter {};\n#define REGISTER(T) __pragma(warning(push)) namespace { Registry<T> registered("reporter"); } __pragma(warning(pop))\nREGISTER(Reporter)\nvoid run() {}\n', True, True),
@@ -77,6 +79,11 @@ def main():
         assert (packet["nativeBefore"] == packet["observedTokens"]) == agreement, (name, "token agreement")
         if name.startswith(("hash_warning", "observer_only_diagnostic")):
             assert len(packet["pragmaOffsets"]) == len(packet["nativeDirectives"])
+        if name.startswith("annotation_scope"):
+            assert {s["name"] for s in packet["annotationMacros"]} == {"BEGIN", "EMPTY", "END"}
+            for site in packet["annotationMacros"]:
+                assert site["end"] - site["start"] == len(site["name"])
+                assert site["definition"]["parameters"] == 0
         assert source.read_bytes() == text.encode(), (name, "original source changed")
         print(f"{name}: native syntax={syntax_ok}, full token agreement={agreement}", flush=True)
 

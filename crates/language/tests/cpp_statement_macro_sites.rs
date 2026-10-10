@@ -428,7 +428,7 @@ fn proven_case_loop_prefixes_preserve_original_bodies_and_empty_context_errors()
 fn proven_try_prefix_accepts_complete_conditional_original_handlers() {
   use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
   for newline in ["\n", "\r\n"] {
-    let source = "// Î±\nvoid run() { ENTER { body(); }\n#if !defined(DISABLE)\ncatch (Error& ex) { recover(ex); }\n#endif\nafter(); }\n".replace('\n', newline);
+    let source = "// α\nvoid run() { ENTER { body(); }\n#if !defined(DISABLE)\ncatch (Error& ex) { recover(ex); }\n#endif\nafter(); }\n".replace('\n', newline);
     let sites = [CppProvenMacroSite {
       offset: source.find("ENTER").unwrap().try_into().unwrap(),
       name: "ENTER".into(),
@@ -478,5 +478,62 @@ fn proven_try_prefix_accepts_complete_conditional_original_handlers() {
       );
     }
     assert!(SupportLang::Cpp.grep(&source).root().has_error());
+  }
+}
+
+#[test]
+fn proven_annotations_keep_names_without_runtime_callees_and_empty_context_leaks() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source="// α\nBEGIN\nvoid run() { EMPTY\nint value; END\nbody(); }\nvoid ordinary() { BEGIN(); EMPTY(); END(); }\n".replace('\n',newline);
+    let sites: Vec<_> = ["BEGIN", "EMPTY", "END"]
+      .into_iter()
+      .map(|name| CppProvenMacroSite {
+        offset: source.find(name).unwrap().try_into().unwrap(),
+        name: name.into(),
+        kind: CppProvenMacroKind::Annotation,
+      })
+      .collect();
+    assert!(!SupportLang::Cpp.grep(&source).root().dfs().any(|n| n.kind().as_ref() == "macro_annotation"));
+    with_cpp_proven_macro_sites(&sites, || {
+      let parsed = SupportLang::Cpp.grep(&source);
+      assert!(!parsed.root().has_error());
+      let annotations: Vec<_> = parsed
+        .root()
+        .dfs()
+        .filter(|n| n.kind().as_ref() == "macro_annotation")
+        .collect();
+      assert_eq!(annotations.len(), 3);
+      for (node, name) in annotations.iter().zip(["BEGIN", "EMPTY", "END"]) {
+        assert_eq!(&source[node.range()], name);
+        assert_eq!(node.field("name").unwrap().text(), name);
+      }
+      for spelling in ["BEGIN()", "EMPTY()", "END()", "body()"] {
+        assert_eq!(
+          parsed
+            .root()
+            .dfs()
+            .filter(|n| n.kind().as_ref() == "call_expression" && n.text() == spelling)
+            .count(),
+          1
+        );
+      }
+      with_cpp_proven_macro_sites(&[], || {
+        assert!(!SupportLang::Cpp.grep(&source).root().dfs().any(|n| n.kind().as_ref() == "macro_annotation"))
+      });
+      assert!(!SupportLang::Cpp.grep(&source).root().has_error());
+    });
+    assert!(!SupportLang::Cpp.grep(&source).root().dfs().any(|n| n.kind().as_ref() == "macro_annotation"));
+    for invalid in [
+      source.replace("body();", "body()"),
+      source.replace("BEGIN();", "BEGIN()"),
+      source.replace("int value;", "int value"),
+    ] {
+      assert!(
+        with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&invalid))
+          .root()
+          .has_error()
+      );
+    }
   }
 }

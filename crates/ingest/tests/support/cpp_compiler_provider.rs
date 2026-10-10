@@ -85,7 +85,10 @@ fn compiler_provider_process() {
   let Ok(header) = fs::read_to_string(&header_path) else {
     process::exit(8);
   };
-  let invocation = if mode.starts_with("control-prefix") || mode.starts_with("inline-specifier") {
+  let invocation = if mode.starts_with("control-prefix")
+    || mode.starts_with("inline-specifier")
+    || mode.starts_with("annotation-prefix")
+  {
     "CHECK"
   } else if mode.starts_with("literal-argument") {
     "CHECK(value() + BUTTON)"
@@ -125,6 +128,45 @@ fn compiler_provider_process() {
       "definition":{"buffer":0,"nameOffset":header.find("CHECK").unwrap(),"end":header.trim_end().len(),"parameters":1}}],
     "expandedNames":["CHECK"],"calleeSites":[{"name":"CHECK","start":start}]
   });
+  if mode.starts_with("annotation-prefix") {
+    let empty = source.find("EMPTY").unwrap();
+    let stop = source.find("HANDLE").unwrap();
+    let mut tokens = vec![
+      "__pragma", "(", "warning", "(", "push", ")", ")", "__pragma", "(", "warning", "(", "pop",
+      ")", ")",
+    ];
+    if mode == "annotation-prefix-empty-origin" {
+      tokens.push("extra");
+    }
+    for key in ["nativeBefore", "nativeAfter", "observedTokens"] {
+      packet[key] = json!(tokens);
+    }
+    packet["observedTokenSites"] = json!(tokens.iter().enumerate().map(|(i, _)| json!({"offset":if i < 7 {start} else if i < 14 {stop} else {empty},"fromMacro":true})).collect::<Vec<_>>());
+    let sites: Vec<_> = [("CHECK", start), ("EMPTY", empty), ("HANDLE", stop)].into_iter().map(|(name, offset)| {
+      let name_offset = header.find(name).unwrap();
+      let end = header[name_offset..].find('\n').map_or(header.len(), |len| name_offset + len);
+      let end = header[..end].trim_end().len();
+      json!({"name":name,"start":offset,"end":offset+name.len(),"definition":{"buffer":0,"nameOffset":name_offset,"end":end,"parameters":0}})
+    }).collect();
+    packet["annotationMacros"] = json!(sites);
+    packet["expansions"] = json!([{"name":"CHECK","start":start,"end":start+5,"definition":null},{"name":"EMPTY","start":empty,"end":empty+5,"definition":null},{"name":"HANDLE","start":stop,"end":stop+6,"definition":null}]);
+    packet["expandedNames"] = json!(["CHECK", "EMPTY", "HANDLE"]);
+    packet["calleeSites"] = json!([{"name":"CHECK","start":start},{"name":"EMPTY","start":empty},{"name":"HANDLE","start":stop}]);
+    if mode == "annotation-prefix-origin" {
+      packet["observedTokenSites"][0]["fromMacro"] = json!(false);
+    }
+    if mode == "annotation-prefix-anchor" {
+      packet["annotationMacros"][1]["definition"]["end"] = json!(header.len() + 1);
+    }
+    if mode == "annotation-prefix-offset" {
+      packet["annotationMacros"][1]["start"] = json!(source.len());
+    }
+    if mode == "annotation-prefix-token" {
+      for key in ["nativeBefore", "nativeAfter", "observedTokens"] {
+        packet[key][4] = json!("disable");
+      }
+    }
+  }
   if mode.starts_with("control-prefix") {
     let mut pragma_offsets = Vec::new();
     let mut native_directives = Vec::new();

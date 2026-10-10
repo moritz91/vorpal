@@ -133,6 +133,7 @@ pub enum CppProvenMacroKind {
   TryPrefix,
   CatchAllPrefix,
   CatchParameterPrefix,
+  Annotation,
 }
 
 #[derive(Debug, Clone)]
@@ -179,6 +180,7 @@ pub fn with_cpp_proven_macro_sites<R>(
         CppProvenMacroKind::TryPrefix => 6,
         CppProvenMacroKind::CatchAllPrefix => 7,
         CppProvenMacroKind::CatchParameterPrefix => 8,
+        CppProvenMacroKind::Annotation => 9,
       },
     })
     .collect();

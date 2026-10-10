@@ -223,7 +223,7 @@ def main():
         # The parent independently parses and validates the complete directive.
         pragma_offsets.append(start + len(original[start:offset].split(b"#", 1)[0]))
     records = [r for r in rows if r["kind"] == "macro"]
-    definitions, buffers, expansions, callees, literal_arguments, specifier_macros, control_macros = [], {}, [], {}, [], [], []
+    definitions, buffers, expansions, callees, literal_arguments, specifier_macros, control_macros, annotation_macros = [], {}, [], {}, [], [], [], []
     for record in records:
         begin, end = record["begin"], record.get("end_exclusive", {})
         if begin["nested"] or not begin.get("path") or not end.get("path"):
@@ -243,7 +243,10 @@ def main():
                      [["inline"], ["__forceinline"], ["__inline"]])
         control = (not record.get("function_like") and record.get("replacement_tokens") in
                    [["try"], ["catch", "(", "...", ")"]])
-        if (record.get("function_like") or literal or specifier or control) and definition.get("path") and definition_end.get("path"):
+        annotation = (not record.get("function_like") and record.get("replacement_tokens") in
+                      [[], ["__pragma", "(", "warning", "(", "push", ")", ")"],
+                       ["__pragma", "(", "warning", "(", "pop", ")", ")"]])
+        if (record.get("function_like") or literal or specifier or control or annotation) and definition.get("path") and definition_end.get("path"):
             header = Path(definition["path"]).resolve()
             if header.is_file() and Path(definition_end["path"]).resolve() == header:
                 data = header.read_bytes()
@@ -261,6 +264,8 @@ def main():
             specifier_macros.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
         if control and anchor is not None:
             control_macros.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
+        if annotation and anchor is not None:
+            annotation_macros.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
         expansions.append({"name": record["name"], "start": start, "end": stop,
                            "definition": anchor if record.get("function_like") else None})
     outer = []
@@ -279,6 +284,7 @@ def main():
     outer_sites = {(r["name"], r["start"], r["end"]) for r in outer if r["definition"] is None}
     specifier_macros = [r for r in specifier_macros if (r["name"], r["start"], r["end"]) in outer_sites]
     control_macros = [r for r in control_macros if (r["name"], r["start"], r["end"]) in outer_sites]
+    annotation_macros = [r for r in annotation_macros if (r["name"], r["start"], r["end"]) in outer_sites]
     assert source.read_bytes() == original and Path(args.plan).read_bytes() == plan_bytes
     assert translation_unit.read_bytes() == translation_unit_bytes
     assert all(Path(b["path"]).read_bytes() == b["source"].encode() for b in definitions)
@@ -296,6 +302,7 @@ def main():
               "definitions": definitions, "expansions": outer, "literalArguments": literal_arguments,
               "specifierMacros": specifier_macros,
               "controlMacros": control_macros,
+              "annotationMacros": annotation_macros,
               "expandedNames": sorted({r["name"] for r in records}), "calleeSites": list(callees.values())}
     encoded = json.dumps(packet, ensure_ascii=False).encode()
     if len(encoded) > 32 * 1024 * 1024:

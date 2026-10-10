@@ -12,7 +12,7 @@ fn native_try_prefixes_preserve_calls_and_decline_unproven_handlers() {
   for newline in ["\n", "\r\n"] {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.cc");
-    let source = "// Grüße 日本語\nvoid run() { CHECK { body(); } HANDLE { recovered(); } after(); }\n#undef CHECK\n#undef HANDLE\nvoid ordinary() { CHECK(other()); HANDLE(); }\n".replace('\n', newline);
+    let source = "// GrÃ¼ÃŸe æ—¥æœ¬èªž\nvoid run() { CHECK { body(); } HANDLE { recovered(); } after(); }\n#undef CHECK\n#undef HANDLE\nvoid ordinary() { CHECK(other()); HANDLE(); }\n".replace('\n', newline);
     fs::write(&path, &source).unwrap();
     fs::write(
       dir.path().join("proof.h"),
@@ -174,7 +174,7 @@ fn native_typed_handlers_require_unchanged_original_parameters() {
   for newline in ["\n", "\r\n"] {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.cc");
-    let source = "// Grüße 日本語\nvoid run() { CHECK { body(); } HANDLE /* physical */ (Token&) { recovered(); } after(); }\n#undef CHECK\n#undef HANDLE\nvoid ordinary() { HANDLE(); }\n".replace('\n',newline);
+    let source = "// GrÃ¼ÃŸe æ—¥æœ¬èªž\nvoid run() { CHECK { body(); } HANDLE /* physical */ (Token&) { recovered(); } after(); }\n#undef CHECK\n#undef HANDLE\nvoid ordinary() { HANDLE(); }\n".replace('\n',newline);
     fs::write(&path, &source).unwrap();
     fs::write(
       dir.path().join("proof.h"),
@@ -233,7 +233,7 @@ fn native_namespace_registration_generators_keep_original_invocations_only() {
   for newline in ["\n", "\r\n"] {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.cc");
-    let source="// Grüße 日本語\nnamespace original { CHECK(Type)\nvoid following() { after(); } }\n#undef CHECK\nvoid ordinary() { CHECK(Type()); }\n".replace('\n',newline);
+    let source="// GrÃ¼ÃŸe æ—¥æœ¬èªž\nnamespace original { CHECK(Type)\nvoid following() { after(); } }\n#undef CHECK\nvoid ordinary() { CHECK(Type()); }\n".replace('\n',newline);
     fs::write(&path, &source).unwrap();
     fs::write(
       dir.path().join("proof.h"),
@@ -1097,7 +1097,7 @@ fn fresh_native_stringification_and_pasting_keep_original_names_and_arguments() 
       } else {
         "CHECK(value())"
       };
-      let source = format!("// Grüße 日本語\nvoid run() {{ {invocation}\nafter(); }}\n#undef CHECK\nvoid CHECK(int); void ordinary() {{ CHECK(other()); }}\nvoid following() {{ later(); }}\n").replace('\n', newline);
+      let source = format!("// GrÃ¼ÃŸe æ—¥æœ¬èªž\nvoid run() {{ {invocation}\nafter(); }}\n#undef CHECK\nvoid CHECK(int); void ordinary() {{ CHECK(other()); }}\nvoid following() {{ later(); }}\n").replace('\n', newline);
       fs::write(&path, &source).unwrap();
       let header = if pasted {
         "#define CHECK(x) try { log(#x); test_##x(); } catch (...) {}\n"
@@ -1236,7 +1236,10 @@ fn fresh_compiler_products_keep_original_sites_and_never_authorize_replay() {
   for newline in ["\n", "\r\n"] {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.cc");
-    let source = format!("// Grüße 日本語{newline}{}", SOURCE.replace('\n', newline));
+    let source = format!(
+      "// GrÃ¼ÃŸe æ—¥æœ¬èªž{newline}{}",
+      SOURCE.replace('\n', newline)
+    );
     fs::write(&path, &source).unwrap();
     fs::write(
       dir.path().join("proof.h"),
@@ -1589,4 +1592,116 @@ fn observed_type_name_expansions_are_not_published_as_original_named_types() {
     .collect();
   assert_eq!(types.len(), 1);
   assert!(source[types[0].entry.range.byte_offset.clone()].contains("ordinary"));
+}
+
+#[test]
+fn native_annotations_require_exact_empty_or_literal_warning_definitions() {
+  use vorpal_language::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let header = "#define CHECK __pragma(warning(push))\n#define EMPTY\n#define HANDLE __pragma(warning(pop))\n".replace('\n', newline);
+    let source = "// α\nvoid run() {\nCHECK\nEMPTY\nstatic int value;\nHANDLE\nafter(); }\n#undef CHECK\n#undef EMPTY\n#undef HANDLE\nvoid ordinary() { CHECK(); EMPTY(); HANDLE(); }\nvoid following() { final_call(); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(dir.path().join("proof.h"), &header).unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "annotation-prefix-origin",
+      "annotation-prefix-anchor",
+      "annotation-prefix-offset",
+      "annotation-prefix-token",
+      "annotation-prefix-empty-origin",
+      "annotation-prefix",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "annotation-prefix",
+        "{mode}"
+      );
+    }
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    for (name, spelling) in [
+      ("CHECK", "CHECK()"),
+      ("EMPTY", "EMPTY()"),
+      ("HANDLE", "HANDLE()"),
+      ("after", "after()"),
+      ("final_call", "final_call()"),
+    ] {
+      let calls: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(calls.len(), 1, "{name}");
+      assert_eq!(
+        &source[calls[0].start as usize..calls[0].end as usize],
+        spelling
+      );
+    }
+    assert!(product.items.iter().any(|i| i.entry.name == "following"));
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        product.source_size,
+        product.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handoff = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handoff, &mut encoded);
+    assert_eq!(owned, encoded);
+    for invalid in [
+      source.replace("after();", "after()"),
+      source.replace("CHECK();", "CHECK()"),
+      source.replace("static int value;", "static int value"),
+    ] {
+      fs::write(&path, &invalid).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &invalid)
+          .unwrap()
+          .error_nodes
+          > 0,
+        "{invalid}"
+      );
+    }
+    fs::write(&path, &source).unwrap();
+    for invalid_header in [
+      header.replace("#define EMPTY", "#define EMPTY 1"),
+      header.replace(
+        "#define CHECK __pragma(warning(push))",
+        "#define CHECK __pragma(warning(disable:4100))",
+      ),
+      header.replace("#define EMPTY", "#define EMPTY()"),
+      header.replace("warning(push)", "warning(OPERAND)"),
+    ] {
+      fs::write(dir.path().join("proof.h"), invalid_header).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &source)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+  }
 }

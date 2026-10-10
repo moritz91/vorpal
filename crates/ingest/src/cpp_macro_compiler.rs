@@ -171,6 +171,8 @@ mod native {
     specifier_macros: Vec<Site>,
     #[serde(default)]
     control_macros: Vec<Site>,
+    #[serde(default)]
+    annotation_macros: Vec<Site>,
     expanded_names: BTreeSet<String>,
     callee_sites: Vec<Callee>,
   }
@@ -741,11 +743,15 @@ mod native {
       .specifier_macros
       .len()
       .checked_add(packet.control_macros.len())?
+      .checked_add(packet.annotation_macros.len())?
       > 16384
     {
       return None;
     }
-    if packet.specifier_macros.is_empty() && packet.control_macros.is_empty() {
+    if packet.specifier_macros.is_empty()
+      && packet.control_macros.is_empty()
+      && packet.annotation_macros.is_empty()
+    {
       return Some(Vec::new());
     }
     let mut origins: std::collections::BTreeMap<usize, Vec<usize>> =
@@ -755,11 +761,12 @@ mod native {
     }
     let mut definitions = std::collections::BTreeMap::new();
     let mut sites = Vec::new();
-    for (site, control) in packet
+    for (site, role) in packet
       .specifier_macros
       .iter()
-      .map(|s| (s, false))
-      .chain(packet.control_macros.iter().map(|s| (s, true)))
+      .map(|s| (s, 0))
+      .chain(packet.control_macros.iter().map(|s| (s, 1)))
+      .chain(packet.annotation_macros.iter().map(|s| (s, 2)))
     {
       let anchor = site.definition.as_ref()?;
       if anchor.parameters != 0
@@ -795,7 +802,10 @@ mod native {
                 .field("name")
                 .is_some_and(|n| n.range().start == anchor.name_offset && n.text() == site.name)
           })?;
-          let value = definition.field("value")?;
+          let Some(value) = definition.field("value") else {
+            return (role == 2 && definition.field("name")?.range().end == anchor.end)
+              .then(String::new);
+          };
           let text = value.text();
           let length = crate::cpp_macro_evidence::replacement_token_end(&text)?;
           if value.range().start.checked_add(length)? != anchor.end {
@@ -805,7 +815,25 @@ mod native {
           Some(text.to_owned())
         })
         .as_ref()?;
-      let (kind, tokens): (_, Vec<&str>) = if control {
+      let (kind, tokens): (_, Vec<&str>) = if role == 2 {
+        match value
+          .chars()
+          .filter(|c| !c.is_ascii_whitespace())
+          .collect::<String>()
+          .as_str()
+        {
+          "" => (CppProvenMacroKind::Annotation, vec![]),
+          "__pragma(warning(push))" => (
+            CppProvenMacroKind::Annotation,
+            vec!["__pragma", "(", "warning", "(", "push", ")", ")"],
+          ),
+          "__pragma(warning(pop))" => (
+            CppProvenMacroKind::Annotation,
+            vec!["__pragma", "(", "warning", "(", "pop", ")", ")"],
+          ),
+          _ => return None,
+        }
+      } else if role == 1 {
         match value
           .chars()
           .filter(|c| !c.is_ascii_whitespace())
@@ -824,6 +852,17 @@ mod native {
       } else {
         return None;
       };
+      if tokens.is_empty() {
+        if origins.range(site.start..site.end).next().is_some() {
+          return None;
+        }
+        sites.push(CppProvenMacroSite {
+          offset: u32::try_from(site.start).ok()?,
+          name: site.name.clone(),
+          kind,
+        });
+        continue;
+      }
       let mut offsets = origins.range(site.start..site.end);
       let (&offset, indices) = offsets.next()?;
       if offsets.next().is_some()
