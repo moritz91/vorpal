@@ -14,7 +14,7 @@ use std::sync::Arc;
 use vorpal_core::tree_sitter::LanguageExt;
 use vorpal_language::SupportLang;
 
-use crate::cpp_macro_evidence::{Binding, Evidence, StatementMacro, statement_replacement};
+use crate::cpp_macro_evidence::{Binding, Evidence, StatementMacro, native_statement_replacement};
 
 /// A spelling comparison for a report adapter, not a compiler/cache proof.
 /// Native MSVC preprocessing can retain CRLF in a raw literal's spelling while
@@ -228,6 +228,7 @@ pub(crate) fn prepare_evidence(
     })
     .collect();
   let mut templates = BTreeMap::new();
+  let mut replacement_ends = BTreeMap::new();
   let mut evidence = Evidence {
     macro_names: observation.expanded_names.clone(),
     ..Evidence::default()
@@ -281,15 +282,20 @@ pub(crate) fn prepare_evidence(
     };
     let last = values.last().ok_or(Declined::InvalidDefinition)?;
     let end = last.range().end;
-    // Whitespace after the final replacement token is not part of its anchor.
-    // Comments in that gap cannot be inferred from an endpoint and are declined.
+    // Native MacroInfo ends at the last replacement token, not a trailing
+    // comment included by preproc_arg. Independently tokenize the physical
+    // replacement outside its opaque directive node; never trim comment-like
+    // spelling inside literals or accept an endpoint in the middle of a token.
     let value = &buffer.source[first.range().start..end];
-    let token_end = first.range().start
-      + value
-        .as_bytes()
-        .iter()
-        .rposition(|b| !b.is_ascii_whitespace())
-        .map_or(0, |i| i + 1);
+    let token_end = replacement_ends
+      .entry((anchor.buffer, anchor.name_offset))
+      .or_insert_with(|| {
+        crate::cpp_macro_evidence::replacement_token_end(value)
+          .map(|end| first.range().start + end)
+      });
+    let Some(token_end) = *token_end else {
+      continue;
+    };
     if anchor.end <= first.range().start || anchor.end != token_end {
       return Err(Declined::InvalidDefinition);
     }
@@ -318,7 +324,7 @@ pub(crate) fn prepare_evidence(
     let template = templates
       .entry((anchor.buffer, anchor.name_offset))
       .or_insert_with(|| {
-        let replacement = statement_replacement(value, &parameters)?;
+        let replacement = native_statement_replacement(value, &parameters)?;
         Some(StatementMacro {
           name: name.to_owned(),
           parameters: parameters.len(),

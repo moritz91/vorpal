@@ -89,6 +89,8 @@ pub struct Reference<'i> {
   /// targets the real definition); the alias is what the importing file's bare uses say, so
   /// the import-binding pre-pass keys on it.
   pub alias: Option<NameId<'i>>,
+  /// Sparse proof and durable owner, interned once per scope/owner in this session.
+  pub source_context: Option<crate::ContextId<'i>>,
 }
 
 impl<'i> Reference<'i> {
@@ -108,6 +110,7 @@ impl<'i> Reference<'i> {
       qualifier: None,
       form: RefForm::Bare,
       alias: None,
+      source_context: None,
       receiver_type: None,
       receiver_type_origin: 0xFF,
     }
@@ -131,9 +134,15 @@ impl<'i> Reference<'i> {
       qualifier: None,
       form: RefForm::Bare,
       alias: None,
+      source_context: None,
       receiver_type: None,
       receiver_type_origin: 0xFF,
     }
+  }
+
+  pub fn with_source_context(mut self, context: Option<crate::ContextId<'i>>) -> Self {
+    self.source_context = context;
+    self
   }
 
   pub fn with_evidence(mut self, start: u32, end: u32) -> Self {

@@ -77,7 +77,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - shell: pwsh
         run: |
-          cargo test --locked -p vorpal-index --no-default-features --test cpp_member_calls --test path_prefix --test path_suffix --test resolution_eval --test cpp_macro_replay --test cpp_macro_compiler --test parse_health_paths
+          cargo test --locked -p vorpal-index --no-default-features --test cpp_textual_include_live --test cpp_member_calls --test path_prefix --test path_suffix --test resolution_eval --test cpp_macro_replay --test cpp_macro_compiler --test cpp_textual_include_context --test parse_health_paths --test markdown_replay
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-mcp --test protocol prefix
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -87,13 +87,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-index --no-default-features --lib native_structured_base
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p vorpal-ingest --test cpp_macro_parsing --test cpp_directive_audit --test cpp_macro_evidence --test cpp_macro_recovery --test cpp_macro_compiler_audit --test cpp_macro_compiler_production --test cpp_macro_freshness --test powershell_parsing
+          cargo test --locked -p vorpal-ingest --lib native_operators
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p vorpal-mcp --test cpp_macro_freshness --test cpp_macro_compiler
+          cargo test --locked -p vorpal-ingest --test cpp_macro_parsing --test cpp_directive_audit --test cpp_include_context --test cpp_include_projection --test cpp_macro_evidence --test cpp_macro_recovery --test cpp_macro_compiler_audit --test cpp_macro_compiler_production --test cpp_macro_freshness --test powershell_parsing --test markdown_parsing
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked -p vorpal-language --test grammar_provenance --test cpp_statement_macro_sites
+          cargo test --locked -p vorpal-mcp --test cpp_macro_freshness --test cpp_macro_compiler --test cpp_textual_include_context
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p vorpal-language --test grammar_provenance --test cpp_statement_macro_sites --test markdown_control_characters
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal --test cpp_macro_config
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p vorpal-ingest --lib product::tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p vorpal-kg --test source_contexts --test canonical_seal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p vorpal-resolve --test textual_context
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-outline --test c_family_outline_rules
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

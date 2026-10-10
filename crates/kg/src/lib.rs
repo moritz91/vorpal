@@ -50,7 +50,7 @@ pub mod ledger;
 pub mod observed;
 mod scc;
 pub use writer::{
-  EntityIdentity, FileBlock, KgWriter, NodeDef, layout_entity_identities, layout_entity_paths,
+  EntityIdentity, FileBlock, KgWriter, NodeDef, external_entity_id, layout_entity_identities, layout_entity_paths,
 };
 
 pub use vorpal_graph::{Direction, EdgeLog, EdgeType, ReachStep};

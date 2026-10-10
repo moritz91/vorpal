@@ -15,6 +15,10 @@ use std::sync::Arc;
 use vorpal_core::tree_sitter::LanguageExt;
 use vorpal_language::SupportLang;
 
+#[cfg(feature = "builtin-parser")]
+#[path = "cpp_macro_native_operators.rs"]
+mod native_operators;
+
 /// A definition with one complete statement, or a do/while requiring the
 /// invocation's original terminating semicolon.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,32 +35,84 @@ pub struct StatementMacro {
 pub(crate) struct StatementReplacement {
   source: String,
   substitutions: Vec<(Range<usize>, usize)>,
+  native_operators: Vec<NativeOperator>,
+  pub(crate) native_arguments: Option<Vec<String>>,
+  native_runtime_parameters: Option<BTreeSet<usize>>,
   pub(crate) requires_semicolon: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeOperator {
+  Stringify(Range<usize>, usize),
+  Paste(Range<usize>, Vec<NativePiece>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativePiece {
+  Parameter(usize),
+  Identifier(String),
 }
 
 impl StatementReplacement {
   #[cfg(feature = "builtin-parser")]
   pub(crate) fn runtime_parameters(&self, count: usize) -> Option<BTreeSet<usize>> {
+    if let Some(arguments) = &self.native_arguments {
+      return (arguments.len() == count)
+        .then(|| self.native_runtime_parameters.clone())
+        .flatten();
+    }
     // This is an ephemeral proof document. No substituted source or generated
     // definition can enter a product. Ignored/unevaluated parameters are not
     // evidence that an original argument call executes.
-    let names: Vec<_> = (0..count).map(|i| format!("vorpalProofArgument{i}")).collect();
+    let names: Vec<_> = (0..count)
+      .map(|i| format!("vorpalProofArgument{i}"))
+      .collect();
     if names.iter().any(|name| self.source.contains(name)) {
       return None;
     }
     let arguments: Vec<_> = names.iter().map(String::as_str).collect();
     let instantiated = self.instantiate(&arguments)?;
     let parsed = SupportLang::Cpp.grep(format!("void proof() {{ {instantiated} }}"));
-    Some(parsed.root().dfs().filter(|n| n.children().next().is_none())
-      .filter(|n| !n.ancestors().any(|p| matches!(p.kind().as_ref(),
-        "sizeof_expression" | "alignof_expression" | "decltype" | "noexcept"
-        | "requires_expression" | "type_descriptor" | "static_assert_declaration")))
-      .filter_map(|n| names.iter().position(|name| n.text().as_ref() == name))
-      .collect())
+    Some(
+      parsed
+        .root()
+        .dfs()
+        .filter(|n| n.children().next().is_none())
+        .filter(|n| {
+          !n.ancestors().any(|p| {
+            matches!(
+              p.kind().as_ref(),
+              "sizeof_expression"
+                | "alignof_expression"
+                | "decltype"
+                | "noexcept"
+                | "requires_expression"
+                | "type_descriptor"
+                | "static_assert_declaration"
+                | "string_literal"
+                | "raw_string_literal"
+                | "char_literal"
+                | "comment"
+            )
+          })
+        })
+        .filter_map(|n| names.iter().position(|name| n.text().as_ref() == name))
+        .collect(),
+    )
   }
 
   #[cfg(feature = "builtin-parser")]
   pub(crate) fn instantiate(&self, arguments: &[&str]) -> Option<String> {
+    if let Some(expected) = &self.native_arguments {
+      return arguments
+        .iter()
+        .copied()
+        .eq(expected.iter().map(String::as_str))
+        .then(|| self.source.clone());
+    }
+    if !self.native_operators.is_empty() {
+      return native_operators::instantiate(self, arguments);
+    }
     // Bound repeated-parameter amplification independently of include limits.
     let mut size = self.source.len();
     for (_, parameter) in &self.substitutions {
@@ -403,9 +459,10 @@ fn intact_metadata_groups<D: vorpal_core::Doc>(
         let inverse_objc = keyword == "ifndef"
           && actual.get(&directive.span.start).is_some_and(|signature| {
             signature.kind == "preproc_ifdef"
-              && signature.fields.iter().any(|(field, _, text)| {
-                field == "name" && text == "__OBJC__"
-              })
+              && signature
+                .fields
+                .iter()
+                .any(|(field, _, text)| field == "name" && text == "__OBJC__")
           });
         let suffix = if inverse_objc {
           "#else\n#endif\n"
@@ -757,8 +814,7 @@ impl Audit {
       root
         .dfs()
         .filter(|node| {
-          node.kind().ends_with("identifier")
-            && !protected.contains(node.range().start)
+          node.kind().ends_with("identifier") && !protected.contains(node.range().start)
         })
         .map(|node| node.text().into_owned()),
     );
@@ -897,9 +953,9 @@ impl Audit {
     // An opaque boundary is irreversible for this audit. Metadata proof cannot
     // revive bindings after it, so do not reprove SDK groups on that dead path.
     let intact_groups = if !self.opaque_environment
-      && root.children().any(|n| {
-        n.has_error() && matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef")
-      })
+      && root
+        .children()
+        .any(|n| n.has_error() && matches!(n.kind().as_ref(), "preproc_if" | "preproc_ifdef"))
     {
       intact_metadata_groups(source, &root)
     } else {
@@ -1017,7 +1073,10 @@ impl Audit {
             self.invalidate_environment(environment);
           }
         }
-        "preproc_ifdef" | "preproc_if" | "conditional_function_definition" | "function_definition"
+        "preproc_ifdef"
+        | "preproc_if"
+        | "conditional_function_definition"
+        | "function_definition"
           if if node.kind().as_ref() == "function_definition" {
             conditional_return_metadata(source, &node)
           } else if node.kind().as_ref() == "conditional_function_definition" {
@@ -1026,7 +1085,9 @@ impl Audit {
             // but must not hide damaged directives or expanding conditions.
             node.field("prefixes").is_some_and(|group| {
               !group.has_error()
-                && group.field("condition").is_some_and(|condition| nonexpanding_condition(&condition.text()))
+                && group
+                  .field("condition")
+                  .is_some_and(|condition| nonexpanding_condition(&condition.text()))
             }) && !node.dfs().any(|n| {
               n.is_error() && n.text().contains('#')
                 || n.has_error()
@@ -1036,7 +1097,9 @@ impl Audit {
           } else {
             (!node.has_error() || intact_groups.contains(&node.range().start))
               && (node.kind().as_ref() == "preproc_ifdef"
-                || node.field("condition").is_some_and(|condition| nonexpanding_condition(&condition.text())))
+                || node
+                  .field("condition")
+                  .is_some_and(|condition| nonexpanding_condition(&condition.text())))
           } =>
         {
           // Definedness and the admitted literal/logical conditions do not
@@ -1338,7 +1401,57 @@ pub(crate) fn statement_replacement(
   Some(StatementReplacement {
     source,
     substitutions,
+    native_operators: Vec::new(),
+    native_arguments: None,
+    native_runtime_parameters: None,
     requires_semicolon,
+  })
+}
+
+/// Native-only operators require the independently matching fresh compiler
+/// stream. Metadata proof still declines pasting/stringification effects.
+#[cfg(feature = "builtin-parser")]
+pub(crate) fn native_statement_replacement(
+  replacement: &str,
+  parameters: &[String],
+) -> Option<StatementReplacement> {
+  statement_replacement(replacement, parameters)
+    .or_else(|| native_operators::prepare(replacement, parameters))
+}
+
+/// Fully expanded native tokens are a syntax proof for this exact invocation,
+/// not a replacement translation unit or a reusable macro definition.
+#[cfg(feature = "builtin-parser")]
+pub(crate) fn native_generator_statement(
+  source: String,
+  arguments: Vec<String>,
+) -> Option<StatementReplacement> {
+  complete_statement(&source).then_some(StatementReplacement {
+    source,
+    substitutions: Vec::new(),
+    native_operators: Vec::new(),
+    native_arguments: Some(arguments),
+    native_runtime_parameters: Some(BTreeSet::new()),
+    requires_semicolon: false,
+  })
+}
+
+/// A direct statement with fresh literal-only nested argument effects. Retain
+/// the original evaluated-parameter mask and original semicolon requirement.
+#[cfg(feature = "builtin-parser")]
+pub(crate) fn native_literal_statement(
+  template: &StatementReplacement,
+  source: String,
+  arguments: Vec<String>,
+) -> Option<StatementReplacement> {
+  let mask = template.runtime_parameters(arguments.len())?;
+  complete_statement(&source).then_some(StatementReplacement {
+    source,
+    substitutions: Vec::new(),
+    native_operators: Vec::new(),
+    native_arguments: Some(arguments),
+    native_runtime_parameters: Some(mask),
+    requires_semicolon: template.requires_semicolon,
   })
 }
 
@@ -1382,6 +1495,27 @@ fn effect_tokens(replacement: &str) -> (BTreeSet<String>, bool) {
 // union once instead of scanning every literal/comment/definition for every
 // source byte. This holds source spans only, never cached macro proof.
 struct ProtectedRanges(Vec<Range<usize>>);
+
+/// Native replacement endpoints exclude independently recognized physical
+/// comments, while keeping literal payload and opaque preprocessor operators.
+/// Syntax leaves alone are insufficient for an incomplete #/## replacement.
+#[cfg(feature = "builtin-parser")]
+pub(crate) fn replacement_token_end(source: &str) -> Option<usize> {
+  let lexical = SupportLang::Cpp.grep(source);
+  let comments = ProtectedRanges::new(
+    lexical
+      .root()
+      .dfs()
+      .filter(|n| n.kind().as_ref() == "comment")
+      .map(|n| n.range()),
+  );
+  source
+    .as_bytes()
+    .iter()
+    .enumerate()
+    .rfind(|(i, b)| !b.is_ascii_whitespace() && !comments.contains(*i))
+    .map(|(i, _)| i + 1)
+}
 
 impl ProtectedRanges {
   fn new(ranges: impl IntoIterator<Item = Range<usize>>) -> Self {

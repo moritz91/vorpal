@@ -93,10 +93,15 @@
       "Declaration-scoped inverse __OBJC__ guards admit primitive-return function definitions with mandatory function declarators and existing Objective-C compound-body aliases; reject general declaration specifiers and namespace bodies.",
       "Permit an inline prefix on the original friend declaration with one explicit storage-class conflict; retain original function/declaration kinds and spans without keyword-as-type recovery.",
       "Return-only conditional logical suffix groups retain the original left value, directive conditions and logical right operands, requiring complete directive lines and a final semicolon; no general expression expansion or branch selection.",
-      "Scoped exact invocation-site scanner context with a byte-offset capability supplied by the vendored runtime; TSLexer ABI and serialized scanner state are unchanged; standalone CLI requires no runtime symbol."
+      "Scoped exact invocation-site scanner context with a byte-offset capability supplied by the vendored runtime; TSLexer ABI and serialized scanner state are unchanged; standalone CLI requires no runtime symbol.",
+      "Scoped native function-prefix generator proof retains original body and argument spans without publishing generated named owners.",
+      "Scoped native complete function/declaration-list generator role: macro_declaration keeps original invocation and arguments, with no fabricated expanded names or bodies; scanner token is disabled without exact fresh proof.",
+      "Scoped native case/for-prefix generator role retains original invocation and authored body spans; native token agreement and direct switch context are required, with no fabricated expanded label or loop nodes.",
+      "Scoped native object-like inline specifier role consumes only the exact original identifier; independently matched single native token and fresh physical definition are required, with no global identifier modifier rule.",
+      "Scoped native try/catch-all/typed-handler prefixes require physical names and definitions plus independent native token origins; original handler bodies and authored parameters retain spans, while an object catch-all creates no fabricated parameters."
     ],
     "repository": "https://github.com/tree-sitter/tree-sitter-cpp",
-    "source_digest": "xxh3:79d6bafc4f407b05",
+    "source_digest": "xxh3:0eac98e0b45e995b",
     "version": "0.23.4"
   },
   "tree-sitter-css": {
@@ -300,9 +305,11 @@
     "abi": 15,
     "commit": "f969cd3ae3f9",
     "license": "MIT",
-    "patches": [],
+    "patches": [
+      "Classify physical NUL as CommonMark U+FFFD in block/inline lexers, preserving original bytes/spans and distinguishing actual EOF; reproduce with scripts/patch_markdown_nul_grammar.py."
+    ],
     "repository": "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
-    "source_digest": "xxh3:3e3be8946649fe0b",
+    "source_digest": "xxh3:54c2cd8f349ab889",
     "version": "0.5.3"
   },
   "tree-sitter-nix": {

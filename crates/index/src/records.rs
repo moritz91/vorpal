@@ -55,6 +55,9 @@ pub struct RelatedRecord {
   /// That line's text, trimmed and capped — the evidence a follow-up `snippet` would fetch.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub site: Option<String>,
+  /// Physical evidence path, which may differ from the caller definition's file.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub site_path: Option<String>,
 }
 
 /// One step of a relation-restricted traversal: the reached node, its BFS depth, the node it
@@ -88,6 +91,10 @@ pub struct EvidenceRecord {
   pub reason: String,
   pub candidates: u32,
   pub span: [u32; 2],
+  /// Original physical paths for a contextual owner. Several paths explicitly
+  /// preserve coincident offset ambiguity in the legacy fixed-width sidecar.
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub source_paths: Vec<String>,
 }
 
 /// One hybrid-search hit with its fused score and per-channel provenance.
@@ -284,6 +291,18 @@ pub struct SnippetRecord {
   pub body: String,
   /// Full span length in bytes when `body` was clamped by `max_bytes`.
   pub truncated_from: Option<u64>,
+  /// Ordered original portions when this definition crosses include boundaries.
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub parts: Vec<SourcePartSnippet>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct SourcePartSnippet {
+  pub path: String,
+  pub span: [u64; 2],
+  pub line: usize,
+  pub body: String,
+  pub truncated_from: Option<u64>,
 }
 
 /// How a snippet query failed: staleness is structurally distinguished so surfaces can keep
@@ -294,6 +313,57 @@ pub enum SnippetError {
   Stale(String),
   /// Anything else (selector error, spanless node, unreadable file).
   Other(String),
+}
+
+/// Read all exact inputs recorded by the pinned definition, including root
+/// directives and portions outside the requested body. Truncation never skips
+/// dependency validation. The node's persisted content fingerprint binds this
+/// manifest, so an old/mixed or incomplete source set cannot yield partial code.
+pub fn definition_context_parts(
+  context: &vorpal_ingest::DefinitionSourceContext,
+  max_bytes: usize,
+) -> Result<Vec<SourcePartSnippet>, SnippetError> {
+  if !context.inputs_are_valid() { return Err(SnippetError::Other("invalid original input manifest".into())); }
+  let inputs = read_context_inputs(&context.inputs)?;
+  let mut remaining = max_bytes;
+  let mut result = Vec::new();
+  for part in &context.parts {
+    let source = inputs.get(part.path.as_str()).ok_or_else(|| SnippetError::Other("unverified original definition part".into()))?;
+    let bytes = part.range.byte_offset.clone();
+    let body = source.get(bytes.clone()).ok_or_else(|| SnippetError::Other("original definition part exceeds verified input".into()))?;
+    let mut length = body.len().min(remaining);
+    while !body.is_char_boundary(length) { length -= 1; }
+    remaining -= length;
+    result.push(SourcePartSnippet {
+      path: part.path.clone(), span: [bytes.start as u64, bytes.end as u64],
+      line: source[..bytes.start].bytes().filter(|&byte| byte == b'\n').count() + 1,
+      body: body[..length].into(), truncated_from: (length < body.len()).then_some(body.len() as u64),
+    });
+  }
+  Ok(result)
+}
+
+pub(crate) fn read_context_inputs(inputs_manifest: &[vorpal_ingest::SourceContextInput]) -> Result<std::collections::HashMap<&str, String>, SnippetError> {
+  use std::io::Read;
+  let mut inputs = std::collections::HashMap::new();
+  let mut total = 0usize;
+  const LIMIT: usize = 16 * 1024 * 1024;
+  for input in inputs_manifest {
+    if vorpal_ingest::cpp_macro_evidence::path_has_redirected_components(std::path::Path::new(&input.path)) {
+      return Err(SnippetError::Stale(format!("{} changed since this generation indexed it: redirected input", input.path)));
+    }
+    let file = std::fs::File::open(&input.path).map_err(|err| SnippetError::Stale(format!("{} changed since this generation indexed it or became unavailable: {err}", input.path)))?;
+    let remaining = LIMIT.saturating_sub(total);
+    let mut bytes = Vec::new();
+    file.take(remaining as u64 + 1).read_to_end(&mut bytes).map_err(|err| SnippetError::Other(err.to_string()))?;
+    if bytes.len() > remaining || xxhash_rust::xxh3::xxh3_64(&bytes) != input.digest {
+      return Err(SnippetError::Stale(format!("{} changed since this generation indexed it — original include offsets are stale; rebuild the index", input.path)));
+    }
+    total += bytes.len();
+    let source = String::from_utf8(bytes).map_err(|_| SnippetError::Other("original include input is no longer UTF-8".into()))?;
+    inputs.insert(input.path.as_str(), source);
+  }
+  Ok(inputs)
 }
 
 /// Selector-driven snippet extraction: resolve `target`, slice each match's span from its
@@ -326,6 +396,16 @@ pub fn snippet_records(
     let Some(node) = node_record(kg, id) else {
       continue;
     };
+    if let Some(context) = kg.node(id).and_then(|node| node.source_context) {
+      let parts = definition_context_parts(context, max_bytes)?;
+      let body: String = parts.iter().map(|part| part.body.as_str()).collect();
+      let full: usize = context.parts.iter().map(|part| part.range.byte_offset.len()).sum();
+      records.push(SnippetRecord {
+        line: context.name.range.start.line + 1, node, verification: "verified".into(),
+        truncated_from: (body.len() < full).then_some(full as u64), body, parts,
+      });
+      continue;
+    }
     let [start, end] = node.span;
     if end <= start {
       return Err(SnippetError::Other(format!(
@@ -389,6 +469,7 @@ pub fn snippet_records(
       verification: verification.to_string(),
       body: String::from_utf8_lossy(&bytes[from..clamped_to]).into_owned(),
       truncated_from: (clamped_to < to).then_some(full as u64),
+      parts: Vec::new(),
     });
   }
   Ok(Selected::Hits(records))
@@ -400,6 +481,14 @@ pub fn render_snippets(records: &[SnippetRecord]) -> String {
   use std::fmt::Write;
   let mut out = String::new();
   for record in records {
+    if !record.parts.is_empty() {
+      let _ = writeln!(out, "{} [{}] (source verified; original include parts)", record.node.name, record.node.kind);
+      for part in &record.parts {
+        let _ = writeln!(out, "{}:{} [{}..{}]\n{}", part.path, part.line, part.span[0], part.span[1], part.body);
+        if let Some(full) = part.truncated_from { let _ = writeln!(out, "(truncated: {} of {full} bytes)", part.body.len()); }
+      }
+      continue;
+    }
     let _ = write!(
       out,
       "{}:{}  {} [{}] ({})\n{}",
@@ -1059,6 +1148,7 @@ pub fn related_records(
           similarity: (edge.base() == vorpal_kg::EdgeType::SIMILAR_TO).then_some(confidence),
           site_line: None,
           site: None,
+          site_path: None,
         })
       })
       .collect(),
@@ -1123,18 +1213,19 @@ pub fn attach_call_sites(
     let mut by_callee: std::collections::HashMap<u64, (String, usize)> =
       std::collections::HashMap::with_capacity(hits.len());
     for &target_id in &targets {
-      let Some(path) = kg
-        .node(NodeId::new(target_id))
-        .map(|view| view.path.to_string())
-      else {
+      if kg.node(NodeId::new(target_id)).and_then(|node| node.source_context)
+        .is_some_and(|context| definition_context_parts(context, 0).is_err()) {
         continue;
-      };
+      }
       for row in kg.evidence_from(NodeId::new(target_id)) {
         if row.outcome != vorpal_kg::EvidenceOutcome::Edge
           || vorpal_kg::EdgeType(row.etype).base() != edge.base()
         {
           continue;
         }
+        let paths = kg.evidence_paths(&row);
+        let [path] = paths.as_slice() else { continue; };
+        let path = path.to_string();
         let start = row.span_start as usize;
         by_callee
           .entry(row.to as u64)
@@ -1154,6 +1245,10 @@ pub fn attach_call_sites(
     hits
       .iter()
       .map(|hit| {
+        if kg.node(NodeId::new(hit.node.id)).and_then(|node| node.source_context)
+          .is_some_and(|context| definition_context_parts(context, 0).is_err()) {
+          return None;
+        }
         kg.evidence_from(NodeId::new(hit.node.id))
           .into_iter()
           .filter(|row| {
@@ -1161,9 +1256,12 @@ pub fn attach_call_sites(
               && targets.contains(&(row.to as u64))
               && vorpal_kg::EdgeType(row.etype).base() == edge.base()
           })
-          .map(|row| row.span_start as usize)
+          .filter_map(|row| {
+            let paths = kg.evidence_paths(&row);
+            let [path] = paths.as_slice() else { return None; };
+            Some((path.to_string(), row.span_start as usize))
+          })
           .min()
-          .map(|start| (hit.node.path.clone(), start))
       })
       .collect()
   };
@@ -1182,7 +1280,7 @@ pub fn attach_call_sites(
           crate::IndexedRead::Verified(bytes) | crate::IndexedRead::Unverified(bytes) => Some(bytes),
           crate::IndexedRead::Changed => verified_source.and_then(|verify| verify(&path)),
         });
-      cached = Some((path, read));
+      cached = Some((path.clone(), read));
     }
     let Some((_, Some(bytes))) = cached.as_ref() else {
       continue;
@@ -1204,6 +1302,7 @@ pub fn attach_call_sites(
     } else {
       text
     };
+    hit.site_path = Some(path);
     hit.site_line = Some(bytes[..line_start].iter().filter(|&&b| b == b'\n').count() as u32 + 1);
     hit.site = Some(text);
   }
@@ -3108,6 +3207,9 @@ pub fn evidence_records(
       reason: vorpal_ingest::ResolveReason::from_tag(row.reason).label().to_string(),
       candidates: row.candidates,
       span: [row.span_start, row.span_end],
+      source_paths: if kg.node(NodeId::new(row.from as u64)).is_some_and(|node| node.source_context.is_some()) {
+        kg.evidence_paths(&row).into_iter().map(str::to_owned).collect()
+      } else { Vec::new() },
     })
     .collect()
 }

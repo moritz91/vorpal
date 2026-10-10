@@ -101,6 +101,20 @@ fn detects_header_corruption() {
 }
 
 #[test]
+fn required_provenance_format_rejects_legacy_and_foreign_readers() {
+  let current = sample_segment(0);
+  assert_eq!(u32::from_le_bytes(current[8..12].try_into().unwrap()), 2);
+  for version in [1u32, 99] {
+    let mut bytes = current.clone();
+    bytes[8..12].copy_from_slice(&version.to_le_bytes());
+    assert!(matches!(
+      Segment::open_owned(bytes),
+      Err(vorpal_segment::SegmentError::BadVersion(found)) if found == version
+    ));
+  }
+}
+
+#[test]
 fn builder_rejects_inconsistent_input() {
   assert!(SegmentBuilder::new(0).build().is_err(), "empty segment");
 

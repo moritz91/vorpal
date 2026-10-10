@@ -2,6 +2,113 @@
 
 ## Current compiler-backed production path
 
+The current generator follow-up is documented in
+[CPP_NATIVE_PROVIDER.md](CPP_NATIVE_PROVIDER.md). Fresh native proofs cover
+statement lists, function prefixes, complete function/declaration lists,
+case/loop prefixes, numeric object macros inside statement arguments and native
+object-like inline specifiers and exact native try/catch handler prefixes.
+The isolated Hades index with explicit genuine textual include contexts is
+1 error-bearing file / 2 diagnostics / 13 diagnostic bytes; productive `.3`
+remains 15 / 378 / 951. All 41 state-storage definitions and 41 declarations are
+clean using physical-file projection in their genuine CMake Unity context.
+Missing/repeated visits and unsupported native pragmas remain conservative boundaries;
+glTF chunks now use their original shared include context. All 24 `STBI__CASE` invocations
+are clean in an explicitly validated scalar stb implementation context;
+both `STBI__IDCT_1D` lists and `stbi_inline` are also clean. SIMD contexts with differing compiler
+token streams still decline. Physical trailing comments do not extend native
+replacement token endpoints; literal payload and `#`/`##` remain significant.
+The three Lua-guide diagrams contain physical control/NUL bytes. Their visual
+encoding is unusual, but CommonMark accepts the text: block/inline lexers now
+classify physical NUL as U+FFFD while retaining every original byte and span.
+This clears those three documents without changing them; rendering replacement
+semantics do not rewrite the indexed source. Actual EOF remains distinct.
+Catch2 improves from 52 diagnostics / 571 bytes to 2 / 13. Its exception-prefix
+proofs require fully matched native streams, literal directive inventory and fresh
+physical definitions. Ordinary body calls and typed handler parameters retain
+original spans; object catch-all prefixes invent no parameter nodes.
+All four native reporter registration generators are clean. Complete namespace
+registration declarations require fully compared native slices, including balanced
+literal warning envelopes. Generated registrar names and constructor calls do not
+become authored definitions or runtime edges; effectful invocation arguments,
+truncated declarations and wrong original contexts decline.
+Complete #if/#ifdef/#ifndef handler groups now attach within an existing C++
+try statement. Original conditions, parameters and bodies remain visible without
+condition evaluation. Missing handlers/endif, unsupported else arms and authored
+missing semicolons still fail. Windows/Linux and native controls, unchanged
+corpus, provenance/schema and replay/resolver tests pass.
+Fresh native empty object and literal warning push/pop proofs now yield exact
+macro_annotation sites. Original marker spans remain visible without fictitious
+runtime callees; ordinary same-name calls and genuine missing semicolons survive.
+The only remaining Catch2 diagnostics are inactive Objective-C macro qualifiers.
+The glTF include-context audit now composes the six explicitly selected text
+includes from the original mesh_asset_parse.cc in source order. Every composed
+byte maps to a physical file and range; replaced include directives remain in
+separate provenance. The shared syntax has zero diagnostics and its original
+CMake translation unit passes native MSVC /Zs. ReadScalar retains its template
+prefix in gltf_io.cc and body in gltf_accessors.cc; ReadQuatAccessor retains its
+body tail in gltf_materials.cc. No synthetic delimiters or source edits are used.
+The physical projection audit now retains 141 definitions and 1,698 references
+from that real root. Names are actual borrowed AST captures, not text searches;
+full template wrappers and every original definition portion are retained.
+Cross-file body calls keep their original function owner, while template-prefix
+references belong to their function rather than the enclosing namespace. Member
+parents and overload-disambiguated entity paths remain explicit. Raw ERROR and
+MISSING nodes are all reported; boundary points retain every possible original
+location rather than hiding an ambiguous diagnostic.
+
+Optional DefinitionSourceContext metadata carries the original name anchor and
+ordered physical pieces; the ordinary range denotes only its name-owning piece.
+Product v24 retains it in both owned and view decoders, alongside sparse scoped
+reference metadata and a foreign owner's durable ID. Default owned/streamed
+encoding remains identical. Truncation and invalid/inconsistent JSON decline.
+The graph retains definition metadata through shard absorption, husk reset and
+canonical dense-ID shifts. source_contexts.json is required by flagged nodes,
+validated against a layout-independent node stamp, and joins generation truth.
+Flat/bucketed loads reject missing, mixed or malformed metadata; ordinary graphs
+write no new artifact. Segment format v2 prevents older graph readers from
+silently ignoring required provenance; previous generations rebuild rather
+than migrate in place.
+
+`cppTextualIncludeContexts` now explicitly configures production root/include
+groups. Each build prepares one genuine common parse, then projects products
+onto the indexed physical files. The public audit report still supplies no
+bankable root. Owned/streaming extraction and Scan-root handoff use the same
+products. Typed session scopes and durable foreign owners survive reference
+spill; private visibility requires the exact same root and proof identity.
+Physical call-site provenance keeps `callees`, `callers` and `why` from guessing
+the owner's file. Selected directives retain their real file import edges.
+
+All participating inputs must occur in the indexed manifest. Whole-tree, scoped,
+stat, product and incremental tree reuse are disabled for this explicit mode;
+no dependency-aware incremental context cache is claimed. Exact inputs are
+rechecked before commit, including deferred Live persistence, and watched MCP queries rebuild even without watcher
+events. Required provenance binds every input digest, name, ordered definition
+part and reference occurrence to its durable node. `fetch_span` and `snippet`
+validate every input even with a small output budget, and return original
+physical pieces. Contextual snippets use exact definition portions rather than
+synthetic wrapper text or per-file surrounding lines. Unchanged call-site bytes
+cannot bypass a changed root proof. Missing inputs refuse stale graph service.
+
+Relative root/include paths resolve against the config directory, including
+external CLI configurations and retained MCP rebuild environments. Ordinary
+extraction remains unchanged. A group takes precedence for its physical inputs;
+native macro proofs at independent physical offsets are not transplanted into
+composed offsets. Cross-file class/member-parent handoff and repeated original
+durable identities decline before banking. Foreign-owner argument flow sidecars
+are omitted conservatively; nested argument-call references retain original
+locations. Conditional/repeated or unreached selected includes, redirected paths,
+uncertain lexing and missing physical final newlines decline. Empty diagnostic
+boundary points retain all possible original locations. Genuine syntax errors
+and original argument-call spans remain visible across LF/CRLF/UTF-8 boundaries.
+
+```json
+{"cppTextualIncludeContexts":[{"root":"src/root.cc","includes":["src/parts/head.cc","src/parts/tail.cc"]}]}
+```
+
+CLI: cargo run -p vorpal-ingest --example include_context_audit -- [--project] ROOT INCLUDE...
+
+Historical measurements below describe their corresponding earlier stages.
+
 `cppMacroCompiler` now connects fresh native observations to normal owned,
 streaming and Scan extraction and to watched MCP queries. It explicitly selects
 translation units and a trusted local preprocess-only provider. The bundled
