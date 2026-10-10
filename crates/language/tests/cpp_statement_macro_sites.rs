@@ -423,3 +423,60 @@ fn proven_case_loop_prefixes_preserve_original_bodies_and_empty_context_errors()
     );
   }
 }
+
+#[test]
+fn proven_try_prefix_accepts_complete_conditional_original_handlers() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// Î±\nvoid run() { ENTER { body(); }\n#if !defined(DISABLE)\ncatch (Error& ex) { recover(ex); }\n#endif\nafter(); }\n".replace('\n', newline);
+    let sites = [CppProvenMacroSite {
+      offset: source.find("ENTER").unwrap().try_into().unwrap(),
+      name: "ENTER".into(),
+      kind: CppProvenMacroKind::TryPrefix,
+    }];
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    let parsed = with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&source));
+    assert!(!parsed.root().has_error());
+    let guard = parsed
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "preproc_if")
+      .unwrap();
+    assert_eq!(
+      guard.field("condition").unwrap().text(),
+      "!defined(DISABLE)"
+    );
+    let handler = guard
+      .dfs()
+      .find(|n| n.kind().as_ref() == "catch_clause")
+      .unwrap();
+    assert_eq!(
+      &source[handler.range()],
+      "catch (Error& ex) { recover(ex); }"
+    );
+    assert_eq!(handler.field("parameters").unwrap().text(), "(Error& ex)");
+    for spelling in ["body()", "recover(ex)", "after()"] {
+      assert_eq!(
+        parsed
+          .root()
+          .dfs()
+          .filter(|n| n.kind().as_ref() == "call_expression" && n.text() == spelling)
+          .count(),
+        1
+      );
+    }
+    for invalid in [
+      source.replace("recover(ex);", "recover(ex)"),
+      source.replace("catch (Error& ex) { recover(ex); }", ""),
+      source.replace("#endif", ""),
+    ] {
+      assert!(
+        with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&invalid))
+          .root()
+          .has_error(),
+        "{invalid}"
+      );
+    }
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+  }
+}

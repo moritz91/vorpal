@@ -6893,6 +6893,10 @@
           "named": true
         },
         {
+          "type": "catch_clause",
+          "named": true
+        },
+        {
           "type": "concept_definition",
           "named": true
         },
@@ -7088,6 +7092,10 @@
         },
         {
           "type": "alias_declaration",
+          "named": true
+        },
+        {
+          "type": "catch_clause",
           "named": true
         },
         {
@@ -8684,6 +8692,14 @@
         },
         {
           "type": "field_initializer_list",
+          "named": true
+        },
+        {
+          "type": "preproc_if",
+          "named": true
+        },
+        {
+          "type": "preproc_ifdef",
           "named": true
         }
       ]

@@ -10,6 +10,13 @@ from pathlib import Path
 path = Path(__file__).resolve().parents[1] / 'grammars/tree-sitter-cpp/src/grammar.json'
 grammar = json.loads(path.read_text(encoding='utf-8'))
 rules = grammar['rules']
+if rules['try_statement'].get('type') == 'PREC_RIGHT':
+    rules['try_statement'] = rules['try_statement']['content']
+# Rebuild handler guards after dialect copies, never inheriting a prior run's
+# C++-only conditional handler alternatives into Objective-C exception syntax.
+rules['try_statement']['members'][2] = {'type': 'REPEAT1', 'content': {'type': 'SYMBOL', 'name': 'catch_clause'}}
+for name in ['_conditional_catch_if', '_conditional_catch_ifdef']:
+    rules.pop(name, None)
 # Remove previous return-only additions before deriving dialect returns. The
 # ordinary C++ addition below must not migrate into an Objective-C body clone.
 return_rule = rules['return_statement']
@@ -1262,6 +1269,18 @@ rules['conditional_return_expression'] = seq(repeat(choice(
     alias_rule('_conditional_return_value_ifdef', 'preproc_ifdef')))
 rules['return_statement']['members'].append(seq(string('return'),
     symbol('conditional_return_expression'), string(';')))
+
+# A complete conditional handler group is legal only in an existing C++ try's
+# handler slot. Retain each original guard and catch/body span without evaluating
+# the condition. Empty groups and else arms remain unsupported.
+handlers = {'type': 'REPEAT1', 'content': symbol('catch_clause')}
+rules['_conditional_catch_if'] = seq(*if_head[:3], handlers, if_head[-1], string('\n'))
+rules['_conditional_catch_ifdef'] = seq(*ifdef_head[:2], string('\n'),
+    handlers, ifdef_head[-1], string('\n'))
+rules['try_statement']['members'][2] = {'type': 'REPEAT1', 'content': choice(
+    symbol('catch_clause'), alias_rule('_conditional_catch_if', 'preproc_if'),
+    alias_rule('_conditional_catch_ifdef', 'preproc_ifdef'))}
+rules['try_statement'] = {'type': 'PREC_RIGHT', 'value': 1, 'content': rules['try_statement']}
 
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'

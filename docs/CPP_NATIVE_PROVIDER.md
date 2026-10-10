@@ -412,3 +412,26 @@ control script covers 30 LF/CRLF syntax/token cases including registrations. The
 isolated normal MCP retains four error-bearing files, with eight diagnostics and
 90 affected bytes. Five diagnostics / 68 bytes are in Catch2; the three genuine
 glTF include fragments remain. Productive `.3` and Hades source are unchanged.
+
+### Complete conditional C++ catch groups
+
+An existing ordinary or proof-backed C++ try statement accepts a complete
+`#if`, `#ifdef` or `#ifndef` group containing one or more complete handlers. The
+guard keeps the existing `preproc_if`/`preproc_ifdef` kind and original condition;
+handlers keep their original parameter lists and body/call spans. Conditions are
+not evaluated. These C++ additions are derived after the Objective-C copies, so
+reproduction does not introduce them into Objective-C exception rules.
+
+Empty or unclosed handler groups, unsupported else arms, bare try statements and
+authored missing semicolons remain errors. LF/CRLF and UTF-8 tests cover ordinary
+and scoped proof-backed try prefixes, original handler spans, following functions
+and ordinary runtime calls. All 179 unchanged C++ cases and the complete compiled
+corpus pass, as do Windows/Linux extraction/replay/resolver tests, Clippy, native
+MSVC controls, provenance and schema checks. Reproduction is byte-identical and
+retains the ASCII lexer fast path. No new visible syntax kind is introduced.
+
+The renewed isolated normal MCP reports **4 error-bearing files / 7 diagnostics /
+45 diagnostic bytes**. Catch2 retains four diagnostics / 23 bytes: two inactive
+Objective-C macro qualifiers and two active warning/no-op macro markers. The three
+glTF textual include fragments retain their shared-context boundary. Productive
+`.3` and Hades source remain unchanged.

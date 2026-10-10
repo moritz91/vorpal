@@ -8,7 +8,7 @@ statement lists, function prefixes, complete function/declaration lists,
 case/loop prefixes, numeric object macros inside statement arguments and native
 object-like inline specifiers and exact native try/catch handler prefixes.
 The isolated Hades MCP is
-4 error-bearing files / 8 diagnostics / 90 diagnostic bytes; productive `.3`
+4 error-bearing files / 7 diagnostics / 45 diagnostic bytes; productive `.3`
 remains 15 / 378 / 951. All 41 state-storage definitions and 41 declarations are
 clean using physical-file projection in their genuine CMake Unity context.
 Missing/repeated visits and unsupported native pragmas remain conservative boundaries;
@@ -22,7 +22,7 @@ encoding is unusual, but CommonMark accepts the text: block/inline lexers now
 classify physical NUL as U+FFFD while retaining every original byte and span.
 This clears those three documents without changing them; rendering replacement
 semantics do not rewrite the indexed source. Actual EOF remains distinct.
-Catch2 improves from 52 diagnostics / 571 bytes to 5 / 68. Its exception-prefix
+Catch2 improves from 52 diagnostics / 571 bytes to 4 / 23. Its exception-prefix
 proofs require fully matched native streams, literal directive inventory and fresh
 physical definitions. Ordinary body calls and typed handler parameters retain
 original spans; object catch-all prefixes invent no parameter nodes.
@@ -31,6 +31,11 @@ registration declarations require fully compared native slices, including balanc
 literal warning envelopes. Generated registrar names and constructor calls do not
 become authored definitions or runtime edges; effectful invocation arguments,
 truncated declarations and wrong original contexts decline.
+Complete #if/#ifdef/#ifndef handler groups now attach within an existing C++
+try statement. Original conditions, parameters and bodies remain visible without
+condition evaluation. Missing handlers/endif, unsupported else arms and authored
+missing semicolons still fail. Windows/Linux and native controls, unchanged
+corpus, provenance/schema and replay/resolver tests pass.
 Historical measurements below describe their corresponding earlier stages.
 
 `cppMacroCompiler` now connects fresh native observations to normal owned,
