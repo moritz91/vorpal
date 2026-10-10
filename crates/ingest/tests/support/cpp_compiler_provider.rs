@@ -99,6 +99,8 @@ fn compiler_provider_process() {
     "CHECK(DISPATCH)"
   } else if mode.starts_with("function-prefix") || mode.starts_with("case-loop") {
     "CHECK(42)"
+  } else if mode == "declaration-list-variables-effectful" {
+    "CHECK(Type())"
   } else if mode.starts_with("declaration-list") {
     "CHECK(Type)"
   } else if mode == "native-operators" {
@@ -268,7 +270,32 @@ fn compiler_provider_process() {
     }
   }
   if mode.starts_with("declaration-list") {
-    let tokens: Vec<_> = if mode == "declaration-list-definitions" {
+    let tokens: Vec<_> = if mode.starts_with("declaration-list-variables") {
+      let mut tokens = vec![
+        "namespace",
+        "{",
+        "Registry",
+        "<",
+        "Type",
+        ">",
+        "registered",
+        "(",
+        "\"name\"",
+        ")",
+        ";",
+        "}",
+      ];
+      if mode.contains("warning") {
+        tokens.splice(0..0, ["__pragma", "(", "warning", "(", "push", ")", ")"]);
+        if !mode.ends_with("unpaired") {
+          tokens.extend(["__pragma", "(", "warning", "(", "pop", ")", ")"]);
+        }
+      }
+      if mode.ends_with("truncated") {
+        tokens.pop();
+      }
+      tokens
+    } else if mode == "declaration-list-definitions" {
       vec![
         "template", "<", ">", "int", "storage", "<", "Type", ">", "(", ")", "{", "return", "0",
         ";", "}", "template", "<", ">", "int", "other", "<", "Type", ">", "(", ")", "{", "return",

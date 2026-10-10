@@ -228,6 +228,110 @@ fn native_typed_handlers_require_unchanged_original_parameters() {
 }
 
 #[test]
+fn native_namespace_registration_generators_keep_original_invocations_only() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source="// Grüße 日本語\nnamespace original { CHECK(Type)\nvoid following() { after(); } }\n#undef CHECK\nvoid ordinary() { CHECK(Type()); }\n".replace('\n',newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(T) namespace { Registry<T> registered(\"name\"); }\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for (mode, clean) in [
+      ("declaration-list-variables-truncated", false),
+      ("declaration-list-variables-warning-unpaired", false),
+      ("declaration-list-variables", true),
+      ("declaration-list-variables-warning", true),
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let p = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(p.error_nodes == 0, clean, "{mode}");
+      if clean {
+        assert!(!p.items.iter().any(|i| i.entry.name == "registered"));
+        let call = p
+          .refs
+          .iter()
+          .find(|r| r.kind == 0 && r.name == "after")
+          .unwrap();
+        assert_eq!(&source[call.start as usize..call.end as usize], "after()");
+        assert_eq!(
+          p.refs
+            .iter()
+            .filter(|r| r.kind == 0 && r.name == "CHECK")
+            .count(),
+          1
+        );
+      }
+    }
+    let p = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    let mut owned = Vec::new();
+    encode_product_into(&p, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        p.source_size,
+        p.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handed = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handed, &mut encoded);
+    assert_eq!(owned, encoded);
+    let bad = source.replace("after();", "after()");
+    fs::write(&path, &bad).unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &bad)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    let local = source.replace("namespace original", "void local()");
+    fs::write(&path, &local).unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &local)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    let effectful = source.replace("CHECK(Type)", "CHECK(Type())");
+    fs::write(&path, &effectful).unwrap();
+    fs::write(
+      dir.path().join("mode"),
+      "declaration-list-variables-effectful",
+    )
+    .unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &effectful)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+  }
+}
+
+#[test]
 fn native_inline_specifiers_keep_authored_function_types_and_calls() {
   use vorpal_core::tree_sitter::LanguageExt;
   for newline in ["\n", "\r\n"] {

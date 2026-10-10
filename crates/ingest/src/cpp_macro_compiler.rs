@@ -1200,8 +1200,25 @@ mod native {
       {
         return None;
       }
+      let tokens = &packet.observed_tokens[first..=last];
+      // Classify a literal native warning envelope without changing the fully
+      // compared stream or any original source. Both operator ranges are part
+      // of the proof, and unpaired/other operators remain unsupported.
+      let push = ["__pragma", "(", "warning", "(", "push", ")", ")"];
+      let pop = ["__pragma", "(", "warning", "(", "pop", ")", ")"];
+      let wrapped = tokens.len() >= 14
+        && tokens[..7].iter().map(String::as_str).eq(push)
+        && tokens[tokens.len() - 7..]
+          .iter()
+          .map(String::as_str)
+          .eq(pop);
+      let declaration_tokens = if wrapped {
+        &tokens[7..tokens.len() - 7]
+      } else {
+        tokens
+      };
       let mut source = String::new();
-      for token in &packet.observed_tokens[first..=last] {
+      for token in declaration_tokens {
         if source.len().checked_add(token.len())?.checked_add(1)? > 4 * 1024 * 1024 {
           return None;
         }
@@ -1216,21 +1233,11 @@ mod native {
         .collect();
       if proof.has_error()
         || children.is_empty()
-        || children.iter().any(|n| {
-          let mut declaration = n.clone();
-          while declaration.kind().as_ref() == "template_declaration" {
-            let Some(body) = declaration.children().filter(|n| n.is_named()).last() else {
-              return true;
-            };
-            declaration = body;
-          }
-          !matches!(
-            declaration.kind().as_ref(),
-            "function_definition" | "declaration"
-          ) || !declaration
-            .field("declarator")
-            .is_some_and(|d| d.dfs().any(|n| n.kind().as_ref() == "function_declarator"))
-        })
+        || children.iter().any(|n| !complete_native_declaration(n))
+        // Non-function generators have no fabricated argument call edges.
+        // Effectful authored arguments need a separate runtime-use proof.
+        || !children.iter().all(|n| n.dfs().any(|n| n.kind().as_ref() == "function_declarator"))
+          && arguments.dfs().any(|n| n.kind().as_ref() == "call_expression")
         || proof.dfs().any(|n| {
           matches!(
             n.kind().as_ref(),
@@ -1251,6 +1258,30 @@ mod native {
       });
     }
     Some(result)
+  }
+
+  fn complete_native_declaration(
+    node: &vorpal_core::Node<'_, vorpal_core::tree_sitter::StrDoc<vorpal_language::SupportLang>>,
+  ) -> bool {
+    match node.kind().as_ref() {
+      "namespace_definition" => node.field("body").is_some_and(|body| {
+        let nodes: Vec<_> = body
+          .children()
+          .filter(|n| n.is_named() && n.kind().as_ref() != "comment")
+          .collect();
+        !nodes.is_empty() && nodes.iter().all(complete_native_declaration)
+      }),
+      "template_declaration" => node
+        .children()
+        .filter(|n| n.is_named())
+        .last()
+        .is_some_and(|n| complete_native_declaration(&n)),
+      "function_definition" => node
+        .field("declarator")
+        .is_some_and(|n| n.dfs().any(|n| n.kind().as_ref() == "function_declarator")),
+      "declaration" => node.field("type").is_some() && node.field("declarator").is_some(),
+      _ => false,
+    }
   }
 
   // A case/for generator must be a direct switch-body invocation followed by

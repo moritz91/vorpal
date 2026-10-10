@@ -24,6 +24,7 @@ CASES = [
     ("hash_warning", '#pragma warning(push)\n#pragma warning(disable: 4180) // original comment\n#pragma optimize("", off)\nvoid run() {}\n#pragma optimize("", on)\n#pragma warning(pop)\n', True, True),
     ("try_handler", '#define ENTER try\n#define HANDLE catch (...)\nvoid call();\nvoid run() { ENTER { call(); } HANDLE { call(); } }\n', True, True),
     ("typed_handler", '#define ENTER try\n#define HANDLE(type_1) catch (type_1)\nstruct Token {};\nvoid call();\nvoid run() { ENTER { throw Token{}; } HANDLE /* original */ (Token&) { call(); } }\n', True, True),
+    ("registration", 'template<class T> struct Registry { explicit Registry(const char*); };\nstruct Reporter {};\n#define REGISTER(T) __pragma(warning(push)) namespace { Registry<T> registered("reporter"); } __pragma(warning(pop))\nREGISTER(Reporter)\nvoid run() {}\n', True, True),
     ("try_missing_semicolon", '#define ENTER try\n#define HANDLE catch (...)\nvoid call();\nvoid run() { ENTER { call() } HANDLE { call(); } }\n', False, True),
     ("observer_only_diagnostic", '#if defined(__clang__)\n#pragma clang diagnostic push\n#pragma ide diagnostic ignored "inspection"\n#pragma clang diagnostic pop\n#endif\nvoid run() {}\n', True, True),
 ]

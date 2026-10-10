@@ -383,9 +383,32 @@ passes native `/Zs`; all 79,049 native and observed token spellings agree in its
 explicit MSVC benchmark context, including ten literal warning operators.
 Eight try prefixes, seven catch-all prefixes and one typed handler are proven.
 
-The isolated normal MCP now reports **4 error-bearing files / 12 diagnostics /
-90 diagnostic bytes**. Catch2 accounts for nine diagnostics / 68 bytes; three
+The isolated normal MCP now reports **4 error-bearing files / 8 diagnostics /
+90 diagnostic bytes**. Catch2 accounts for five diagnostics / 68 bytes; three
 glTF textual include chunks account for the remainder. The original sources and
 productive `.3` remain unchanged. Catch2's inactive Objective-C annotations,
 split conditional handler and remaining unproven contexts need further work;
 this measurement does not claim they are supported or error-free.
+
+### Complete native registration declarations
+
+Direct original TU/namespace invocations may now prove complete variable
+declarations and nonempty namespace bodies containing complete declarations,
+as well as existing function/declaration generators. A literal balanced
+`__pragma(warning(push))` / `__pragma(warning(pop))` envelope is classified
+around the declaration proof. Its tokens remain in the fully compared native
+stream; unpaired or other operators decline. Original source is never rewritten.
+
+Only the original macro name and arguments enter the declaration tree. Generated
+registrar names and constructor calls are not authored definitions or runtime
+edges. Non-function generators with effectful original call arguments decline
+until their runtime use can be proved separately. Wrong original scope, truncated
+declarations and real missing semicolons remain errors. Owned, streaming and Scan
+agree; native replay stays disabled.
+
+All four `CATCH_REGISTER_REPORTER` invocations in the native Catch2 header are
+clean. Windows/Linux production regressions and Clippy pass; the native warning
+control script covers 30 LF/CRLF syntax/token cases including registrations. The
+isolated normal MCP retains four error-bearing files, with eight diagnostics and
+90 affected bytes. Five diagnostics / 68 bytes are in Catch2; the three genuine
+glTF include fragments remain. Productive `.3` and Hades source are unchanged.
