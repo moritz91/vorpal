@@ -563,6 +563,7 @@ impl<L: Language> ExtractorCommon<L> {
       name: self.name.render(node_match, scratch),
       range: source_range(node),
       signature: self.render_signature(node_match, scratch),
+      source_context: None,
       ast_kind: match node.kind_static() {
         // tree-sitter kinds are 'static — borrow instead of building a String
         // per extracted definition (8.8M at kernel scale).

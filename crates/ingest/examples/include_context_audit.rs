@@ -6,10 +6,34 @@ use vorpal_ingest::cpp_include_context::audit_context;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   let mut args = std::env::args_os().skip(1).map(PathBuf::from);
-  let root = args
+  let first = args
     .next()
-    .ok_or("usage: include_context_audit ROOT SELECTED_INCLUDE...")?;
+    .ok_or("usage: include_context_audit [--project] ROOT SELECTED_INCLUDE...")?;
+  let project = first == std::path::Path::new("--project");
+  let root = if project { args.next().ok_or("missing root")? } else { first };
   let selected: Vec<_> = args.collect();
+  if project {
+    let report = vorpal_ingest::OutlineExtractor::new()?.audit_include_projection(&root, &selected)?;
+    println!("{} definitions, {} references, {} diagnostics; identity {}", report.definitions.len(), report.references.len(), report.diagnostics.len(), report.identity);
+    for definition in &report.definitions {
+      let context = definition.entry.source_context.as_ref().unwrap();
+      if context.parts.len() > 1 {
+        println!("{} owner {:?}, name {:?}, parts {:?}", definition.entry.name,
+          definition.parent_entity_index, context.name, context.parts);
+      }
+    }
+    let mut foreign_calls = 0;
+    for reference in &report.references {
+      if let Some(owner) = report.definitions.iter().find(|definition| definition.entity_index == reference.owner_entity_index) {
+        if owner.entry.source_context.as_ref().unwrap().name.path != reference.physical.path {
+          foreign_calls += 1;
+          println!("cross-file reference {} in {:?}, owner {}", reference.reference.name, reference.physical, owner.entry.name);
+        }
+      }
+    }
+    println!("{foreign_calls} references with foreign physical owners; projection audit, no production handoff");
+    return Ok(());
+  }
   let context = audit_context(&root, &selected)?;
   let parsed = vorpal_language::with_cpp_statement_macros(&[], || {
     vorpal_lang_registry::SgLang::from_path("context.cc")

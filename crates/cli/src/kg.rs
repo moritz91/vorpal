@@ -537,6 +537,10 @@ fn extraction_env_from_project(
   env.cpp_macro_include_roots = project.cpp_macro_include_roots.as_ref().map(|roots| {
     roots.iter().map(|root| project.project_dir.join(root)).collect()
   });
+  env.cpp_textual_include_contexts = project.cpp_textual_include_contexts.iter().map(|group| vorpal_index::CppTextualIncludeContext {
+    root: project.project_dir.join(&group.root),
+    includes: group.includes.iter().map(|path| project.project_dir.join(path)).collect(),
+  }).collect();
   env.cpp_macro_compiler = project.cpp_macro_compiler.clone().map(|mut command| {
     command.program = project.project_dir.join(command.program);
     command.directory = project.project_dir.join(command.directory);

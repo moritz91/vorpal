@@ -87,9 +87,44 @@ pub struct SymbolTable<'i> {
   /// occurrences it satisfies. The `-I` set inferred from data — probed for suffix
   /// tie-breaking, never iterated.
   root_support: FxHashMap<&'i str, u32>,
+  context_scopes: FxHashMap<NodeId, crate::ContextScope<'i>>,
+  context_owners: FxHashMap<u128, Option<NodeId>>,
 }
 
 impl<'i> SymbolTable<'i> {
+  /// Register every contextual definition, including owners never named by a reference.
+  pub fn insert_context(&mut self, interner: &'i Interner, id: NodeId, external: u128, root: &str, identity: &str) {
+    self.context_scopes.insert(id, crate::ContextScope { root: interner.intern(root), identity: interner.intern(identity) });
+    self.context_owners.entry(external).and_modify(|old| {
+      if *old != Some(id) { *old = None; }
+    }).or_insert(Some(id));
+  }
+
+  /// Evidence belongs to its physical file; ownership binds only inside this exact proof.
+  pub fn reference_owner(&self, interner: &'i Interner, reference: &crate::Reference<'i>) -> Option<NodeId> {
+    let Some(id) = reference.source_context else { return Some(reference.from); };
+    let context = interner.reference_context(id);
+    let Some(external) = context.owner_external else { return Some(reference.from); };
+    let owner = self.context_owners.get(&external).copied().flatten()?;
+    (self.context_scopes.get(&owner) == Some(&context.scope)).then_some(owner)
+  }
+
+  pub(crate) fn local_to(&self, interner: &'i Interner, reference: &crate::Reference<'i>, symbol: &Symbol<'i>) -> bool {
+    match reference.source_context {
+      Some(id) => self.context_scopes.get(&symbol.id) == Some(&interner.reference_context(id).scope),
+      None => symbol.path == reference.from_path,
+    }
+  }
+
+  fn absorb_contexts(&mut self, scopes: FxHashMap<NodeId, crate::ContextScope<'i>>, owners: FxHashMap<u128, Option<NodeId>>) {
+    self.context_scopes.extend(scopes);
+    for (external, owner) in owners {
+      self.context_owners.entry(external).and_modify(|old| {
+        if *old != owner { *old = None; }
+      }).or_insert(owner);
+    }
+  }
+
   pub fn new() -> Self {
     Self::default()
   }
@@ -299,6 +334,7 @@ impl<'i> SymbolTable<'i> {
       self.grouped.is_empty() && other.grouped.is_empty(),
       "absorb after finalize"
     );
+    self.absorb_contexts(other.context_scopes, other.context_owners);
     self.pending.extend(other.pending);
     self.files.extend(other.files);
     for (basename, entries) in other.file_suffixes {
@@ -381,6 +417,7 @@ impl<'i> SymbolTable<'i> {
         shard.grouped.is_empty(),
         "from_shards takes unfinalized shards"
       );
+      table.absorb_contexts(shard.context_scopes, shard.context_owners);
       table.files.extend(shard.files);
       for (basename, entries) in shard.file_suffixes {
         table.file_suffixes.entry(basename).or_default().extend(entries);
@@ -399,6 +436,9 @@ impl<'i> SymbolTable<'i> {
     for i in 0..kg.node_count() as u64 {
       let id = NodeId::new(i);
       if let Some(node) = kg.node(id) {
+        if let Some(context) = node.source_context {
+          table.insert_context(interner, id, node.external_id.expect("context node identity"), &context.root, &context.identity);
+        }
         if node.kind == SymbolKind::File {
           table.insert_file(interner, node.path, id);
           continue;

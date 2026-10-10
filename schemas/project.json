@@ -6,6 +6,18 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "cppTextualIncludeContexts": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["root", "includes"],
+            "properties": {
+              "root": { "type": "string" },
+              "includes": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 127 }
+            }
+          },
+          "description": "Explicit genuine C++ textual include groups. Relative paths resolve against the configuration directory. Selected local quoted includes must be unconditional, unique and reachable from the original root; all physical inputs must be indexed. Definitions and occurrences retain original file spans. Fresh common parses bypass product/tree reuse and watched MCP revalidates every input before serving. No synthetic wrappers or preprocessor evaluation."
+        },
         "cppMacroCompiler": {
           "type": "object", "additionalProperties": false,
           "required": ["program", "directory", "translationUnits"],

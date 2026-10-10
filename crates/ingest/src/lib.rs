@@ -14,6 +14,8 @@
 
 pub mod cpp_directive_audit;
 pub mod cpp_include_context;
+#[cfg(feature = "builtin-parser")]
+pub mod cpp_include_projection;
 pub mod cpp_macro_evidence;
 pub mod cpp_macro_freshness;
 pub mod cpp_macro_compiler;
@@ -48,13 +50,20 @@ pub use scoped::{
 pub mod typefacts;
 
 pub use manifest::{FileStat, Manifest};
-pub use vorpal_outline::model::OutlineItem;
+pub use vorpal_outline::model::{DefinitionSourceContext, OutlineItem, SourceContextInput};
 pub use outline_extractor::{OutlineExtractor, ParsedRoot, RuleSource};
 
+/// An explicit original C++ root and the genuine text includes parsed in its context.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CppTextualIncludeContext {
+  pub root: std::path::PathBuf,
+  pub includes: Vec<std::path::PathBuf>,
+}
+
 /// The extraction environment an index build runs under (F-M3): everything beyond the bundled
-/// defaults that shapes what extraction sees. Today that is extra outline-rule sources
-/// (custom/dynamic languages); serialized ref specs and canaries join it in F-M4. The default
-/// environment is byte-for-byte the bundled behavior — same rules digest, same products.
+/// defaults that shapes what extraction sees. The default environment keeps the bundled
+/// behavior; configured contexts use fresh physical products and their own rules identity.
 #[derive(Debug, Clone, Default)]
 pub struct ExtractionEnv {
   /// Extra outline-rule documents, each labeled by a stable machine-independent origin.
@@ -73,6 +82,8 @@ pub struct ExtractionEnv {
   /// Opt-in proof-backed C++ statement recovery. `Some([])` enables local
   /// quoted includes; additional roots are searched in the given order.
   pub cpp_macro_include_roots: Option<Vec<std::path::PathBuf>>,
+  /// Explicit genuine textual includes; snapshots are fresh for each build, never replayed.
+  pub cpp_textual_include_contexts: Vec<CppTextualIncludeContext>,
   /// Trusted fresh native compiler driver. No compiler products replay; watched
   /// MCP queries must refresh through this exact environment every time.
   pub cpp_macro_compiler: Option<cpp_macro_compiler::CompilerCommand>,
@@ -105,6 +116,7 @@ impl ExtractionEnv {
       && self.injection_config.is_none()
       && self.cpp_macro_include_roots.is_none()
       && self.cpp_macro_compiler.is_none()
+      && self.cpp_textual_include_contexts.is_empty()
   }
 
   /// The extractor this environment describes. Languages named by the sources must already be
@@ -122,10 +134,11 @@ impl ExtractionEnv {
       }),
       None => Ok(extractor),
     }?;
-    match &self.cpp_macro_compiler {
+    let extractor = match &self.cpp_macro_compiler {
       Some(command) => extractor.with_cpp_macro_compiler(command.clone()),
       None => Ok(extractor),
-    }
+    }?;
+    extractor.with_cpp_textual_include_contexts(&self.cpp_textual_include_contexts)
   }
 
   /// Dynamic languages this environment extracts but does not canary-verify — computed against

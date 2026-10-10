@@ -112,6 +112,61 @@ pub struct SourceRange {
   pub end: SourcePosition,
 }
 
+/// One original physical portion of a definition in a textual include context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhysicalSourceSpan {
+  pub path: String,
+  pub range: SourceRange,
+}
+
+/// One complete participating input, including root directives outside a definition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceContextInput {
+  pub path: String,
+  pub digest: u64,
+}
+
+/// An occurrence's physical provenance, separate from its logical owner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextReferenceSite {
+  pub name_hash: u32,
+  pub edge_type: u16,
+  pub physical: PhysicalSourceSpan,
+}
+
+/// Original provenance of a definition parsed across real include boundaries.
+/// The ordinary entry range covers its portion in the name-owning file; these
+/// ordered parts retain the complete definition without inventing a local span.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefinitionSourceContext {
+  pub root: String,
+  /// Digest of the exact participating physical inputs and include order.
+  pub identity: String,
+  pub inputs: Vec<SourceContextInput>,
+  pub references: Vec<ContextReferenceSite>,
+  pub name: PhysicalSourceSpan,
+  pub parts: Vec<PhysicalSourceSpan>,
+}
+
+impl DefinitionSourceContext {
+  /// Complete, unique bounded inputs, including the root and every original part.
+  pub fn inputs_are_valid(&self) -> bool {
+    if self.inputs.is_empty() || self.inputs.len() > 128
+      || self.inputs[0].path != self.root { return false; }
+    let mut paths = std::collections::HashSet::new();
+    if self.inputs.iter().any(|input| input.path.is_empty() || !paths.insert(&input.path)) {
+      return false;
+    }
+    paths.contains(&self.name.path) && self.parts.iter().all(|part| paths.contains(&part.path))
+      && self.references.iter().all(|reference| paths.contains(&reference.physical.path)
+        && reference.physical.range.byte_offset.start < reference.physical.range.byte_offset.end)
+  }
+}
+
 /// Shared structural data for either a top-level item or a direct member.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -120,6 +175,8 @@ pub struct OutlineEntry<'a> {
   pub symbol_type: SymbolType,
   pub name: Cow<'a, str>,
   pub range: SourceRange,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub source_context: Option<Box<DefinitionSourceContext>>,
   pub signature: Cow<'a, str>,
   pub ast_kind: Cow<'a, str>,
 }
@@ -177,6 +234,7 @@ mod tests {
       name: text(name),
       range: test_range(),
       signature: text(signature),
+      source_context: None,
       ast_kind: text(ast_kind),
     }
   }

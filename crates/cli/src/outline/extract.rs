@@ -265,6 +265,7 @@ fn own_entry(entry: OutlineEntry<'_>) -> OutlineEntry<'static> {
     name: Cow::Owned(entry.name.into_owned()),
     range: entry.range,
     signature: Cow::Owned(entry.signature.into_owned()),
+    source_context: entry.source_context,
     ast_kind: Cow::Owned(entry.ast_kind.into_owned()),
   }
 }

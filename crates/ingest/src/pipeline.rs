@@ -1528,7 +1528,7 @@ pub(crate) fn apply_product_with_args<'i>(
         r.receiver_type_origin,
         r.call_shape,
         &r.args,
-      )
+      ).with_source_context(r.source_context.as_deref())
     }),
     &entity_params,
     signatures
@@ -1674,7 +1674,8 @@ fn apply_parts<'a, 'i>(
     // the view, captured only where a collector exists (the spilled index-build path).
     // `from` is already bound by the layout index above (A2) — no per-reference re-hash.
     if let Some(flow_out) = flow_out.as_deref_mut() {
-      if crate::product::tag_refkind(r.kind) == vorpal_resolve::RefKind::Call && r.args_len() > 0
+      if r.source_context().is_none_or(|context| context.owner_external.is_none())
+        && crate::product::tag_refkind(r.kind) == vorpal_resolve::RefKind::Call && r.args_len() > 0
       {
         let has_receiver = r.receiver.is_some();
         for arg in r.args() {
@@ -1716,6 +1717,7 @@ pub(crate) fn reference_from_view<'i>(
     r.name,
     crate::product::tag_refkind(r.kind),
   )
+  .with_source_context(r.source_context().map(|context| interner.reference_context_id(&context.root, &context.identity, context.owner_external)))
   .with_evidence(r.start, r.end)
   .with_qualifier_ref(interner, r.qualifier)
   .with_alias_ref(interner, r.alias)
@@ -1783,6 +1785,10 @@ pub(crate) fn build_symbol_table_over<'i>(
     let mut last_owner: Option<(u32, Option<vorpal_resolve::NameId<'i>>)> = None;
     for row in ranges.iter().flat_map(Clone::clone) {
       let (id, name, path, kind, exported) = writer.definition(row).expect("row < node_count");
+      if let Some(context) = writer.source_context(row) {
+        let (lo, hi) = writer.node_eid(row).expect("context node identity");
+        table.insert_context(interner, id, (hi as u128) << 64 | lo as u128, &context.root, &context.identity);
+      }
       if kind == SymbolKind::File {
         // File nodes are the targets of path-form imports (`import "./util"`).
         table.insert_file(interner, path, id);

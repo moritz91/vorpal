@@ -181,6 +181,7 @@ mod tests {
       name: Cow::Borrowed("name"),
       range: range(),
       signature: Cow::Borrowed("signature"),
+      source_context: None,
       ast_kind: Cow::Borrowed("node"),
     }
   }

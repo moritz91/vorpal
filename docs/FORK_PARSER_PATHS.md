@@ -7,12 +7,12 @@ The current generator follow-up is documented in
 statement lists, function prefixes, complete function/declaration lists,
 case/loop prefixes, numeric object macros inside statement arguments and native
 object-like inline specifiers and exact native try/catch handler prefixes.
-The isolated Hades MCP is
-4 error-bearing files / 5 diagnostics / 35 diagnostic bytes; productive `.3`
+The isolated Hades index with explicit genuine textual include contexts is
+1 error-bearing file / 2 diagnostics / 13 diagnostic bytes; productive `.3`
 remains 15 / 378 / 951. All 41 state-storage definitions and 41 declarations are
 clean using physical-file projection in their genuine CMake Unity context.
 Missing/repeated visits and unsupported native pragmas remain conservative boundaries;
-glTF chunks still need shared include context. All 24 `STBI__CASE` invocations
+glTF chunks now use their original shared include context. All 24 `STBI__CASE` invocations
 are clean in an explicitly validated scalar stb implementation context;
 both `STBI__IDCT_1D` lists and `stbi_inline` are also clean. SIMD contexts with differing compiler
 token streams still decline. Physical trailing comments do not extend native
@@ -47,14 +47,65 @@ separate provenance. The shared syntax has zero diagnostics and its original
 CMake translation unit passes native MSVC /Zs. ReadScalar retains its template
 prefix in gltf_io.cc and body in gltf_accessors.cc; ReadQuatAccessor retains its
 body tail in gltf_materials.cc. No synthetic delimiters or source edits are used.
-This is a read-only audit, not production recovery: existing FileProduct and
-outline ranges cannot represent complete multi-file definitions yet. The normal
-MCP health remains 4 files / 5 diagnostics / 35 bytes. Conditional/repeated or
-unreached selected includes, redirected paths, ambiguous empty spans, uncertain
-lexing and missing physical final newlines decline. Ordered physical hashes are
-checked afresh, without authorizing replay. Tests retain genuine syntax errors
-and original argument-call spans across LF/CRLF/UTF-8 boundaries.
-CLI: cargo run -p vorpal-ingest --example include_context_audit -- ROOT INCLUDE...
+The physical projection audit now retains 141 definitions and 1,698 references
+from that real root. Names are actual borrowed AST captures, not text searches;
+full template wrappers and every original definition portion are retained.
+Cross-file body calls keep their original function owner, while template-prefix
+references belong to their function rather than the enclosing namespace. Member
+parents and overload-disambiguated entity paths remain explicit. Raw ERROR and
+MISSING nodes are all reported; boundary points retain every possible original
+location rather than hiding an ambiguous diagnostic.
+
+Optional DefinitionSourceContext metadata carries the original name anchor and
+ordered physical pieces; the ordinary range denotes only its name-owning piece.
+Product v24 retains it in both owned and view decoders, alongside sparse scoped
+reference metadata and a foreign owner's durable ID. Default owned/streamed
+encoding remains identical. Truncation and invalid/inconsistent JSON decline.
+The graph retains definition metadata through shard absorption, husk reset and
+canonical dense-ID shifts. source_contexts.json is required by flagged nodes,
+validated against a layout-independent node stamp, and joins generation truth.
+Flat/bucketed loads reject missing, mixed or malformed metadata; ordinary graphs
+write no new artifact. Segment format v2 prevents older graph readers from
+silently ignoring required provenance; previous generations rebuild rather
+than migrate in place.
+
+`cppTextualIncludeContexts` now explicitly configures production root/include
+groups. Each build prepares one genuine common parse, then projects products
+onto the indexed physical files. The public audit report still supplies no
+bankable root. Owned/streaming extraction and Scan-root handoff use the same
+products. Typed session scopes and durable foreign owners survive reference
+spill; private visibility requires the exact same root and proof identity.
+Physical call-site provenance keeps `callees`, `callers` and `why` from guessing
+the owner's file. Selected directives retain their real file import edges.
+
+All participating inputs must occur in the indexed manifest. Whole-tree, scoped,
+stat, product and incremental tree reuse are disabled for this explicit mode;
+no dependency-aware incremental context cache is claimed. Exact inputs are
+rechecked before commit, including deferred Live persistence, and watched MCP queries rebuild even without watcher
+events. Required provenance binds every input digest, name, ordered definition
+part and reference occurrence to its durable node. `fetch_span` and `snippet`
+validate every input even with a small output budget, and return original
+physical pieces. Contextual snippets use exact definition portions rather than
+synthetic wrapper text or per-file surrounding lines. Unchanged call-site bytes
+cannot bypass a changed root proof. Missing inputs refuse stale graph service.
+
+Relative root/include paths resolve against the config directory, including
+external CLI configurations and retained MCP rebuild environments. Ordinary
+extraction remains unchanged. A group takes precedence for its physical inputs;
+native macro proofs at independent physical offsets are not transplanted into
+composed offsets. Cross-file class/member-parent handoff and repeated original
+durable identities decline before banking. Foreign-owner argument flow sidecars
+are omitted conservatively; nested argument-call references retain original
+locations. Conditional/repeated or unreached selected includes, redirected paths,
+uncertain lexing and missing physical final newlines decline. Empty diagnostic
+boundary points retain all possible original locations. Genuine syntax errors
+and original argument-call spans remain visible across LF/CRLF/UTF-8 boundaries.
+
+```json
+{"cppTextualIncludeContexts":[{"root":"src/root.cc","includes":["src/parts/head.cc","src/parts/tail.cc"]}]}
+```
+
+CLI: cargo run -p vorpal-ingest --example include_context_audit -- [--project] ROOT INCLUDE...
 
 Historical measurements below describe their corresponding earlier stages.
 

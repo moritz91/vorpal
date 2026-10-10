@@ -34,6 +34,8 @@ pub struct SourcePiece {
 pub struct IncludeEdge {
   /// The real directive, retained as provenance rather than parser text.
   pub directive: PhysicalSpan,
+  /// Exact authored quoted path; resolution is still tied to `included_file`.
+  pub spelling: String,
   pub included_file: usize,
 }
 
@@ -318,6 +320,7 @@ impl Builder {
       {
         return Err(ContextError("selected include is conditional".into()));
       }
+      let spelling = name.to_owned();
       self.append(file, cursor..directive.span.start);
       let included_file = self.visit(candidate, depth + 1)?;
       self.context.includes.push(IncludeEdge {
@@ -326,6 +329,7 @@ impl Builder {
           bytes: directive.span.clone(),
         },
         included_file,
+        spelling,
       });
       cursor = directive.span.end;
     }

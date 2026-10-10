@@ -225,6 +225,7 @@ fn create_new_project(arg: NewArg, project_dir: &Path) -> Result<ExitCode> {
     encoder_dir: None,           // Stage-6 reranker model dir: absent = keep the selection
     cpp_macro_include_roots: None,
     cpp_macro_compiler: None,
+    cpp_textual_include_contexts: Vec::new(),
   };
   let config_path = project_dir.join("vorpalconfig.yml");
   let f = File::create(config_path)?;

@@ -623,7 +623,7 @@ impl Server {
         let _ = vorpal_index::warm_ann_with(&warm_dir, vorpal_index::WarmOptions { text_index: true, ..Default::default() });
       }));
     }
-    let supervisor = if env.cpp_macro_include_roots.is_some() || env.cpp_macro_compiler.is_some() {
+    let supervisor = if env.cpp_macro_include_roots.is_some() || env.cpp_macro_compiler.is_some() || !env.cpp_textual_include_contexts.is_empty() {
       Supervisor::without_child()
     } else {
       Supervisor::discover()
@@ -1414,10 +1414,10 @@ impl Server {
 
   fn ensure_fresh(&mut self) -> Result<(), String> {
     self.advance_background();
-    if self.env.cpp_macro_compiler.is_some() {
-      // Native dependencies may be invisible to the observer and source watcher.
-      // Never serve a previous capture as current, including a quiet MCP query.
-      let watch = self.watch.as_ref().ok_or("native C++ recovery requires an authorized source root for query revalidation")?;
+    if self.env.cpp_macro_compiler.is_some() || !self.env.cpp_textual_include_contexts.is_empty() {
+      // Native dependencies and all genuine include-context inputs must be
+      // recaptured even when the source watcher remains quiet.
+      let watch = self.watch.as_ref().ok_or("configured C++ recovery requires an authorized source root for query revalidation")?;
       watch.mark_dirty();
     }
     // Source-watch silence says nothing about external, ignored or missing

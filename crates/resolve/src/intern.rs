@@ -137,17 +137,33 @@ pub struct Interner {
   /// (unpadded, the 112-byte shards packed ~1.14 per 128-byte Apple-Silicon line;
   /// `CachePadded` picks the right alignment per architecture).
   shards: [crossbeam_utils::CachePadded<RwLock<Shard>>; SHARDS],
+  contexts: RwLock<crate::context::Contexts>,
 }
 
 impl Default for Interner {
   fn default() -> Self {
     Self {
       shards: std::array::from_fn(|_| crossbeam_utils::CachePadded::new(RwLock::new(Shard::default()))),
+      contexts: RwLock::new(crate::context::Contexts::default()),
     }
   }
 }
 
 impl Interner {
+  pub fn reference_context_id<'i>(&'i self, root: &str, identity: &str, owner_external: Option<u128>) -> crate::ContextId<'i> {
+    let context = crate::ReferenceContext {
+      scope: crate::ContextScope { root: self.intern(root), identity: self.intern(identity) }, owner_external,
+    };
+    self.contexts.write().unwrap().intern(context)
+  }
+
+  pub fn reference_context<'i>(&'i self, id: crate::ContextId<'i>) -> crate::ReferenceContext<'i> {
+    let (root, identity, owner_external) = self.contexts.read().unwrap().get(id);
+    crate::ReferenceContext {
+      scope: crate::ContextScope { root: self.id_from_bits(root).unwrap(), identity: self.id_from_bits(identity).unwrap() }, owner_external,
+    }
+  }
+
   pub fn new() -> Self {
     Self::default()
   }

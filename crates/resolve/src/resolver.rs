@@ -359,6 +359,10 @@ impl Resolver {
       path_buf,
     } = scratch;
     let edge = reference.kind.edge();
+    if table.reference_owner(interner, reference).is_none() {
+      return Resolution { target: None, edge, confidence: Confidence::NONE,
+        candidates: 0, reason: ResolveReason::None, alternatives: ([0; MAX_RETAINED_ALTERNATIVES], 0) };
+    }
     if reference.kind == RefKind::Import {
       if let Some((target, _)) = resolve_import_path(interner, table, reference, path_buf) {
         return Resolution {
@@ -446,6 +450,7 @@ impl Resolver {
         // The qualifier corroborates these candidates; among them, a multi-way tie (e.g. two
         // `impl Kg` blocks defining `load`) is genuine ambiguity — labeled, tolerated.
         return finish(
+          table,
           interner,
           refined,
           reference,
@@ -529,7 +534,7 @@ impl Resolver {
               confidence: typed_receiver_confidence(
                 interner,
                 reference,
-                target.path == reference.from_path,
+                table.local_to(interner, reference, &target),
               ),
               candidates: candidates.len(),
               reason: typed_receiver_reason(reference.receiver_type_origin),
@@ -567,6 +572,7 @@ impl Resolver {
     // values (hinted or not) carry no proof beyond the name, so only a unique match binds.
     let guess_on_tie = !matches!(reference.form, RefForm::Method | RefForm::MethodHinted);
     finish(
+      table,
       interner,
       candidates,
       reference,
@@ -608,6 +614,7 @@ struct ResolveScratch<'i> {
 /// Shared tail of resolution: local-first, then cross-file visibility, then pick.
 #[allow(clippy::too_many_arguments)] // resolution kernel: scratch buffers ride as args by design
 fn finish<'i>(
+  table: &SymbolTable<'i>,
   interner: &'i Interner,
   set: &[Symbol<'i>],
   reference: &Reference<'i>,
@@ -622,7 +629,7 @@ fn finish<'i>(
   local.extend(
     set
       .iter()
-      .filter(|s| s.path == reference.from_path)
+      .filter(|s| table.local_to(interner, reference, s))
       .copied(),
   );
   if !local.is_empty() {
@@ -1293,6 +1300,13 @@ fn resolve_chunk<'i>(
   let mut stats = ResolveStats::default();
   let mut scratch = ResolveScratch::default();
   for reference in references {
+    let Some(owner) = table.reference_owner(interner, reference) else {
+      // A missing/mixed owner proof cannot create an edge or an evidence row
+      // attributed to an unrelated file-level fallback.
+      stats.masked += 1;
+      continue;
+    };
+    let reference = &Reference { from: owner, ..*reference };
     let resolution =
       resolver.resolve_with(interner, table, reference, &mut scratch, chain, reach);
     let name_hash =

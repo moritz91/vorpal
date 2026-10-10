@@ -631,6 +631,19 @@ pub fn fetch_span(
   let view = kg
     .node(vorpal_kg::NodeId::new(id))
     .ok_or_else(|| FetchSpanError::Other(format!("no node with id {id}")))?;
+  if let Some(context) = view.source_context {
+    let parts = vorpal_index::records::definition_context_parts(context, max_bytes).map_err(|error| match error {
+      vorpal_index::records::SnippetError::Stale(message) => FetchSpanError::Stale(message),
+      vorpal_index::records::SnippetError::Other(message) => FetchSpanError::Other(message),
+    })?;
+    use std::fmt::Write;
+    let mut out = format!("{} [{:?}] (source verified; original include parts)\n", view.name, view.kind);
+    for part in parts {
+      let _ = writeln!(out, "{}:{} [{}..{}]\n{}", part.path, part.line, part.span[0], part.span[1], part.body);
+      if let Some(full) = part.truncated_from { let _ = writeln!(out, "(truncated: {} of {full} bytes)", part.body.len()); }
+    }
+    return Ok(out);
+  }
   let (start, end) = view.span;
   if end <= start {
     return Err(FetchSpanError::Other(format!(
