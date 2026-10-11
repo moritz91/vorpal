@@ -11,6 +11,12 @@ enter/return flags are handled separately from MSVC warning frames. Only known
 Clang/GCC diagnostic push/pop/ignored controls become comparison tokens from
 the actual pragma callbacks. Both native streams must match these tokens too;
 unknown directives remain mandatory boundaries. No authored source is rewritten.
+Clang's Objective-C predefines expand ownership qualifiers to attributes. An
+alias physically defined as one of the four supported literal qualifiers may
+use either that exact native token or its exact corresponding nine-token
+`__attribute__((objc_ownership(...)))` expansion. All tokens must be contiguous
+macro-origin tokens at the original alias position; mismatched ownership,
+attributes, truncated expansions and changed physical anchors decline.
 
 `.github/workflows/objc-foundation.yml` uses a real macOS 15 runner and the SDK
 selected by `xcrun`. `scripts/cpp_objc_foundation_control.py` compiles, links and
@@ -33,6 +39,10 @@ identities. Existing native replay/cache gates still recapture on each listed
 file/query; these digests do not certify a dependency-complete replay cache.
 The SDK integration tests exercise owned/streaming extraction and ordinary MCP
 warm health/graph queries with external header edits/removal/restoration.
+The isolated index lives outside its source project, so the MCP control supplies
+that source root explicitly through the normal authorized-root API. Frozen
+external indexes without an authorized source root continue to refuse fresh
+compiler-backed queries.
 
 On a real macOS developer host, prepare and validate the explicit command plans
 and `cppMacroCompiler` commands with:

@@ -63,7 +63,13 @@ fn genuine_foundation_mcp_recaptures_external_headers_without_source_hints() {
     .unwrap();
     assert_eq!(build.indexed, 1);
     let generation = fs::read(index.join("CURRENT")).unwrap();
-    let mut server = Server::with_profile_env_rebuild(index.clone(), Profile::Full, env, false);
+    let mut server = Server::with_profile_env_rebuild_source(
+      index.clone(),
+      Profile::Full,
+      env,
+      false,
+      Some(project.to_path_buf()),
+    );
     for id in [1, 2] {
       let health = call(&mut server, id, "health", json!({}));
       assert!(
