@@ -628,7 +628,7 @@ mod native {
           .iter()
           .any(|c| c.start == site.start && c.name == site.name)
       {
-        return None;
+        return proof_stage(None, "object identity");
       }
       let buffer = packet.definitions.get(anchor.buffer)?;
       let value = templates
@@ -827,8 +827,8 @@ mod native {
           }
           let text = text.get(..length)?.trim();
           Some(text.to_owned())
-        })
-        .as_ref()?;
+        });
+      let value = proof_stage(value.as_ref(), "object definition")?;
       let (kind, tokens): (_, Vec<&str>) = if role == 2 {
         match value
           .chars()
@@ -845,7 +845,7 @@ mod native {
             CppProvenMacroKind::Annotation,
             vec!["__pragma", "(", "warning", "(", "pop", ")", ")"],
           ),
-          _ => return None,
+          _ => return proof_stage(None, "object annotation replacement"),
         }
       } else if role == 1 {
         match value
@@ -859,7 +859,7 @@ mod native {
             CppProvenMacroKind::CatchAllPrefix,
             vec!["catch", "(", "...", ")"],
           ),
-          _ => return None,
+          _ => return proof_stage(None, "object control replacement"),
         }
       } else if matches!(value.as_str(), "inline" | "__forceinline" | "__inline") {
         (CppProvenMacroKind::InlineSpecifier, vec![value.as_str()])
@@ -869,11 +869,11 @@ mod native {
       ) {
         (CppProvenMacroKind::ObjcOwnershipQualifier, vec![value.as_str()])
       } else {
-        return None;
+        return proof_stage(None, "object specifier replacement");
       };
       if tokens.is_empty() {
         if origins.range(site.start..site.end).next().is_some() {
-          return None;
+          return proof_stage(None, "object empty origins");
         }
         sites.push(CppProvenMacroSite {
           offset: u32::try_from(site.start).ok()?,
@@ -883,7 +883,7 @@ mod native {
         continue;
       }
       let mut offsets = origins.range(site.start..site.end);
-      let (&offset, indices) = offsets.next()?;
+      let (&offset, indices) = proof_stage(offsets.next(), "object missing origins")?;
       if offsets.next().is_some()
         || offset != site.start
         || indices.len() != tokens.len()
@@ -896,7 +896,7 @@ mod native {
               .is_none_or(|observed| observed != token)
         })
       {
-        return None;
+        return proof_stage(None, "object token origins");
       }
       // Object prefixes consume only their original name; calls and authored
       // declaration/handler bodies remain ordinary syntax under an exact site.
