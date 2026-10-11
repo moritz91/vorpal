@@ -38,6 +38,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Production extraction and freshness controls
         run: cargo test --locked -p vorpal-ingest --test cpp_objc_foundation -- --nocapture
+      - name: Ordinary MCP and warm index freshness controls
+        run: cargo test --locked -p vorpal-mcp --test cpp_objc_foundation -- --nocapture
       - uses: actions/upload-artifact@v4
         if: always()
         with:

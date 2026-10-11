@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fresh MSVC/LLVM19 provider. Requires a trusted preprocess-only command plan.
+"""Fresh MSVC or explicit macOS Clang/LLVM19 preprocessing provider.
 
 Runs native PP before AND after the physical observer. No retained observations,
 line-based source rewriting, final macro dumps or dependency-cache assumptions.

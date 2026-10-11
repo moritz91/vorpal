@@ -13,6 +13,7 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+import time
 import urllib.request
 
 from cpp_macro_clang_context import sdk_identity
@@ -49,8 +50,15 @@ def main():
     if not bindings:
         raise RuntimeError('matching LLVM Python bindings unavailable')
     binding_root = bindings[-1].parents[1]
-    with urllib.request.urlopen(UPSTREAM, timeout=30) as response:
-        upstream = response.read(4 * 1024 * 1024 + 1)
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(UPSTREAM, timeout=15) as response:
+                upstream = response.read(4 * 1024 * 1024 + 1)
+            break
+        except (OSError, urllib.error.URLError):
+            if attempt == 2:
+                raise
+            time.sleep(2)
     if hashlib.sha256(upstream).hexdigest() != LF_SHA256:
         raise RuntimeError('upstream Catch2 identity changed')
     physical = upstream.replace(b'\n', b'\r\n')
@@ -66,7 +74,9 @@ def main():
     header.write_text('#import <Foundation/Foundation.h>\n'
                       '#if __has_feature(objc_arc)\n#define CHECK __unsafe_unretained\n'
                       '#define HANDLE __strong\n#else\n#define CHECK\n#define HANDLE\n#endif\n')
-    probe = root / 'ownership.cc'
+    project = root / 'project'
+    project.mkdir(exist_ok=True)
+    probe = project / 'ownership.cc'
     probe.write_text('#include "ownership.h"\n#ifdef __OBJC__\n'
                      'struct Holder { NSString* HANDLE stored; };\n'
                      'Class* run() { Class* classes = (CHECK Class*)malloc(sizeof(Class)); return classes; }\n'
@@ -77,7 +87,7 @@ def main():
     for name, ownership in [('arc', '-fobjc-arc'), ('mrc', '-fno-objc-arc')]:
         flags = ['-x', 'objective-c++', '-std=c++17', '-isysroot', str(sdk),
                  ownership, '-fblocks', '-fno-modules', '-fno-implicit-modules',
-                 '-fno-implicit-module-maps']
+                 '-fno-implicit-module-maps', '-I', str(root)]
         executable = root / f'foundation-{name}'
         run([apple_clang, *flags, str(wrapper), '-framework', 'Foundation',
              '-o', str(executable)], root, root / f'apple-{name}.log')
