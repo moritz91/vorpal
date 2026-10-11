@@ -240,7 +240,8 @@ def main():
         literal = (not record.get("function_like") and len(record.get("replacement_tokens", [])) == 1
                    and record["replacement_tokens"][0][:1].isdigit())
         specifier = (not record.get("function_like") and record.get("replacement_tokens") in
-                     [["inline"], ["__forceinline"], ["__inline"]])
+                     [["inline"], ["__forceinline"], ["__inline"], ["__strong"], ["__weak"],
+                      ["__unsafe_unretained"], ["__autoreleasing"]])
         control = (not record.get("function_like") and record.get("replacement_tokens") in
                    [["try"], ["catch", "(", "...", ")"]])
         annotation = (not record.get("function_like") and record.get("replacement_tokens") in

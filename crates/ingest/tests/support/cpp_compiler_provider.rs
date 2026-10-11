@@ -88,6 +88,7 @@ fn compiler_provider_process() {
   let invocation = if mode.starts_with("control-prefix")
     || mode.starts_with("inline-specifier")
     || mode.starts_with("annotation-prefix")
+    || mode.starts_with("objc-ownership")
   {
     "CHECK"
   } else if mode.starts_with("literal-argument") {
@@ -128,6 +129,39 @@ fn compiler_provider_process() {
       "definition":{"buffer":0,"nameOffset":header.find("CHECK").unwrap(),"end":header.trim_end().len(),"parameters":1}}],
     "expandedNames":["CHECK"],"calleeSites":[{"name":"CHECK","start":start}]
   });
+  if mode.starts_with("objc-ownership") {
+    let field = source.find("HANDLE").unwrap();
+    let sites: Vec<_> = [("CHECK", start), ("HANDLE", field)].into_iter().map(|(name, offset)| {
+      let name_offset = header.find(name).unwrap();
+      let end = header[name_offset..].find('\n').map_or(header.len(), |len| name_offset + len);
+      let end = header[..end].trim_end().len();
+      json!({"name":name,"start":offset,"end":offset+name.len(),"definition":{"buffer":0,"nameOffset":name_offset,"end":end,"parameters":0}})
+    }).collect();
+    let qualifiers: Vec<_> = ["CHECK", "HANDLE"].into_iter().map(|name| {
+      let offset = header.find(name).unwrap() + name.len();
+      header[offset..].lines().next().unwrap().trim()
+    }).collect();
+    let tokens: Vec<_> = qualifiers.iter().filter(|q| !q.is_empty()).copied().collect();
+    for key in ["nativeBefore", "nativeAfter", "observedTokens"] {
+      packet[key] = json!(tokens);
+    }
+    packet["observedTokenSites"] = json!(qualifiers.iter().zip([start, field]).filter(|(q,_)| !q.is_empty()).map(|(_, offset)| json!({"offset":offset,"fromMacro":true})).collect::<Vec<_>>());
+    packet["specifierMacros"] = json!(sites.iter().zip(&qualifiers).filter(|(_,q)| !q.is_empty()).map(|(s,_)| s).collect::<Vec<_>>());
+    packet["annotationMacros"] = json!(sites.iter().zip(&qualifiers).filter(|(_,q)| q.is_empty()).map(|(s,_)| s).collect::<Vec<_>>());
+    packet["expansions"] = json!([{"name":"CHECK","start":start,"end":start+5,"definition":null},{"name":"HANDLE","start":field,"end":field+6,"definition":null}]);
+    packet["expandedNames"] = json!(["CHECK", "HANDLE"]);
+    packet["calleeSites"] = json!([{"name":"CHECK","start":start},{"name":"HANDLE","start":field}]);
+    if mode == "objc-ownership-origin" { packet["observedTokenSites"][0]["fromMacro"] = json!(false); }
+    if mode == "objc-ownership-anchor" { packet["specifierMacros"][0]["definition"]["end"] = json!(header.len()+1); }
+    if mode == "objc-ownership-offset" { packet["specifierMacros"][0]["start"] = json!(source.len()); }
+    if mode == "objc-ownership-token" {
+      for key in ["nativeBefore", "nativeAfter", "observedTokens"] { packet[key][0] = json!("__weak"); }
+    }
+    if mode == "objc-ownership-inactive" {
+      for key in ["nativeBefore", "nativeAfter", "observedTokens"] { packet[key] = json!(["native", "stable"]); }
+      for key in ["observedTokenSites", "specifierMacros", "annotationMacros", "expansions", "expandedNames", "calleeSites", "definitions"] { packet[key] = json!([]); }
+    }
+  }
   if mode.starts_with("annotation-prefix") {
     let empty = source.find("EMPTY").unwrap();
     let stop = source.find("HANDLE").unwrap();

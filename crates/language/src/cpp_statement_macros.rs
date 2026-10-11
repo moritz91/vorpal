@@ -134,6 +134,7 @@ pub enum CppProvenMacroKind {
   CatchAllPrefix,
   CatchParameterPrefix,
   Annotation,
+  ObjcOwnershipQualifier,
 }
 
 #[derive(Debug, Clone)]
@@ -181,6 +182,7 @@ pub fn with_cpp_proven_macro_sites<R>(
         CppProvenMacroKind::CatchAllPrefix => 7,
         CppProvenMacroKind::CatchParameterPrefix => 8,
         CppProvenMacroKind::Annotation => 9,
+        CppProvenMacroKind::ObjcOwnershipQualifier => 10,
       },
     })
     .collect();

@@ -594,6 +594,11 @@ def macro_fragments(node):
             for key, value in node.items()}
 for name in ['preproc_def', 'preproc_function_def']:
     rules[name] = macro_fragments(rules[name])
+    # An empty replacement can end in horizontal whitespace. If the immediate
+    # newline cannot consume it, extras may skip the physical newline and steal
+    # the following declaration/directive as a replacement fragment.
+    rules[name]['members'][-1] = {'type': 'IMMEDIATE_TOKEN', 'content':
+        {'type': 'PATTERN', 'value': r'[ \t\f\v]*\r?\n'}}
 # decltype is a valid class base in this explicit type context.
 def decltype_base(node):
     if node == symbol('_class_name'):
@@ -982,6 +987,45 @@ rules['_objc_message_field_expression'] = seq({'type': 'PREC', 'value': 16, 'con
     objc_field('argument', choice(objc_expression, alias_rule('_objc_message_field_expression', 'field_expression'))),
     objc_field('operator', objc_string('.')))}, objc_field('field', symbol('_field_identifier')))
 
+# Ownership qualifiers are dialect keywords, not arbitrary identifiers. Macro
+# spellings require an exact native object-expansion site; empty native markers
+# can occupy the same slot. Keep both additions within the existing guarded
+# Objective-C expression/field contexts, never global C++ declarators.
+ownership_external = symbol('_proven_objc_ownership_macro')
+if ownership_external not in grammar['externals']:
+    grammar['externals'].append(ownership_external)
+rules['_objc_ownership_macro'] = objc_field('name', {'type': 'ALIAS',
+    'content': choice(ownership_external, symbol('_proven_annotation_macro')),
+    'named': True, 'value': 'identifier'})
+objc_ownership = choice(*[{'type': 'ALIAS', 'content': objc_string(keyword),
+    'named': True, 'value': 'type_qualifier'} for keyword in
+    ['__strong', '__weak', '__unsafe_unretained', '__autoreleasing']],
+    alias_rule('_objc_ownership_macro', 'macro_annotation'))
+rules['_objc_ownership_type'] = json.loads(json.dumps(rules['type_descriptor']))
+rules['_objc_ownership_type']['content']['members'][0] = seq(
+    {'type': 'REPEAT1', 'content': objc_ownership}, repeat(symbol('type_qualifier')))
+objc_ownership_expression = choice(*objc_message_field_expression['members'],
+    alias_rule('_objc_ownership_cast', 'cast_expression'))
+def objc_ownership_expressions(node):
+    if node == objc_message_field_expression:
+        return json.loads(json.dumps(objc_ownership_expression))
+    if isinstance(node, list): return [objc_ownership_expressions(value) for value in node]
+    if isinstance(node, dict): return {key: objc_ownership_expressions(value) for key, value in node.items()}
+    return node
+for name in list(rules):
+    if name.startswith('_objc_') or name == 'objc_message_expression':
+        rules[name] = objc_ownership_expressions(rules[name])
+rules['_objc_ownership_cast'] = {'type': 'PREC', 'value': 12, 'content': seq(
+    objc_string('('), objc_field('type', alias_rule('_objc_ownership_type', 'type_descriptor')),
+    objc_string(')'), objc_field('value', objc_ownership_expression))}
+rules['_objc_pointer_field_declarator'] = json.loads(json.dumps(rules['pointer_field_declarator']['members'][0]))
+objc_pointer_members = rules['_objc_pointer_field_declarator']['content']['content']['members']
+assert objc_pointer_members[3] == repeat(symbol('type_qualifier'))
+objc_pointer_members[3] = seq(repeat(symbol('type_qualifier')),
+    {'type': 'REPEAT1', 'content': objc_ownership}, repeat(symbol('type_qualifier')))
+rules['_objc_field_declaration'] = objc_copy(rules['_objc_field_declaration'], {
+    '_field_declarator': choice(symbol('_field_declarator'),
+        alias_rule('_objc_pointer_field_declarator', 'pointer_declarator'))})
 # Constructor member-initializer arguments share the same bounded dialect
 # context. Retain ordinary named aliases; namespace/type declarations stay intact.
 rules['_objc_field_initializer'] = objc_copy(rules['field_initializer'], {

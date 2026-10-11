@@ -527,7 +527,7 @@
           "type": "IMMEDIATE_TOKEN",
           "content": {
             "type": "PATTERN",
-            "value": "\\r?\\n"
+            "value": "[ \\t\\f\\v]*\\r?\\n"
           }
         }
       ]
@@ -583,7 +583,7 @@
           "type": "IMMEDIATE_TOKEN",
           "content": {
             "type": "PATTERN",
-            "value": "\\r?\\n"
+            "value": "[ \\t\\f\\v]*\\r?\\n"
           }
         }
       ]
@@ -20985,6 +20985,15 @@
                     },
                     "named": true,
                     "value": "field_expression"
+                  },
+                  {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_objc_ownership_cast"
+                    },
+                    "named": true,
+                    "value": "cast_expression"
                   }
                 ]
               },
@@ -21077,6 +21086,15 @@
                                   },
                                   "named": true,
                                   "value": "field_expression"
+                                },
+                                {
+                                  "type": "ALIAS",
+                                  "content": {
+                                    "type": "SYMBOL",
+                                    "name": "_objc_ownership_cast"
+                                  },
+                                  "named": true,
+                                  "value": "cast_expression"
                                 }
                               ]
                             },
@@ -21150,6 +21168,15 @@
                                   },
                                   "named": true,
                                   "value": "field_expression"
+                                },
+                                {
+                                  "type": "ALIAS",
+                                  "content": {
+                                    "type": "SYMBOL",
+                                    "name": "_objc_ownership_cast"
+                                  },
+                                  "named": true,
+                                  "value": "cast_expression"
                                 }
                               ]
                             },
@@ -21227,6 +21254,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 },
@@ -21311,6 +21347,15 @@
                               },
                               "named": true,
                               "value": "field_expression"
+                            },
+                            {
+                              "type": "ALIAS",
+                              "content": {
+                                "type": "SYMBOL",
+                                "name": "_objc_ownership_cast"
+                              },
+                              "named": true,
+                              "value": "cast_expression"
                             }
                           ]
                         },
@@ -21426,6 +21471,15 @@
                     },
                     "named": true,
                     "value": "field_expression"
+                  },
+                  {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_objc_ownership_cast"
+                    },
+                    "named": true,
+                    "value": "cast_expression"
                   }
                 ]
               },
@@ -22676,6 +22730,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     },
@@ -22759,6 +22822,15 @@
                                 },
                                 "named": true,
                                 "value": "field_expression"
+                              },
+                              {
+                                "type": "ALIAS",
+                                "content": {
+                                  "type": "SYMBOL",
+                                  "name": "_objc_ownership_cast"
+                                },
+                                "named": true,
+                                "value": "cast_expression"
                               }
                             ]
                           },
@@ -24160,6 +24232,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24220,6 +24301,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24281,6 +24371,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24341,6 +24440,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24402,6 +24510,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24462,6 +24579,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24523,6 +24649,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24583,6 +24718,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24644,6 +24788,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24704,6 +24857,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24765,6 +24927,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24825,6 +24996,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24886,6 +25066,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -24946,6 +25135,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25007,6 +25205,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25067,6 +25274,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25128,6 +25344,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25188,6 +25413,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25249,6 +25483,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25309,6 +25552,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25370,6 +25622,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25430,6 +25691,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25491,6 +25761,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25551,6 +25830,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25612,6 +25900,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25672,6 +25969,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25733,6 +26039,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25793,6 +26108,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25854,6 +26178,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25914,6 +26247,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -25975,6 +26317,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -26035,6 +26386,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -26096,6 +26456,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -26156,6 +26525,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -26217,6 +26595,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -26277,6 +26664,15 @@
                           },
                           "named": true,
                           "value": "field_expression"
+                        },
+                        {
+                          "type": "ALIAS",
+                          "content": {
+                            "type": "SYMBOL",
+                            "name": "_objc_ownership_cast"
+                          },
+                          "named": true,
+                          "value": "cast_expression"
                         }
                       ]
                     }
@@ -26340,6 +26736,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -26400,6 +26805,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -26461,6 +26875,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -26521,6 +26944,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -26582,6 +27014,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -26642,6 +27083,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -26703,6 +27153,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -26763,6 +27222,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -26824,6 +27292,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -26884,6 +27361,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -26945,6 +27431,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -27005,6 +27500,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -27066,6 +27570,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -27126,6 +27639,15 @@
                       },
                       "named": true,
                       "value": "field_expression"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_cast"
+                      },
+                      "named": true,
+                      "value": "cast_expression"
                     }
                   ]
                 }
@@ -27208,6 +27730,15 @@
                         },
                         "named": true,
                         "value": "field_expression"
+                      },
+                      {
+                        "type": "ALIAS",
+                        "content": {
+                          "type": "SYMBOL",
+                          "name": "_objc_ownership_cast"
+                        },
+                        "named": true,
+                        "value": "cast_expression"
                       }
                     ]
                   }
@@ -27418,8 +27949,22 @@
                       "type": "FIELD",
                       "name": "declarator",
                       "content": {
-                        "type": "SYMBOL",
-                        "name": "_field_declarator"
+                        "type": "CHOICE",
+                        "members": [
+                          {
+                            "type": "SYMBOL",
+                            "name": "_field_declarator"
+                          },
+                          {
+                            "type": "ALIAS",
+                            "content": {
+                              "type": "SYMBOL",
+                              "name": "_objc_pointer_field_declarator"
+                            },
+                            "named": true,
+                            "value": "pointer_declarator"
+                          }
+                        ]
                       }
                     },
                     {
@@ -27498,6 +28043,15 @@
                                             },
                                             "named": true,
                                             "value": "field_expression"
+                                          },
+                                          {
+                                            "type": "ALIAS",
+                                            "content": {
+                                              "type": "SYMBOL",
+                                              "name": "_objc_ownership_cast"
+                                            },
+                                            "named": true,
+                                            "value": "cast_expression"
                                           }
                                         ]
                                       },
@@ -27535,8 +28089,22 @@
                             "type": "FIELD",
                             "name": "declarator",
                             "content": {
-                              "type": "SYMBOL",
-                              "name": "_field_declarator"
+                              "type": "CHOICE",
+                              "members": [
+                                {
+                                  "type": "SYMBOL",
+                                  "name": "_field_declarator"
+                                },
+                                {
+                                  "type": "ALIAS",
+                                  "content": {
+                                    "type": "SYMBOL",
+                                    "name": "_objc_pointer_field_declarator"
+                                  },
+                                  "named": true,
+                                  "value": "pointer_declarator"
+                                }
+                              ]
                             }
                           },
                           {
@@ -27615,6 +28183,15 @@
                                                   },
                                                   "named": true,
                                                   "value": "field_expression"
+                                                },
+                                                {
+                                                  "type": "ALIAS",
+                                                  "content": {
+                                                    "type": "SYMBOL",
+                                                    "name": "_objc_ownership_cast"
+                                                  },
+                                                  "named": true,
+                                                  "value": "cast_expression"
                                                 }
                                               ]
                                             },
@@ -29549,6 +30126,358 @@
           }
         }
       ]
+    },
+    "_objc_ownership_macro": {
+      "type": "FIELD",
+      "name": "name",
+      "content": {
+        "type": "ALIAS",
+        "content": {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "_proven_objc_ownership_macro"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "_proven_annotation_macro"
+            }
+          ]
+        },
+        "named": true,
+        "value": "identifier"
+      }
+    },
+    "_objc_ownership_type": {
+      "type": "PREC_RIGHT",
+      "value": 0,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "REPEAT1",
+                "content": {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "STRING",
+                        "value": "__strong"
+                      },
+                      "named": true,
+                      "value": "type_qualifier"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "STRING",
+                        "value": "__weak"
+                      },
+                      "named": true,
+                      "value": "type_qualifier"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "STRING",
+                        "value": "__unsafe_unretained"
+                      },
+                      "named": true,
+                      "value": "type_qualifier"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "STRING",
+                        "value": "__autoreleasing"
+                      },
+                      "named": true,
+                      "value": "type_qualifier"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_objc_ownership_macro"
+                      },
+                      "named": true,
+                      "value": "macro_annotation"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "REPEAT",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "type_qualifier"
+                }
+              }
+            ]
+          },
+          {
+            "type": "FIELD",
+            "name": "type",
+            "content": {
+              "type": "SYMBOL",
+              "name": "type_specifier"
+            }
+          },
+          {
+            "type": "REPEAT",
+            "content": {
+              "type": "SYMBOL",
+              "name": "type_qualifier"
+            }
+          },
+          {
+            "type": "FIELD",
+            "name": "declarator",
+            "content": {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "_abstract_declarator"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_abstract_member_pointer"
+                  },
+                  "named": true,
+                  "value": "abstract_pointer_declarator"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_abstract_member_function"
+                  },
+                  "named": true,
+                  "value": "abstract_function_declarator"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "_objc_ownership_cast": {
+      "type": "PREC",
+      "value": 12,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "("
+          },
+          {
+            "type": "FIELD",
+            "name": "type",
+            "content": {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_objc_ownership_type"
+              },
+              "named": true,
+              "value": "type_descriptor"
+            }
+          },
+          {
+            "type": "STRING",
+            "value": ")"
+          },
+          {
+            "type": "FIELD",
+            "name": "value",
+            "content": {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "expression"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "objc_message_expression"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_objc_call_expression"
+                  },
+                  "named": true,
+                  "value": "call_expression"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_objc_binary_expression"
+                  },
+                  "named": true,
+                  "value": "binary_expression"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "objc_string_literal"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "objc_selector_expression"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_objc_message_field_expression"
+                  },
+                  "named": true,
+                  "value": "field_expression"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_objc_ownership_cast"
+                  },
+                  "named": true,
+                  "value": "cast_expression"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "_objc_pointer_field_declarator": {
+      "type": "PREC_DYNAMIC",
+      "value": 1,
+      "content": {
+        "type": "PREC_RIGHT",
+        "value": 0,
+        "content": {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "ms_based_modifier"
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "STRING",
+              "value": "*"
+            },
+            {
+              "type": "REPEAT",
+              "content": {
+                "type": "SYMBOL",
+                "name": "ms_pointer_modifier"
+              }
+            },
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "REPEAT",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "type_qualifier"
+                  }
+                },
+                {
+                  "type": "REPEAT1",
+                  "content": {
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "ALIAS",
+                        "content": {
+                          "type": "STRING",
+                          "value": "__strong"
+                        },
+                        "named": true,
+                        "value": "type_qualifier"
+                      },
+                      {
+                        "type": "ALIAS",
+                        "content": {
+                          "type": "STRING",
+                          "value": "__weak"
+                        },
+                        "named": true,
+                        "value": "type_qualifier"
+                      },
+                      {
+                        "type": "ALIAS",
+                        "content": {
+                          "type": "STRING",
+                          "value": "__unsafe_unretained"
+                        },
+                        "named": true,
+                        "value": "type_qualifier"
+                      },
+                      {
+                        "type": "ALIAS",
+                        "content": {
+                          "type": "STRING",
+                          "value": "__autoreleasing"
+                        },
+                        "named": true,
+                        "value": "type_qualifier"
+                      },
+                      {
+                        "type": "ALIAS",
+                        "content": {
+                          "type": "SYMBOL",
+                          "name": "_objc_ownership_macro"
+                        },
+                        "named": true,
+                        "value": "macro_annotation"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "REPEAT",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "type_qualifier"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "FIELD",
+              "name": "declarator",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_field_declarator"
+              }
+            }
+          ]
+        }
+      }
     },
     "_cli_top_level_item": {
       "type": "CHOICE",
@@ -33831,6 +34760,10 @@
     {
       "type": "SYMBOL",
       "name": "_proven_annotation_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_objc_ownership_macro"
     }
   ],
   "inline": [

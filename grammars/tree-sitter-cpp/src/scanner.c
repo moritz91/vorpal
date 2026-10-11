@@ -5,7 +5,7 @@
 #include <string.h>
 #include <wctype.h>
 
-enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO, PROVEN_OPEN_IF_MACRO, PROVEN_FUNCTION_MACRO, PROVEN_DECLARATION_MACRO, PROVEN_CASE_LOOP_MACRO, PROVEN_INLINE_SPECIFIER_MACRO, PROVEN_TRY_MACRO, PROVEN_CATCH_ALL_MACRO, PROVEN_CATCH_PARAMETER_MACRO, PROVEN_ANNOTATION_MACRO };
+enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO, PROVEN_OPEN_IF_MACRO, PROVEN_FUNCTION_MACRO, PROVEN_DECLARATION_MACRO, PROVEN_CASE_LOOP_MACRO, PROVEN_INLINE_SPECIFIER_MACRO, PROVEN_TRY_MACRO, PROVEN_CATCH_ALL_MACRO, PROVEN_CATCH_PARAMETER_MACRO, PROVEN_ANNOTATION_MACRO, PROVEN_OBJC_OWNERSHIP_MACRO };
 
 // vorpal: scoped statement-macro proof context; never serialized into a tree.
 #if defined(_MSC_VER)
@@ -107,11 +107,12 @@ static bool scan_statement_macro(TSLexer *lexer, const bool *valid_symbols) {
     }
     if (!length) return false;
     lexer->mark_end(lexer);
-    if (site && ((site->kind >= 5 && site->kind <= 7) || site->kind == 9)) {
+    if (site && ((site->kind >= 5 && site->kind <= 7) || site->kind == 9 || site->kind == 10)) {
         if (strlen(site->name) != length || memcmp(site->name, name, length)) return false;
         enum TokenType kind = site->kind == 5 ? PROVEN_INLINE_SPECIFIER_MACRO :
                               site->kind == 6 ? PROVEN_TRY_MACRO :
-                              site->kind == 7 ? PROVEN_CATCH_ALL_MACRO : PROVEN_ANNOTATION_MACRO;
+                              site->kind == 7 ? PROVEN_CATCH_ALL_MACRO :
+                              site->kind == 9 ? PROVEN_ANNOTATION_MACRO : PROVEN_OBJC_OWNERSHIP_MACRO;
         if (!valid_symbols[kind]) return false;
         lexer->result_symbol = kind;
         return true;

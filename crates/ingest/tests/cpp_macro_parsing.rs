@@ -1,3 +1,67 @@
+
+
+#[test]
+fn cpp_empty_macro_horizontal_whitespace_cannot_consume_the_next_line() {
+  for newline in ["\n", "\r\n"] {
+    for tail in ["", " ", "\t", " \t\u{000c}\u{000b}"] {
+      let source = format!("#define EMPTY{tail}\n#define OTHER(){tail}\nvoid following() {{ after(); }}\n#define BODY(x) /* original comment */ x{tail}\nvoid final_function() {{ last_call(); }}\n").replace('\n', newline);
+      let raw = SgLang::from_path("macros.cc").unwrap().grep(&source);
+      assert!(!raw.root().has_error(), "{source:?}");
+      let definitions: Vec<_> = raw.root().dfs().filter(|n| matches!(n.kind().as_ref(), "preproc_def" | "preproc_function_def")).collect();
+      assert_eq!(definitions.len(), 3);
+      for (definition, name) in definitions.iter().zip(["EMPTY", "OTHER", "BODY"]) {
+        assert_eq!(definition.field("name").unwrap().text(), name);
+        let offset = source.find(&format!("#define {name}")).unwrap();
+        let end = source[offset..].find('\n').unwrap()+offset+1;
+        assert_eq!(definition.range(), offset..end);
+        if name != "BODY" { assert!(definition.field("value").is_none(), "{}", definition.text()); }
+      }
+      let product = clean_product(&source);
+      for name in ["following", "final_function"] { assert!(product.items.iter().any(|i| i.entry.name == name)); }
+      for name in ["after", "last_call"] {
+        let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], format!("{name}()"));
+      }
+    }
+  }
+}
+
+#[test]
+fn cpp_guarded_objc_ownership_qualifiers_preserve_casts_fields_and_calls() {
+  let lf = "#ifdef __OBJC__\nstruct Holder { NSString* QUALIFIER stored; };\nClass* run() { Class* classes = (QUALIFIER Class*)allocate(); return classes; }\n#endif\nvoid following() { after(); }\n";
+  for qualifier in ["__strong", "__weak", "__unsafe_unretained", "__autoreleasing"] {
+    for source in [lf.replace("QUALIFIER", qualifier), lf.replace("QUALIFIER", qualifier).replace('\n', "\r\n")] {
+      let product = clean_product(&source);
+      let holder = product.items.iter().find(|i| i.entry.name == "Holder").unwrap();
+      let field = holder.members.iter().find(|i| i.entry.name == "stored").unwrap();
+      assert_eq!(field.entry.symbol_type, vorpal_outline::model::SymbolType::Field);
+      assert!(source[field.entry.range.byte_offset.clone()].contains("stored"));
+      for name in ["allocate", "after"] {
+        let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], format!("{name}()"));
+      }
+      assert!(!product.refs.iter().any(|r| r.kind == 0 && r.name == qualifier));
+      let raw = SgLang::from_path("guarded.cc").unwrap().grep(&source);
+      let cast = raw.root().dfs().find(|n| n.kind() == "cast_expression").unwrap();
+      assert_eq!(cast.field("type").unwrap().text(), format!("{qualifier} Class*"));
+      assert_eq!(cast.field("value").unwrap().text(), "allocate()");
+      let field = raw.root().dfs().find(|n| n.kind() == "field_declaration").unwrap();
+      assert_eq!(field.field("declarator").unwrap().field("declarator").unwrap().text(), "stored");
+    }
+  }
+  for source in [
+    lf.replace("QUALIFIER", "UNKNOWN"),
+    lf.replace("QUALIFIER", "__strongSuffix"),
+    lf.replace("QUALIFIER", "__strong").replace("__OBJC__", "PLATFORM"),
+    lf.replace("QUALIFIER", "__strong").replace("stored;", "stored"),
+    lf.replace("QUALIFIER", "__strong").replace("allocate();", "allocate()"),
+  ] {
+    assert!(SgLang::from_path("guarded.cc").unwrap().grep(&source).root().has_error(), "{source}");
+  }
+}
+
 #[test]
 fn cpp_explicit_member_operators_preserve_callees_and_original_spans() {
   let lf = r#"

@@ -638,8 +638,13 @@ mod native {
                 .is_some_and(|n| n.range().start == anchor.name_offset && n.text() == site.name)
           })?;
           let value = definition.field("value")?;
-          let text = value.text().trim().to_owned();
-          if value.range().start.checked_add(text.len())? != anchor.end || text.len() > 128 {
+          let original = value.text();
+          let length = crate::cpp_macro_evidence::replacement_token_end(&original)?;
+          if value.range().start.checked_add(length)? != anchor.end {
+            return None;
+          }
+          let text = original[..length].trim().to_owned();
+          if text.len() > 128 {
             return None;
           }
           let proof = SupportLang::Cpp.grep(format!("void proof() {{ auto value = ({text}); }}"));
@@ -849,6 +854,11 @@ mod native {
         }
       } else if matches!(value.as_str(), "inline" | "__forceinline" | "__inline") {
         (CppProvenMacroKind::InlineSpecifier, vec![value.as_str()])
+      } else if matches!(
+        value.as_str(),
+        "__strong" | "__weak" | "__unsafe_unretained" | "__autoreleasing"
+      ) {
+        (CppProvenMacroKind::ObjcOwnershipQualifier, vec![value.as_str()])
       } else {
         return None;
       };
