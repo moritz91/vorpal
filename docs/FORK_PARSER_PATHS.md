@@ -8,8 +8,8 @@ statement lists, function prefixes, complete function/declaration lists,
 case/loop prefixes, numeric object macros inside statement arguments and native
 object-like inline specifiers and exact native try/catch handler prefixes.
 The isolated Hades index with explicit genuine textual include contexts is
-1 error-bearing file / 2 diagnostics / 13 diagnostic bytes; productive `.3`
-remains 15 / 378 / 951. All 41 state-storage definitions and 41 declarations are
+1 error-bearing file / 2 diagnostics / 13 diagnostic bytes; productive `.4`
+uses the same validated configuration and has the same health. All 41 state-storage definitions and 41 declarations are
 clean using physical-file projection in their genuine CMake Unity context.
 Missing/repeated visits and unsupported native pragmas remain conservative boundaries;
 glTF chunks now use their original shared include context. All 24 `STBI__CASE` invocations
@@ -40,6 +40,24 @@ Fresh native empty object and literal warning push/pop proofs now yield exact
 macro_annotation sites. Original marker spans remain visible without fictitious
 runtime callees; ordinary same-name calls and genuine missing semicolons survive.
 The only remaining Catch2 diagnostics are inactive Objective-C macro qualifiers.
+The ownership follow-up accepts the literal `__strong`, `__weak`,
+`__unsafe_unretained` and `__autoreleasing` qualifiers only in the existing explicit
+Objective-C guard, in prefix cast types and pointer fields. Exact native object
+expansions to these literals, or separately proven empty markers, retain their
+original macro annotation spans. Unproven names, mismatched physical anchors or
+token origins, wrong roles, ordinary same-name calls and missing semicolons remain
+raw. Owned, streaming and Scan handoff share this proof. The MSVC context does not
+activate Catch2's `__OBJC__` arm, so this does not clear its two physical alias
+diagnostics or claim a genuine Foundation/compiler context.
+Windows/MSVC is the authoritative project build context. The separate native
+macOS/Foundation control researches and validates Objective-C alias support in
+Vorpal; its observations do not activate Windows branches or authorize Windows
+product replay. The productive Windows MCP keeps its own explicit compiler
+configuration, and the two inactive aliases remain diagnosed there.
+Empty object/function macro definitions with trailing horizontal whitespace now
+end on their own LF/CRLF line, preserving following directives and declarations.
+Native numeric replacement endpoints include original leading whitespace before
+trimming the independent literal proof; token/name offsets are never shifted.
 The glTF include-context audit now composes the six explicitly selected text
 includes from the original mesh_asset_parse.cc in source order. Every composed
 byte maps to a physical file and range; replaced include directives remain in

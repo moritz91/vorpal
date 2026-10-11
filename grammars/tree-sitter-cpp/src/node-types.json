@@ -1491,6 +1491,18 @@
           {
             "type": "expression",
             "named": true
+          },
+          {
+            "type": "objc_message_expression",
+            "named": true
+          },
+          {
+            "type": "objc_selector_expression",
+            "named": true
+          },
+          {
+            "type": "objc_string_literal",
+            "named": true
           }
         ]
       }
@@ -6099,6 +6111,10 @@
       "required": false,
       "types": [
         {
+          "type": "macro_annotation",
+          "named": true
+        },
+        {
           "type": "ms_based_modifier",
           "named": true
         },
@@ -8838,6 +8854,10 @@
       "multiple": true,
       "required": false,
       "types": [
+        {
+          "type": "macro_annotation",
+          "named": true
+        },
         {
           "type": "type_qualifier",
           "named": true

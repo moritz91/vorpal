@@ -163,6 +163,8 @@ class Observer : public PPCallbacks {
   Preprocessor &pp;
   SourceManager &sm;
   const FileEntry *physicalRoot;
+  bool retainClangDiagnostics;
+  SourceLocation pragmaLocation;
   unsigned rootVisits = 0;
   // One fresh preprocessing action only, keyed by the actual immutable buffer
   // identity, never by a path and never retained across files/requests.
@@ -203,9 +205,28 @@ class Observer : public PPCallbacks {
         {"offset", int64_t(sm.getFileOffset(expansion))},
         {"from_macro", loc.isMacroID()}});
   }
+  void emitClangDiagnostic(llvm::StringRef name, llvm::StringRef action,
+                           llvm::StringRef warning = {}) {
+    if (!retainClangDiagnostics || (name != "clang" && name != "GCC") || pragmaLocation.isInvalid()) return;
+    if (!warning.empty() && (!warning.starts_with("-W")
+        || warning.drop_front(2).empty()
+        || warning.drop_front(2).find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-") != llvm::StringRef::npos)) return;
+    auto expansion = sm.getExpansionLoc(pragmaLocation);
+    // Native -E prints diagnostic pragmas, whereas pp.Lex consumes them. Retain
+    // the actual diagnostic callbacks in the observed comparison stream. This
+    // proves them against both native outputs; it does not omit any directive.
+    std::vector<std::string> parts{"#", "pragma", name.str(), "diagnostic", action.str()};
+    if (!warning.empty()) parts.push_back("\"" + warning.str() + "\"");
+    for (const auto &part : parts)
+      emit(llvm::json::Object{{"kind", "root_token"}, {"spelling", part},
+        {"path", sm.getFilename(expansion).str()},
+        {"offset", int64_t(sm.getFileOffset(expansion))},
+        {"from_macro", pragmaLocation.isMacroID()}});
+  }
 public:
-  Observer(Preprocessor &pp, const FileEntry *physicalRoot)
-      : pp(pp), sm(pp.getSourceManager()), physicalRoot(physicalRoot) {}
+  Observer(Preprocessor &pp, const FileEntry *physicalRoot, bool retainClangDiagnostics)
+      : pp(pp), sm(pp.getSourceManager()), physicalRoot(physicalRoot),
+        retainClangDiagnostics(retainClangDiagnostics) {}
   void FileChanged(SourceLocation loc, FileChangeReason reason,
                    SrcMgr::CharacteristicKind, FileID) override {
     if (physicalRoot && reason == EnterFile && loc.isValid()
@@ -241,13 +262,25 @@ public:
     emit(std::move(row));
   }
   void PragmaDirective(SourceLocation loc, PragmaIntroducerKind introducer) override {
+    pragmaLocation = {};
     auto expansion = sm.getExpansionLoc(loc);
     if (expansion.isInvalid()
         || (physicalRoot ? sm.getFileEntryForID(sm.getFileID(expansion)) != physicalRoot
                          : !sm.isWrittenInMainFile(expansion))) return;
+    pragmaLocation = loc;
     if (introducer == PIK___pragma) emitLiteralMsvcWarning(loc, expansion);
     emit(llvm::json::Object{{"kind", "root_pragma"},
       {"hash_pragma", introducer == PIK_HashPragma}, {"location", location(loc)}});
+  }
+  void PragmaDiagnosticPush(SourceLocation, llvm::StringRef name) override {
+    emitClangDiagnostic(name, "push");
+  }
+  void PragmaDiagnosticPop(SourceLocation, llvm::StringRef name) override {
+    emitClangDiagnostic(name, "pop");
+  }
+  void PragmaDiagnostic(SourceLocation, llvm::StringRef name,
+                        diag::Severity severity, llvm::StringRef warning) override {
+    if (severity == diag::Severity::Ignored) emitClangDiagnostic(name, "ignored", warning);
   }
   void HasInclude(SourceLocation loc, llvm::StringRef name, bool angled,
                   OptionalFileEntryRef file, SrcMgr::CharacteristicKind) override {
@@ -262,8 +295,10 @@ public:
 class ObserveAction : public PreprocessorFrontendAction {
   std::string selectedPath;
   const FileEntry *physicalRoot = nullptr;
+  bool retainClangDiagnostics;
 public:
-  explicit ObserveAction(std::string selectedPath) : selectedPath(std::move(selectedPath)) {}
+  explicit ObserveAction(std::string selectedPath, bool retainClangDiagnostics)
+      : selectedPath(std::move(selectedPath)), retainClangDiagnostics(retainClangDiagnostics) {}
 private:
   bool BeginSourceFileAction(CompilerInstance &ci) override {
     if (!selectedPath.empty()) {
@@ -281,7 +316,7 @@ private:
       {"ms_compatibility_version", int64_t(ci.getLangOpts().MSCompatibilityVersion)},
       {"cxx20", bool(ci.getLangOpts().CPlusPlus20)},
       {"production_proof_contract", false}});
-    ci.getPreprocessor().addPPCallbacks(std::make_unique<Observer>(ci.getPreprocessor(), physicalRoot));
+    ci.getPreprocessor().addPPCallbacks(std::make_unique<Observer>(ci.getPreprocessor(), physicalRoot, retainClangDiagnostics));
     return true;
   }
   void ExecuteAction() override {
@@ -342,16 +377,24 @@ int main(int argc, char **argv) {
   if (argc < 2) return 2;
   if (argc == 3 && std::string(argv[1]) == "--native-hash-offsets")
     return nativeHashOffsets(argv[2]);
-  std::vector<std::string> args{VORPAL_CLANG_DRIVER, "--driver-mode=cl"};
+  std::vector<std::string> args{VORPAL_CLANG_DRIVER};
+  std::string driverMode = "cl";
+  bool explicitDriverMode = false;
   std::string selectedPath;
   for (int i = 1; i < argc; ++i) {
-    if (std::string(argv[i]) == "--physical-source") {
+    if (std::string(argv[i]) == "--native-driver-mode") {
+      if (explicitDriverMode || i + 1 >= argc) return 2;
+      explicitDriverMode = true;
+      driverMode = argv[++i];
+      if (driverMode != "cl" && driverMode != "g++") return 2;
+    } else if (std::string(argv[i]) == "--physical-source") {
       if (!selectedPath.empty() || i + 1 >= argc) return 2;
       selectedPath = argv[++i];
     } else {
       args.emplace_back(argv[i]);
     }
   }
+  args.insert(args.begin() + 1, "--driver-mode=" + driverMode);
   auto fs = llvm::makeIntrusiveRefCnt<ObservedFS>();
   if (argc == 3 && std::string(argv[1]) == "--fs-audit") {
     llvm::SmallString<256> cwd;
@@ -370,7 +413,7 @@ int main(int argc, char **argv) {
     return error ? 1 : 0;
   }
   auto files = llvm::makeIntrusiveRefCnt<FileManager>(FileSystemOptions{}, fs);
-  tooling::ToolInvocation invocation(std::move(args), std::make_unique<ObserveAction>(selectedPath), files.get());
+  tooling::ToolInvocation invocation(std::move(args), std::make_unique<ObserveAction>(selectedPath, driverMode == "g++"), files.get());
   bool ok = invocation.run();
   emit(llvm::json::Object{{"kind", "complete"}, {"success", ok}, {"production_backend", false}});
   return ok ? 0 : 1;

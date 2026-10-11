@@ -7,6 +7,77 @@ use vorpal_ingest::{ExtractionEnv, OutlineExtractor, encode_product_into};
 const SOURCE: &str = "#include <unknown-sdk.h>\nvoid run() { CHECK(value())\nafter(); }\n#undef CHECK\nvoid CHECK(int);\nvoid ordinary() { CHECK(other()); }\nvoid value() {}\nvoid after() {}\nvoid other() {}\n";
 
 #[test]
+fn native_objc_ownership_aliases_require_fresh_exact_sites() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "// α\n#ifdef __OBJC__\nstruct Holder { NSString* HANDLE stored; };\nClass* run() { Class* classes = (CHECK Class*)allocate(); return classes; }\n#endif\n#undef CHECK\n#undef HANDLE\nvoid ordinary() { CHECK(); HANDLE(); }\nvoid following() { after(); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    let extractor = OutlineExtractor::new().unwrap().with_cpp_macro_compiler(provider::command(dir.path(), &path)).unwrap();
+    for qualifier in ["__strong", "__weak", "__unsafe_unretained", "__autoreleasing", ""] {
+      let header = format!("#define CHECK {qualifier}\n#define HANDLE {qualifier}\n").replace('\n', newline);
+      fs::write(dir.path().join("proof.h"), &header).unwrap();
+      fs::write(dir.path().join("mode"), "objc-ownership").unwrap();
+      let product = extractor.extract_product(path.to_str().unwrap(), &source).unwrap();
+      assert_eq!(product.error_nodes, 0, "{qualifier}");
+      let holder = product.items.iter().find(|i| i.entry.name == "Holder").unwrap();
+      assert!(holder.members.iter().any(|i| i.entry.name == "stored" && i.entry.symbol_type == vorpal_outline::model::SymbolType::Field));
+      for name in ["allocate", "after", "CHECK", "HANDLE"] {
+        let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+        assert_eq!(calls.len(), 1, "{name}");
+        assert_eq!(&source[calls[0].start as usize..calls[0].end as usize], format!("{name}()"));
+      }
+      let mut owned = Vec::new();
+      encode_product_into(&product, &mut owned);
+      let mut streamed = Vec::new();
+      extractor.extract_product_encoded(path.to_str().unwrap(), &source, product.source_size, product.source_mtime_ns, &mut streamed).unwrap();
+      assert_eq!(owned, streamed);
+      let raw = vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+      assert!(raw.root().has_error());
+      let handoff = extractor.extract_product_from_root(path.to_str().unwrap(), &raw).unwrap();
+      let mut encoded = Vec::new(); encode_product_into(&handoff, &mut encoded);
+      assert_eq!(owned, encoded);
+      for invalid in [
+        source.replace("stored;", "stored"),
+        source.replace("allocate();", "allocate()"),
+        source.replace("CHECK();", "CHECK()"),
+        source.replace("__OBJC__", "PLATFORM"),
+      ] {
+        fs::write(&path, &invalid).unwrap();
+        assert!(extractor.extract_product(path.to_str().unwrap(), &invalid).unwrap().error_nodes > 0, "{invalid}");
+      }
+      fs::write(&path, &source).unwrap();
+    }
+    fs::write(dir.path().join("proof.h"), "#define CHECK __strong\n#define HANDLE __strong\n".replace('\n', newline)).unwrap();
+    for mode in ["objc-ownership-origin", "objc-ownership-anchor", "objc-ownership-offset", "objc-ownership-token", "objc-ownership-inactive"] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      assert!(extractor.extract_product(path.to_str().unwrap(), &source).unwrap().error_nodes > 0, "{mode}");
+    }
+    fs::write(dir.path().join("mode"), "objc-ownership").unwrap();
+    for value in ["UNKNOWN", "inline", "__strongSuffix", "__strong()"] {
+      fs::write(dir.path().join("proof.h"), format!("#define CHECK {value}\n#define HANDLE {value}\n")).unwrap();
+      assert!(extractor.extract_product(path.to_str().unwrap(), &source).unwrap().error_nodes > 0, "{value}");
+    }
+    for qualifier in ["__strong", "__weak", "__unsafe_unretained", "__autoreleasing"] {
+      fs::write(dir.path().join("proof.h"), format!("#define CHECK {qualifier}\n#define HANDLE {qualifier}\n").replace('\n', newline)).unwrap();
+      for mode in ["objc-ownership-builtin-mismatch", "objc-ownership-builtin-attribute", "objc-ownership-builtin-truncated", "objc-ownership-builtin-origin", "objc-ownership-builtin"] {
+        fs::write(dir.path().join("mode"), mode).unwrap();
+        let product = extractor.extract_product(path.to_str().unwrap(), &source).unwrap();
+        assert_eq!(product.error_nodes == 0, mode == "objc-ownership-builtin", "{qualifier}: {mode}");
+        if mode == "objc-ownership-builtin" {
+          let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0).map(|r| r.name.as_str()).collect();
+          assert_eq!(calls.iter().filter(|&&n| n == "CHECK").count(), 1);
+          assert_eq!(calls.iter().filter(|&&n| n == "HANDLE").count(), 1);
+          assert!(calls.contains(&"allocate") && calls.contains(&"after"));
+        }
+      }
+    }
+  }
+}
+
+
+#[test]
 fn native_try_prefixes_preserve_calls_and_decline_unproven_handlers() {
   use vorpal_core::tree_sitter::LanguageExt;
   for newline in ["\n", "\r\n"] {

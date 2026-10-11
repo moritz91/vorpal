@@ -1,0 +1,54 @@
+name: Objective-C Foundation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  foundation:
+    name: Catch2 native Foundation (ARC and MRC)
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      VORPAL_CPP_COMPILER_TRACE: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install matching physical observer toolchain
+        run: brew install llvm@19
+      - name: Build physical observer
+        run: |
+          LLVM_ROOT="$(brew --prefix llvm@19)"
+          cmake -S scripts/cpp_macro_observer -B "$RUNNER_TEMP/objc-observer" \
+            -DCMAKE_BUILD_TYPE=Release -DLLVM_DIR="$LLVM_ROOT/lib/cmake/llvm" \
+            -DClang_DIR="$LLVM_ROOT/lib/cmake/clang" \
+            -DVORPAL_CLANG_DRIVER="$LLVM_ROOT/bin/clang++"
+          cmake --build "$RUNNER_TEMP/objc-observer" --parallel 3
+      - name: Genuine Apple Foundation build and fresh physical observations
+        run: |
+          python3 scripts/cpp_objc_foundation_control.py \
+            --llvm-root "$(brew --prefix llvm@19)" \
+            --observer "$RUNNER_TEMP/objc-observer/vorpal_cpp_macro_observer" \
+            --directory "$RUNNER_TEMP/objc-foundation"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Production extraction and freshness controls
+        run: cargo test --locked -p vorpal-ingest --test cpp_objc_foundation -- --nocapture
+      - name: Ordinary MCP and warm index freshness controls
+        run: cargo test --locked -p vorpal-mcp --test cpp_objc_foundation -- --nocapture
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: objc-foundation-context
+          # Retain control results and digests, never SDK buffers/native PP text.
+          path: |
+            ${{ runner.temp }}/objc-foundation/*.log
+            ${{ runner.temp }}/objc-foundation/context-*.json
+            ${{ runner.temp }}/objc-foundation/sdk-identity.json
+          retention-days: 7

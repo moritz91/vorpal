@@ -481,6 +481,34 @@ fn proven_try_prefix_accepts_complete_conditional_original_handlers() {
   }
 }
 
+
+#[test]
+fn proven_objc_ownership_sites_preserve_original_field_and_cast_tokens() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for kind in [CppProvenMacroKind::ObjcOwnershipQualifier, CppProvenMacroKind::Annotation] {
+    let source = "// α\n#ifdef __OBJC__\nstruct Holder { NSString* FIELD stored; };\nClass* run() { return (CAST Class*)allocate(); }\n#endif\nvoid ordinary() { FIELD(); CAST(); }\n";
+    let mut sites: Vec<_> = ["FIELD", "CAST"].into_iter().map(|name| CppProvenMacroSite { offset: source.find(name).unwrap().try_into().unwrap(), name: name.into(), kind }).collect();
+    sites.sort_by_key(|s| s.offset);
+    assert!(SupportLang::Cpp.grep(source).root().has_error());
+    with_cpp_proven_macro_sites(&sites, || {
+      let parsed = SupportLang::Cpp.grep(source);
+      assert!(!parsed.root().has_error(), "{kind:?}: {}", parsed.root().text());
+      assert_eq!(parsed.root().dfs().filter(|n| n.kind().as_ref() == "macro_annotation").count(), 2);
+      let field = parsed.root().dfs().find(|n| n.kind().as_ref() == "field_declaration").unwrap();
+      assert_eq!(field.field("declarator").unwrap().field("declarator").unwrap().text(), "stored");
+      for spelling in ["FIELD()", "CAST()", "allocate()"] {
+        assert_eq!(parsed.root().dfs().filter(|n| n.kind().as_ref() == "call_expression" && n.text() == spelling).count(), 1);
+      }
+      with_cpp_proven_macro_sites(&[], || assert!(SupportLang::Cpp.grep(source).root().has_error()));
+      assert!(!SupportLang::Cpp.grep(source).root().has_error());
+    });
+    assert!(SupportLang::Cpp.grep(source).root().has_error());
+    for invalid in [source.replace("stored;", "stored"), source.replace("allocate();", "allocate()"), source.replace("__OBJC__", "PLATFORM")] {
+      assert!(with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&invalid)).root().has_error());
+    }
+  }
+}
+
 #[test]
 fn proven_annotations_keep_names_without_runtime_callees_and_empty_context_leaks() {
   use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
