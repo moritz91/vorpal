@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fresh MSVC or explicit macOS Clang/LLVM19 preprocessing provider.
+"""Fresh MSVC/LLVM19 provider. Requires a trusted preprocess-only command plan.
 
 Runs native PP before AND after the physical observer. No retained observations,
 line-based source rewriting, final macro dumps or dependency-cache assumptions.
@@ -18,7 +18,6 @@ import subprocess
 import sys
 import time
 from cpp_macro_native_projection import project_root, validated_hash_offsets, observed_literal_once_lines
-from cpp_macro_clang_context import clang_plan, project_clang_root, sdk_identity, clang_diagnostic_line
 
 
 def digest(data):
@@ -41,7 +40,6 @@ def main():
     parser.add_argument("--libclang", required=True)
     parser.add_argument("--python-bindings", required=True)
     parser.add_argument("--compiler", default="cl.exe")
-    parser.add_argument("--driver-mode", choices=["msvc", "clang"], default="msvc")
     parser.add_argument("--msvc-version", default="19.44")
     parser.add_argument("--native-hash-lexer", action="store_true",
                         help="use the matching observer's raw lexer for full-stream hash offsets")
@@ -70,16 +68,9 @@ def main():
     # Plans are supplied by the trusted launcher and contain only preprocessing
     # arguments plus the original source. Never accept an arbitrary compile line.
     arguments = entry["args"]
-    if args.driver_mode == "clang":
-        if sys.platform != "darwin":
-            raise RuntimeError("the Foundation provider requires a native macOS host")
-        native_args, forced_inputs, sdk = clang_plan(arguments, translation_unit, physical)
-        native_args.append("-resource-dir=" + args.resource_dir)
-        sdk_before = sdk_identity(sdk)
-    else:
-        assert arguments[-1].lower() == "/zs"
+    assert arguments[-1].lower() == "/zs"
     assert len(arguments) >= 2 and physical(arguments[-2]) == physical(translation_unit)
-    for argument in arguments if args.driver_mode == "msvc" else []:
+    for argument in arguments:
         option = argument.lstrip("/-")
         lowered = option.lower()
         assert not argument.startswith("@"), "response files are not preprocessing plans"
@@ -88,9 +79,8 @@ def main():
             if not option.startswith("FI"):  # uppercase FI is a forced input header
                 assert not lowered.startswith(("fo", "fd", "fe", "fp", "fa", "fm", "fr", "fi", "yc", "sourcedependencies", "analyze:log"))
 
-    if args.driver_mode == "msvc":
-        native_args = [a for a in arguments if a.lower() != "/zs"] + ["/E"]
-        forced_inputs = [a[3:] for a in arguments if a.startswith(("/FI", "-FI"))]
+    native_args = [a for a in arguments if a.lower() != "/zs"] + ["/E"]
+    forced_inputs = [a[3:] for a in arguments if a.startswith(("/FI", "-FI"))]
     assert all(forced_inputs), "forced input paths must be explicit joined arguments"
     compiler = shutil.which(args.compiler)
     if not compiler:
@@ -107,17 +97,13 @@ def main():
         value = {"compiler": digest(compiler.read_bytes()),
                  "provider": digest(Path(__file__).read_bytes()),
                  "projection": digest(Path(__file__).with_name('cpp_macro_native_projection.py').read_bytes()),
-                 "clangContext": digest(Path(__file__).with_name('cpp_macro_clang_context.py').read_bytes()),
                  "observer": digest(Path(args.observer).read_bytes()),
                  "libclang": digest(Path(args.libclang).read_bytes()),
                  "plan": digest(Path(args.plan).read_bytes()),
                  "arguments": native_args, "cwd": entry["cwd"],
                  "physicalSource": physical(source),
                  "environment": dict(os.environ), "msvcVersion": args.msvc_version,
-                 "resourceDir": str(Path(args.resource_dir).resolve()),
-                 "driverMode": args.driver_mode}
-        if args.driver_mode == "clang":
-            value["sdk"] = sdk_identity(sdk)
+                 "resourceDir": str(Path(args.resource_dir).resolve())}
         # Per-capture paths are handshake metadata, not toolchain inputs.
         for key in ["VORPAL_CPP_COMPILER_REQUEST", "VORPAL_CPP_COMPILER_RESPONSE", "VORPAL_CPP_COMPILER_READY"]:
             value["environment"].pop(key, None)
@@ -157,18 +143,15 @@ def main():
             inputs.add(resolved)
             return resolved
 
-        if args.driver_mode == "clang":
-            projected = project_clang_root(data, directive_offsets, source, input_path)
-        else:
-            projected = project_root(data, directive_offsets, source, input_path,
-                                     forced_inputs=forced_inputs, translation_unit=translation_unit,
-                                     literal_once_lines=literal_once_lines)
+        projected = project_root(data, directive_offsets, source, input_path,
+                                 forced_inputs=forced_inputs, translation_unit=translation_unit,
+                                 literal_once_lines=literal_once_lines)
         # A matching frame can also be authored in a header, or emitted through
         # a pragma macro. Inspect every physical file named by an actual marker,
         # including strings/comments conservatively; no name allowlist is proof.
         if len(inputs) > 2048:
             raise RuntimeError("native frame input count exceeds limit")
-        total, authored, input_digests = 0, False, {}
+        total, authored = 0, False
         for path in inputs:
             with Path(path).open('rb') as stream:
                 content = stream.read(4 * 1024 * 1024 + 1)
@@ -176,13 +159,12 @@ def main():
             if len(content) > 4 * 1024 * 1024 or total > 32 * 1024 * 1024:
                 raise RuntimeError("native frame input bytes exceed limit")
             authored |= b'external_header' in content
-            input_digests[path] = digest(content)
         # This memo exists only inside one native stream projection. Recheck all
         # spellings before returning; no canonical path or header bytes survive
         # into the next stream/capture or authorize product replay.
         if any(physical(path) != resolved for path, resolved in resolved_paths.items()):
             raise RuntimeError("native input redirect changed during projection")
-        if authored and args.driver_mode == "msvc":
+        if authored:
             projected = project_root(data, directive_offsets, source, physical, True,
                                      forced_inputs=forced_inputs, translation_unit=translation_unit,
                                      literal_once_lines=literal_once_lines)
@@ -194,25 +176,15 @@ def main():
         lines = text.split('\n')
         directives = {t.location.line for t in tokens if t.spelling == "#"
                       and not lines[t.location.line-1][:t.location.column-1].strip()}
-        if args.driver_mode == "clang":
-            # Known diagnostics remain comparison tokens, independently emitted
-            # by real PP callbacks. Unsupported pragmas remain in the mandatory
-            # native directive inventory and conservatively decline recovery.
-            directives = {line for line in directives
-                          if not clang_diagnostic_line(lines[line-1].strip())}
         return ([t.spelling for t in tokens if t.location.line not in directives],
-                [lines[line-1].strip() for line in sorted(directives)], input_digests)
+                [lines[line-1].strip() for line in sorted(directives)])
 
     before_context = context()
     before_file = scratch / "native-before.i"
     run([str(compiler), *native_args], before_file, scratch / "native-before.stderr")
-    if args.driver_mode == "clang":
-        before, directives, before_inputs = native_tokens(before_file, "before")
     observer_file = scratch / "observer.jsonl"
     selection = ["--physical-source", str(source)] if included_source else []
-    driver_args = (["--native-driver-mode", "g++"] if args.driver_mode == "clang"
-                   else ["-fms-compatibility-version=" + args.msvc_version])
-    run([args.observer, *selection, *driver_args, *arguments,
+    run([args.observer, *selection, *arguments, "-fms-compatibility-version=" + args.msvc_version,
          "-resource-dir=" + args.resource_dir], observer_file, scratch / "observer.stderr")
     rows = [json.loads(line) for line in observer_file.read_bytes().splitlines()]
     literal_once_lines = observed_literal_once_lines(original, rows, source, physical)
@@ -225,18 +197,10 @@ def main():
     after_file = scratch / "native-after.i"
     run([str(compiler), *native_args], after_file, scratch / "native-after.stderr")
     after_context = context()
-    if args.driver_mode == "msvc":
-        before, directives, before_inputs = native_tokens(before_file, "before")
-    after, after_directives, after_inputs = native_tokens(after_file, "after")
+    before, directives = native_tokens(before_file, "before")
+    after, after_directives = native_tokens(after_file, "after")
     if directives != after_directives:
         raise RuntimeError("native directive inventory changed during capture")
-    if args.driver_mode == "clang":
-        assert sdk_before == sdk_identity(sdk) and before_inputs == after_inputs
-        assert all(digest(Path(p).read_bytes()) == d for p, d in after_inputs.items())
-        # SDK identity, search plan and freshly read physical inputs identify this
-        # capture. They never authorize replay without another native capture.
-        before_context = digest((before_context + json.dumps(before_inputs, sort_keys=True)).encode())
-        after_context = digest((after_context + json.dumps(after_inputs, sort_keys=True)).encode())
     pragma_offsets = []
     for row in rows:
         if row.get("kind") != "root_pragma" or row.get("hash_pragma") is not True:

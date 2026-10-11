@@ -49,6 +49,11 @@ token origins, wrong roles, ordinary same-name calls and missing semicolons rema
 raw. Owned, streaming and Scan handoff share this proof. The MSVC context does not
 activate Catch2's `__OBJC__` arm, so this does not clear its two physical alias
 diagnostics or claim a genuine Foundation/compiler context.
+Windows/MSVC is the authoritative project build context, as confirmed by the
+user. A separate macOS/Foundation control cannot authorize these inactive
+Windows aliases; their two diagnostics remain visible. A future active proof
+requires an explicitly selected project translation unit and its actual build
+environment, with the same fresh native capture and original-span checks.
 Empty object/function macro definitions with trailing horizontal whitespace now
 end on their own LF/CRLF line, preserving following directives and declarations.
 Native numeric replacement endpoints include original leading whitespace before
