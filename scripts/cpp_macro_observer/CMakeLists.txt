@@ -34,6 +34,11 @@ file(TO_CMAKE_PATH "${VORPAL_CLANG_DRIVER}" VORPAL_CLANG_DRIVER_LITERAL)
 target_compile_definitions(vorpal_cpp_macro_observer PRIVATE VORPAL_CLANG_DRIVER="${VORPAL_CLANG_DRIVER_LITERAL}")
 if(TARGET clang-cpp)
   target_link_libraries(vorpal_cpp_macro_observer PRIVATE clang-cpp)
+  # Homebrew's shared clang-cpp does not export LLVM's symbols through its
+  # interface. Link our direct llvm:: API uses to the matching shared target.
+  if(TARGET LLVM)
+    target_link_libraries(vorpal_cpp_macro_observer PRIVATE LLVM)
+  endif()
 else()
   target_link_libraries(vorpal_cpp_macro_observer PRIVATE clangTooling clangFrontend clangLex clangBasic)
 endif()
