@@ -70,6 +70,15 @@ mod native {
 
   const LIMIT: u64 = 32 * 1024 * 1024;
 
+  fn proof_stage<T>(result: Option<T>, stage: &str) -> Option<T> {
+    if result.is_none() && std::env::var_os("VORPAL_CPP_COMPILER_TRACE").is_some() {
+      // Explicit developer trace: stage names only, never source, paths, flags,
+      // environment values or compiler stderr. Decline behavior is unchanged.
+      eprintln!("native C++ proof declined at {stage}");
+    }
+    result
+  }
+
   fn scratch_within_limits(directory: &Path) -> bool {
     let Ok(entries) = fs::read_dir(directory) else {
       return false;
@@ -1509,7 +1518,7 @@ mod native {
     path: &Path,
     source: &str,
   ) -> Option<CompilerParse> {
-    let (packet, dependency) = capture(config, path, source)?;
+    let (packet, dependency) = proof_stage(capture(config, path, source), "capture")?;
     let buffers: Vec<_> = packet
       .definitions
       .iter()
@@ -1541,10 +1550,14 @@ mod native {
       complete: packet.complete,
       volatile_inputs: packet.volatile_inputs,
     };
-    let (mut evidence, ranges) =
-      crate::cpp_macro_compiler_audit::prepare_evidence(path, source, &observation).ok()?;
-    add_native_generators(source, &packet, &mut evidence)?;
-    refine_native_literal_arguments(source, &packet, &mut evidence)?;
+    let prepared = crate::cpp_macro_compiler_audit::prepare_evidence(path, source, &observation);
+    if let Err(reason) = &prepared
+      && std::env::var_os("VORPAL_CPP_COMPILER_TRACE").is_some() {
+      eprintln!("native C++ evidence declined: {reason:?}");
+    }
+    let (mut evidence, ranges) = proof_stage(prepared.ok(), "physical evidence")?;
+    proof_stage(add_native_generators(source, &packet, &mut evidence), "generators")?;
+    proof_stage(refine_native_literal_arguments(source, &packet, &mut evidence), "literal arguments")?;
     let bindings: std::collections::BTreeMap<_, _> = evidence
       .bindings
       .iter()
@@ -1552,11 +1565,11 @@ mod native {
       .collect();
     let (mut root, _, _, mut diagnostics) =
       crate::cpp_macro_recovery::parse_compiler_evidence(source, evidence);
-    let mut sites = function_prefix_sites(&packet, &root)?;
-    sites.extend(declaration_list_sites(&packet, &root)?);
-    sites.extend(case_loop_prefix_sites(&packet, &root)?);
-    sites.extend(object_prefix_sites(&packet, source)?);
-    sites.extend(typed_handler_sites(&packet, source)?);
+    let mut sites = proof_stage(function_prefix_sites(&packet, &root), "function prefixes")?;
+    sites.extend(proof_stage(declaration_list_sites(&packet, &root), "declaration lists")?);
+    sites.extend(proof_stage(case_loop_prefix_sites(&packet, &root), "case/loop prefixes")?);
+    sites.extend(proof_stage(object_prefix_sites(&packet, source), "object prefixes")?);
+    sites.extend(proof_stage(typed_handler_sites(&packet, source), "typed handlers")?);
     if !sites.is_empty() {
       use vorpal_core::tree_sitter::LanguageExt;
       use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite};
