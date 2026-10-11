@@ -342,16 +342,24 @@ int main(int argc, char **argv) {
   if (argc < 2) return 2;
   if (argc == 3 && std::string(argv[1]) == "--native-hash-offsets")
     return nativeHashOffsets(argv[2]);
-  std::vector<std::string> args{VORPAL_CLANG_DRIVER, "--driver-mode=cl"};
+  std::vector<std::string> args{VORPAL_CLANG_DRIVER};
+  std::string driverMode = "cl";
+  bool explicitDriverMode = false;
   std::string selectedPath;
   for (int i = 1; i < argc; ++i) {
-    if (std::string(argv[i]) == "--physical-source") {
+    if (std::string(argv[i]) == "--native-driver-mode") {
+      if (explicitDriverMode || i + 1 >= argc) return 2;
+      explicitDriverMode = true;
+      driverMode = argv[++i];
+      if (driverMode != "cl" && driverMode != "g++") return 2;
+    } else if (std::string(argv[i]) == "--physical-source") {
       if (!selectedPath.empty() || i + 1 >= argc) return 2;
       selectedPath = argv[++i];
     } else {
       args.emplace_back(argv[i]);
     }
   }
+  args.insert(args.begin() + 1, "--driver-mode=" + driverMode);
   auto fs = llvm::makeIntrusiveRefCnt<ObservedFS>();
   if (argc == 3 && std::string(argv[1]) == "--fs-audit") {
     llvm::SmallString<256> cwd;
