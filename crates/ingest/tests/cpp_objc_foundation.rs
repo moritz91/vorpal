@@ -80,7 +80,7 @@ fn genuine_foundation_context_preserves_aliases_spans_and_freshness() {
         .iter()
         .any(|i| i.entry.name == "stored")
     );
-    for name in ["malloc", "CHECK", "HANDLE"] {
+    for name in ["malloc", "authored_after", "CHECK", "HANDLE"] {
       let calls: Vec<_> = clean
         .refs
         .iter()

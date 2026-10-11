@@ -78,8 +78,9 @@ def main():
     project.mkdir(exist_ok=True)
     probe = project / 'ownership.cc'
     probe.write_text('#include "ownership.h"\n#ifdef __OBJC__\n'
+                     'void authored_after() {}\n'
                      'struct Holder { NSString* HANDLE stored; };\n'
-                     'Class* run() { Class* classes = (CHECK Class*)malloc(sizeof(Class)); return classes; }\n'
+                     'Class* run() { Class* classes = (CHECK Class*)malloc(sizeof(Class)); authored_after(); return classes; }\n'
                      '#endif\n#undef CHECK\n#undef HANDLE\n'
                      'void CHECK(); void HANDLE();\nvoid ordinary() { CHECK(); HANDLE(); }\n')
     cases = []

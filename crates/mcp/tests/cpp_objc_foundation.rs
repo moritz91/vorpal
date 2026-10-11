@@ -97,7 +97,10 @@ fn genuine_foundation_mcp_recaptures_external_headers_without_source_hints() {
       "graph",
       json!({"relation":"callees", "name":"run", "format":"lean"}),
     );
-    assert!(graph.contains("malloc"), "{graph}");
+    // Graph rows require an indexed authored target. malloc's SDK declaration
+    // lives outside this source root; its original call span is checked by the
+    // extraction control instead of inventing a project graph definition.
+    assert!(graph.contains("authored_after"), "{graph}");
     assert!(!graph.contains("CHECK"), "{graph}");
     assert_eq!(fs::read(&case.probe_path).unwrap(), source);
     eprintln!(
