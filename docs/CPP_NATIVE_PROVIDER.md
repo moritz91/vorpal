@@ -77,6 +77,12 @@ pipeline again even when source files and timestamps have not changed. An
 authorized source root is required; a frozen external index cannot claim freshness.
 This costs native preprocessing on every such query and can be slow on large SDKs.
 
+The [latency benchmark](CPP_NATIVE_MCP_LATENCY.md) measures verified cold builds,
+startup and repeated ordinary MCP requests with an isolated external index.
+Pure lexer results may be reused for exactly equal buffers within one bracketed
+capture. Native runs, physical projection, header reads and redirect checks are
+still repeated; no proof or dependency snapshot is reused between requests.
+
 ```yaml
 ruleDirs: []
 cppMacroCompiler:
