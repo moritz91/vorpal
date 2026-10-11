@@ -19,12 +19,16 @@ fn require_macos() {
   panic!("Foundation controls require a real macOS host");
 }
 
-fn call(server: &mut Server, id: u64, name: &str, arguments: Value) -> String {
+fn call_response(server: &mut Server, id: u64, name: &str, arguments: Value) -> Value {
   let request = json!({"jsonrpc":"2.0", "id":id, "method":"tools/call", "params":{"name":name, "arguments":arguments}});
   let response: Value =
     serde_json::from_str(&server.handle_line(&request.to_string()).unwrap()).unwrap();
   assert_eq!(response["result"]["isError"], false, "{response}");
-  response["result"]["content"][0]["text"]
+  response
+}
+
+fn call(server: &mut Server, id: u64, name: &str, arguments: Value) -> String {
+  call_response(server, id, name, arguments)["result"]["content"][0]["text"]
     .as_str()
     .unwrap()
     .to_owned()
@@ -91,7 +95,7 @@ fn genuine_foundation_mcp_recaptures_external_headers_without_source_hints() {
     fs::write(&case.header_path, header).unwrap();
     assert!(call(&mut server, 5, "health", json!({})).contains("parse health: clean"));
     assert_eq!(fs::read(index.join("CURRENT")).unwrap(), generation);
-    let graph = call(
+    let graph = call_response(
       &mut server,
       6,
       "graph",
@@ -100,8 +104,19 @@ fn genuine_foundation_mcp_recaptures_external_headers_without_source_hints() {
     // Graph rows require an indexed authored target. malloc's SDK declaration
     // lives outside this source root; its original call span is checked by the
     // extraction control instead of inventing a project graph definition.
-    assert!(graph.contains("authored_after"), "{graph}");
-    assert!(!graph.contains("CHECK"), "{graph}");
+    let rows = graph["result"]["structuredContent"]["records"]
+      .as_array()
+      .unwrap();
+    assert_eq!(rows.len(), 1, "{graph}");
+    assert_eq!(rows[0]["name"], "authored_after", "{graph}");
+    // The original call-site text must still contain CHECK. Absence is required
+    // only in the target names, never in the unmodified authored source preview.
+    let source_text = std::str::from_utf8(&source).unwrap();
+    let line = source_text
+      .lines()
+      .find(|line| line.starts_with("Class* run()"))
+      .unwrap();
+    assert_eq!(rows[0]["site"], line);
     assert_eq!(fs::read(&case.probe_path).unwrap(), source);
     eprintln!(
       "{}: normal MCP warm queries, external edit/removal/restoration and graph agree",
