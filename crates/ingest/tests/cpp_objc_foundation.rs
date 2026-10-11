@@ -15,16 +15,18 @@ struct Case {
   command: CompilerCommand,
 }
 
+fn require_macos() {
+  #[cfg(not(target_os = "macos"))]
+  panic!("Foundation controls require a real macOS host");
+}
+
 #[test]
 fn genuine_foundation_context_preserves_aliases_spans_and_freshness() {
   let Some(manifest) = std::env::var_os("VORPAL_TEST_OBJC_FOUNDATION_CASES") else {
     eprintln!("not exercised: genuine macOS Foundation manifest is absent");
     return;
   };
-  assert!(
-    cfg!(target_os = "macos"),
-    "Foundation controls require a real macOS host"
-  );
+  require_macos();
   let cases: Vec<Case> = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
   assert_eq!(cases.len(), 2);
   let mut identities = Vec::new();

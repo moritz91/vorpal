@@ -14,6 +14,11 @@ struct Case {
   command: CompilerCommand,
 }
 
+fn require_macos() {
+  #[cfg(not(target_os = "macos"))]
+  panic!("Foundation controls require a real macOS host");
+}
+
 fn call(server: &mut Server, id: u64, name: &str, arguments: Value) -> String {
   let request = json!({"jsonrpc":"2.0", "id":id, "method":"tools/call", "params":{"name":name, "arguments":arguments}});
   let response: Value =
@@ -31,7 +36,7 @@ fn genuine_foundation_mcp_recaptures_external_headers_without_source_hints() {
     eprintln!("not exercised: genuine macOS Foundation manifest is absent");
     return;
   };
-  assert!(cfg!(target_os = "macos"));
+  require_macos();
   let cases: Vec<Case> = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
   assert_eq!(cases.len(), 2);
   for case in cases {

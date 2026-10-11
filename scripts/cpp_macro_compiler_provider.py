@@ -71,6 +71,8 @@ def main():
     # arguments plus the original source. Never accept an arbitrary compile line.
     arguments = entry["args"]
     if args.driver_mode == "clang":
+        if sys.platform != "darwin":
+            raise RuntimeError("the Foundation provider requires a native macOS host")
         native_args, forced_inputs, sdk = clang_plan(arguments, translation_unit, physical)
         native_args.append("-resource-dir=" + args.resource_dir)
         sdk_before = sdk_identity(sdk)
@@ -105,6 +107,7 @@ def main():
         value = {"compiler": digest(compiler.read_bytes()),
                  "provider": digest(Path(__file__).read_bytes()),
                  "projection": digest(Path(__file__).with_name('cpp_macro_native_projection.py').read_bytes()),
+                 "clangContext": digest(Path(__file__).with_name('cpp_macro_clang_context.py').read_bytes()),
                  "observer": digest(Path(args.observer).read_bytes()),
                  "libclang": digest(Path(args.libclang).read_bytes()),
                  "plan": digest(Path(args.plan).read_bytes()),
