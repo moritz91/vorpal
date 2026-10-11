@@ -318,6 +318,7 @@ impl SnapEntry {
         end: lines.position(src, end),
       },
       signature: self.signature.resolve(src, shift)?,
+      source_context: None,
       ast_kind: self.ast_kind.resolve(src, shift)?,
     })
   }

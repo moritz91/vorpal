@@ -7,15 +7,17 @@ The launcher owns this process tree and its timeout. LLVM/python dependencies ar
 explicit local paths; this script does not download tools or alter the checkout.
 """
 import argparse
+from bisect import bisect_right
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import time
-from cpp_macro_native_projection import project_root, validated_hash_offsets
+from cpp_macro_native_projection import project_root, validated_hash_offsets, observed_literal_once_lines
 
 
 def digest(data):
@@ -60,10 +62,14 @@ def main():
     if len(selected) != 1:
         raise RuntimeError("a unique explicit native command is required")
     entry = selected[0]
+    translation_unit = Path(entry.get("translationUnit", entry["source"]))
+    included_source = physical(translation_unit) != physical(source)
+    translation_unit_bytes = translation_unit.read_bytes()
     # Plans are supplied by the trusted launcher and contain only preprocessing
     # arguments plus the original source. Never accept an arbitrary compile line.
     arguments = entry["args"]
     assert arguments[-1].lower() == "/zs"
+    assert len(arguments) >= 2 and physical(arguments[-2]) == physical(translation_unit)
     for argument in arguments:
         option = argument.lstrip("/-")
         lowered = option.lower()
@@ -74,6 +80,8 @@ def main():
                 assert not lowered.startswith(("fo", "fd", "fe", "fp", "fa", "fm", "fr", "fi", "yc", "sourcedependencies", "analyze:log"))
 
     native_args = [a for a in arguments if a.lower() != "/zs"] + ["/E"]
+    forced_inputs = [a[3:] for a in arguments if a.startswith(("/FI", "-FI"))]
+    assert all(forced_inputs), "forced input paths must be explicit joined arguments"
     compiler = shutil.which(args.compiler)
     if not compiler:
         raise RuntimeError("native compiler unavailable; load the VS environment")
@@ -93,6 +101,7 @@ def main():
                  "libclang": digest(Path(args.libclang).read_bytes()),
                  "plan": digest(Path(args.plan).read_bytes()),
                  "arguments": native_args, "cwd": entry["cwd"],
+                 "physicalSource": physical(source),
                  "environment": dict(os.environ), "msvcVersion": args.msvc_version,
                  "resourceDir": str(Path(args.resource_dir).resolve())}
         # Per-capture paths are handshake metadata, not toolchain inputs.
@@ -134,7 +143,9 @@ def main():
             inputs.add(resolved)
             return resolved
 
-        projected = project_root(data, directive_offsets, source, input_path)
+        projected = project_root(data, directive_offsets, source, input_path,
+                                 forced_inputs=forced_inputs, translation_unit=translation_unit,
+                                 literal_once_lines=literal_once_lines)
         # A matching frame can also be authored in a header, or emitted through
         # a pragma macro. Inspect every physical file named by an actual marker,
         # including strings/comments conservatively; no name allowlist is proof.
@@ -154,7 +165,9 @@ def main():
         if any(physical(path) != resolved for path, resolved in resolved_paths.items()):
             raise RuntimeError("native input redirect changed during projection")
         if authored:
-            projected = project_root(data, directive_offsets, source, physical, True)
+            projected = project_root(data, directive_offsets, source, physical, True,
+                                     forced_inputs=forced_inputs, translation_unit=translation_unit,
+                                     literal_once_lines=literal_once_lines)
         text = projected.decode("utf-8")
         virtual = str(scratch / (label + "-root.cc"))
         tu = index.parse(virtual, args=["-std=c++20", "-fms-extensions"], unsaved_files=[(virtual, text)])
@@ -170,16 +183,47 @@ def main():
     before_file = scratch / "native-before.i"
     run([str(compiler), *native_args], before_file, scratch / "native-before.stderr")
     observer_file = scratch / "observer.jsonl"
-    run([args.observer, *arguments, "-fms-compatibility-version=" + args.msvc_version,
+    selection = ["--physical-source", str(source)] if included_source else []
+    run([args.observer, *selection, *arguments, "-fms-compatibility-version=" + args.msvc_version,
          "-resource-dir=" + args.resource_dir], observer_file, scratch / "observer.stderr")
     rows = [json.loads(line) for line in observer_file.read_bytes().splitlines()]
+    literal_once_lines = observed_literal_once_lines(original, rows, source, physical)
+    if included_source:
+        visits = [r for r in rows if r["kind"] == "physical_root_visit"]
+        assert len(visits) == 1 and visits[0]["visit"] == 1
+        assert physical(visits[0]["path"]) == physical(source)
+        assert all(physical(r["path"]) == physical(source)
+                   for r in rows if r["kind"] == "root_token")
     after_file = scratch / "native-after.i"
     run([str(compiler), *native_args], after_file, scratch / "native-after.stderr")
     after_context = context()
     before, directives = native_tokens(before_file, "before")
     after, after_directives = native_tokens(after_file, "after")
+    if directives != after_directives:
+        raise RuntimeError("native directive inventory changed during capture")
+    pragma_offsets = []
+    for row in rows:
+        if row.get("kind") != "root_pragma" or row.get("hash_pragma") is not True:
+            continue
+        loc = row["location"]
+        if loc.get("nested") is not False or physical(loc.get("path", "")) != physical(source):
+            continue
+        assert loc["buffer_sha256"].lower() == digest(original)
+        offset = loc["offset"]
+        assert type(offset) is int and 0 <= offset < len(original)
+        start = original.rfind(b"\n", 0, offset) + 1
+        if original.count(b"\n", 0, start) + 1 in literal_once_lines:
+            continue
+        end = original.find(b"\n", start)
+        line = original[start:end if end >= 0 else len(original)]
+        if not re.match(rb"[ \t]*#[ \t]*pragma[ \t]+(?:warning|optimize)\b", line):
+            # Other callbacks cannot prove this bounded native inventory. If an
+            # unknown directive survives native /E, the parent still declines.
+            continue
+        # The parent independently parses and validates the complete directive.
+        pragma_offsets.append(start + len(original[start:offset].split(b"#", 1)[0]))
     records = [r for r in rows if r["kind"] == "macro"]
-    definitions, buffers, expansions, callees = [], {}, [], {}
+    definitions, buffers, expansions, callees, literal_arguments, specifier_macros, control_macros, annotation_macros = [], {}, [], {}, [], [], [], []
     for record in records:
         begin, end = record["begin"], record.get("end_exclusive", {})
         if begin["nested"] or not begin.get("path") or not end.get("path"):
@@ -193,7 +237,16 @@ def main():
         callees[start] = {"name": record["name"], "start": start}
         definition, definition_end = record.get("definition", {}), record.get("definition_end_exclusive", {})
         anchor = None
-        if record.get("function_like") and definition.get("path") and definition_end.get("path"):
+        literal = (not record.get("function_like") and len(record.get("replacement_tokens", [])) == 1
+                   and record["replacement_tokens"][0][:1].isdigit())
+        specifier = (not record.get("function_like") and record.get("replacement_tokens") in
+                     [["inline"], ["__forceinline"], ["__inline"]])
+        control = (not record.get("function_like") and record.get("replacement_tokens") in
+                   [["try"], ["catch", "(", "...", ")"]])
+        annotation = (not record.get("function_like") and record.get("replacement_tokens") in
+                      [[], ["__pragma", "(", "warning", "(", "push", ")", ")"],
+                       ["__pragma", "(", "warning", "(", "pop", ")", ")"]])
+        if (record.get("function_like") or literal or specifier or control or annotation) and definition.get("path") and definition_end.get("path"):
             header = Path(definition["path"]).resolve()
             if header.is_file() and Path(definition_end["path"]).resolve() == header:
                 data = header.read_bytes()
@@ -205,14 +258,35 @@ def main():
                 assert definitions[buffers[key]]["source"].encode() == data
                 anchor = {"buffer": buffers[key], "nameOffset": definition["offset"],
                           "end": definition_end["offset"], "parameters": record["parameters"]}
-        expansions.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
+        if literal and anchor is not None:
+            literal_arguments.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
+        if specifier and anchor is not None:
+            specifier_macros.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
+        if control and anchor is not None:
+            control_macros.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
+        if annotation and anchor is not None:
+            annotation_macros.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
+        expansions.append({"name": record["name"], "start": start, "end": stop,
+                           "definition": anchor if record.get("function_like") else None})
     outer = []
     for record in sorted(expansions, key=lambda r: (r["start"], -r["end"])):
         if outer and record["start"] < outer[-1]["end"]:
             assert record["end"] <= outer[-1]["end"]
         else:
             outer.append(record)
+    outer_starts = [r["start"] for r in outer]
+    def in_argument(record):
+        index = bisect_right(outer_starts, record["start"]) - 1
+        return (index >= 0 and outer[index]["definition"] is not None
+                and outer[index]["start"] < record["start"]
+                and record["end"] <= outer[index]["end"])
+    literal_arguments = [r for r in literal_arguments if in_argument(r)]
+    outer_sites = {(r["name"], r["start"], r["end"]) for r in outer if r["definition"] is None}
+    specifier_macros = [r for r in specifier_macros if (r["name"], r["start"], r["end"]) in outer_sites]
+    control_macros = [r for r in control_macros if (r["name"], r["start"], r["end"]) in outer_sites]
+    annotation_macros = [r for r in annotation_macros if (r["name"], r["start"], r["end"]) in outer_sites]
     assert source.read_bytes() == original and Path(args.plan).read_bytes() == plan_bytes
+    assert translation_unit.read_bytes() == translation_unit_bytes
     assert all(Path(b["path"]).read_bytes() == b["source"].encode() for b in definitions)
     packet = {"version": 1, "requestId": request["requestId"], "path": request["path"], "source": request["source"],
               "complete": any(r["kind"] == "complete" and r["success"] for r in rows),
@@ -221,8 +295,14 @@ def main():
               "observedContext": digest(json.dumps([r for r in rows if r["kind"] == "compiler_context"], sort_keys=True).encode()),
               "nativeBefore": before, "nativeAfter": after,
               "observedTokens": [r["spelling"] for r in rows if r["kind"] == "root_token"],
-              "nativeDirectives": sorted(set(directives + after_directives)),
-              "definitions": definitions, "expansions": outer,
+              "observedTokenSites": [{"offset": r["offset"], "fromMacro": r["from_macro"]}
+                                     for r in rows if r["kind"] == "root_token"],
+              "nativeDirectives": directives,
+              "pragmaOffsets": pragma_offsets,
+              "definitions": definitions, "expansions": outer, "literalArguments": literal_arguments,
+              "specifierMacros": specifier_macros,
+              "controlMacros": control_macros,
+              "annotationMacros": annotation_macros,
               "expandedNames": sorted({r["name"] for r in records}), "calleeSites": list(callees.values())}
     encoded = json.dumps(packet, ensure_ascii=False).encode()
     if len(encoded) > 32 * 1024 * 1024:

@@ -38,6 +38,7 @@ impl FileExtractor for StubExtractor {
           end: SourcePosition { line: 0, column: 1 },
         },
         signature: Cow::Borrowed("sig"),
+        source_context: None,
         ast_kind: Cow::Borrowed(""),
       },
       is_import: false,

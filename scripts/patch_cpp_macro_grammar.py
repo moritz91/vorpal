@@ -10,6 +10,13 @@ from pathlib import Path
 path = Path(__file__).resolve().parents[1] / 'grammars/tree-sitter-cpp/src/grammar.json'
 grammar = json.loads(path.read_text(encoding='utf-8'))
 rules = grammar['rules']
+if rules['try_statement'].get('type') == 'PREC_RIGHT':
+    rules['try_statement'] = rules['try_statement']['content']
+# Rebuild handler guards after dialect copies, never inheriting a prior run's
+# C++-only conditional handler alternatives into Objective-C exception syntax.
+rules['try_statement']['members'][2] = {'type': 'REPEAT1', 'content': {'type': 'SYMBOL', 'name': 'catch_clause'}}
+for name in ['_conditional_catch_if', '_conditional_catch_ifdef']:
+    rules.pop(name, None)
 # Remove previous return-only additions before deriving dialect returns. The
 # ordinary C++ addition below must not migrate into an Objective-C body clone.
 return_rule = rules['return_statement']
@@ -603,10 +610,28 @@ rules['base_class_clause'] = decltype_base(rules['base_class_clause'])
 rules['decltype']['members'][2] = choice(symbol('expression'), symbol('comma_expression'))
 # Proof-backed statement names come only from a scoped external scanner context.
 # Without that context the new branch is unreachable, including ordinary calls.
-for name in ['_proven_statement_macro', '_proven_open_if_macro']:
+for name in ['_proven_statement_macro', '_proven_open_if_macro', '_proven_function_macro', '_proven_declaration_macro', '_proven_case_loop_macro', '_proven_inline_specifier_macro', '_proven_try_macro', '_proven_catch_all_macro', '_proven_catch_parameter_macro', '_proven_annotation_macro']:
     external = symbol(name)
     if external not in grammar['externals']:
         grammar['externals'].append(external)
+# Only an exact native no-runtime-token proof authorizes a bare annotation name.
+# Ordinary identifiers/calls and expression/type interiors keep ordinary syntax.
+rules['macro_annotation'] = seq({'type': 'FIELD', 'name': 'name',
+    'content': alias_rule('_proven_annotation_macro', 'identifier')})
+for entry in ['_top_level_item', '_block_item']:
+    if symbol('macro_annotation') not in rules[entry]['members']:
+        rules[entry]['members'].append(symbol('macro_annotation'))
+if symbol('_proven_inline_specifier_macro') not in rules['storage_class_specifier']['members']:
+    rules['storage_class_specifier']['members'].append(symbol('_proven_inline_specifier_macro'))
+rules['try_statement']['members'][0] = choice(
+    {'type': 'STRING', 'value': 'try'},
+    {'type': 'ALIAS', 'content': symbol('_proven_try_macro'), 'named': False, 'value': 'try'})
+rules['catch_clause'] = seq(choice(
+    seq(choice({'type': 'STRING', 'value': 'catch'},
+        {'type': 'ALIAS', 'content': symbol('_proven_catch_parameter_macro'), 'named': False, 'value': 'catch'}),
+        {'type': 'FIELD', 'name': 'parameters', 'content': symbol('parameter_list')}),
+    {'type': 'ALIAS', 'content': symbol('_proven_catch_all_macro'), 'named': False, 'value': 'catch'}),
+    {'type': 'FIELD', 'name': 'body', 'content': symbol('compound_statement')})
 closed_macro_statement = {'type': 'PREC_RIGHT', 'value': 1, 'content': seq(
     {'type': 'FIELD', 'name': 'name', 'content': alias_rule('_proven_statement_macro', 'identifier')},
     {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')},
@@ -620,6 +645,33 @@ open_if_macro_statement = {'type': 'PREC_RIGHT', 'value': 1, 'content': seq(
 rules['macro_statement'] = choice(closed_macro_statement, open_if_macro_statement)
 if symbol('macro_statement') not in rules['statement']['members']:
     rules['statement']['members'].append(symbol('macro_statement'))
+# A native-proven function-head generator retains its original name/arguments
+# and its original body. Alias the existing boundary kind without fabricating
+# an ordinary declarator or a generated identifier token in the source tree.
+rules['_macro_function_definition'] = seq(
+    {'type': 'FIELD', 'name': 'name', 'content': alias_rule('_proven_function_macro', 'identifier')},
+    {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')},
+    {'type': 'FIELD', 'name': 'body', 'content': symbol('compound_statement')})
+macro_function = alias_rule('_macro_function_definition', 'function_definition')
+if macro_function not in rules['_top_level_item']['members']:
+    rules['_top_level_item']['members'].append(macro_function)
+# A complete native declaration generator owns only its original invocation.
+# Its expanded names/bodies belong to the compiler proof, never the source AST.
+rules['macro_declaration'] = seq(
+    {'type': 'FIELD', 'name': 'name', 'content': alias_rule('_proven_declaration_macro', 'identifier')},
+    {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')})
+for context in ['_top_level_item', '_block_item']:
+    if symbol('macro_declaration') not in rules[context]['members']:
+        rules[context]['members'].append(symbol('macro_declaration'))
+# A native case/loop-head proof retains its original invocation and authored
+# compound body. The generated label and loop expressions are not source nodes.
+rules['_macro_case_loop_statement'] = seq(
+    {'type': 'FIELD', 'name': 'name', 'content': alias_rule('_proven_case_loop_macro', 'identifier')},
+    {'type': 'FIELD', 'name': 'arguments', 'content': symbol('argument_list')},
+    {'type': 'FIELD', 'name': 'body', 'content': symbol('compound_statement')})
+macro_case_loop = alias_rule('_macro_case_loop_statement', 'case_statement')
+if macro_case_loop not in rules['statement']['members']:
+    rules['statement']['members'].append(macro_case_loop)
 # The audited native cpuid helper uses a brace-delimited MSVC assembly block.
 # Admit its mov/cpuid instruction forms explicitly, not an opaque body token.
 # Operands and commas cannot cross lines: otherwise an incomplete mov could
@@ -1224,6 +1276,18 @@ rules['conditional_return_expression'] = seq(repeat(choice(
     alias_rule('_conditional_return_value_ifdef', 'preproc_ifdef')))
 rules['return_statement']['members'].append(seq(string('return'),
     symbol('conditional_return_expression'), string(';')))
+
+# A complete conditional handler group is legal only in an existing C++ try's
+# handler slot. Retain each original guard and catch/body span without evaluating
+# the condition. Empty groups and else arms remain unsupported.
+handlers = {'type': 'REPEAT1', 'content': symbol('catch_clause')}
+rules['_conditional_catch_if'] = seq(*if_head[:3], handlers, if_head[-1], string('\n'))
+rules['_conditional_catch_ifdef'] = seq(*ifdef_head[:2], string('\n'),
+    handlers, ifdef_head[-1], string('\n'))
+rules['try_statement']['members'][2] = {'type': 'REPEAT1', 'content': choice(
+    symbol('catch_clause'), alias_rule('_conditional_catch_if', 'preproc_if'),
+    alias_rule('_conditional_catch_ifdef', 'preproc_ifdef'))}
+rules['try_statement'] = {'type': 'PREC_RIGHT', 'value': 1, 'content': rules['try_statement']}
 
 path.write_bytes((json.dumps(grammar, indent=2) + '\n').encode('utf-8'))
 scanner = path.parent / 'scanner.c'

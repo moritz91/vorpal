@@ -1113,7 +1113,7 @@ void following() { missing(); }
 
 #[test]
 fn cpp_explicit_objc_guards_preserve_message_arguments_and_cpp_boundaries() {
-  let lf = r#"// UTF-8: ü
+  let lf = r#"// UTF-8: ÃƒÆ’Ã‚Â¼
 #ifdef __OBJC__
 inline void dispose(Probe* object) { [object release]; }
 #if defined(ARC)
@@ -3403,6 +3403,42 @@ bool following() { return next(); }
           .has_error(),
         "{source}"
       );
+    }
+  }
+}
+
+#[test]
+fn cpp_conditional_catch_groups_retain_guards_calls_and_real_errors() {
+  for newline in ["\n", "\r\n"] {
+    for (opening, condition) in [("#if !defined(DISABLE)", "!defined(DISABLE)"),
+                                 ("#ifdef ENABLE", "ENABLE"),
+                                 ("#ifndef DISABLE", "DISABLE")] {
+      let source = format!("// ÃŽÂ±\nvoid run() {{ try {{ work(); }}\n{opening}\ncatch (Error& error) {{ recover(error); }}\ncatch (...) {{ fallback(); }}\n#endif\nafter(); }}\nvoid following() {{ final_call(); }}\n").replace('\n', newline);
+      let parsed = SgLang::from_path("handlers.cc").unwrap().grep(&source);
+      assert!(!parsed.root().has_error(), "{source}");
+      let guard = parsed.root().dfs().find(|n| n.kind() == "preproc_if" || n.kind() == "preproc_ifdef").unwrap();
+      assert_eq!(guard.field(if opening.starts_with("#if ") { "condition" } else { "name" }).unwrap().text(), condition);
+      let handlers: Vec<_> = guard.dfs().filter(|n| n.kind() == "catch_clause").collect();
+      assert_eq!(handlers.len(), 2);
+      assert_eq!(handlers[0].field("parameters").unwrap().text(), "(Error& error)");
+      assert_eq!(handlers[0].field("body").unwrap().text(), "{ recover(error); }");
+      let product = clean_product(&source);
+      for (name, spelling) in [("work", "work()"), ("recover", "recover(error)"), ("fallback", "fallback()"), ("after", "after()"), ("final_call", "final_call()")] {
+        let refs: Vec<_> = product.refs.iter().filter(|r| r.kind == 0 && r.name == name).collect();
+        assert_eq!(refs.len(), 1, "{name}");
+        assert_eq!(&source[refs[0].start as usize..refs[0].end as usize], spelling);
+      }
+      assert!(product.items.iter().any(|i| i.entry.name == "following"));
+    }
+    for invalid in [
+      "void run() { try { work(); }\n#if ENABLE\n#endif\n}",
+      "void run() { try { work(); }\n#if ENABLE\ncatch (...) { recover() }\n#endif\n}",
+      "void run() { try { work(); }\n#if ENABLE\ncatch (...) { recover(); }\n}",
+      "void run() { try { work(); }\n#if ENABLE\ncatch (...) { recover(); }\n#else\nafter();\n#endif\n}",
+      "void run() { try { work(); } after(); }",
+    ] {
+      let source = invalid.replace('\n', newline);
+      assert!(SgLang::from_path("handlers.cc").unwrap().grep(&source).root().has_error(), "{source}");
     }
   }
 }

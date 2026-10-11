@@ -163,6 +163,8 @@ pub struct OutlineExtractor {
   /// grammar digest alone cannot see a rule change.
   rules_digest: u64,
   cpp_macro_roots: Option<Vec<std::path::PathBuf>>,
+  #[cfg(feature = "builtin-parser")]
+  cpp_textual_contexts: Vec<PreparedIncludeContext>,
   cpp_macro_compiler: Option<crate::cpp_macro_compiler::CompilerCommand>,
   pub(crate) cpp_macro_freshness: Option<Arc<crate::cpp_macro_freshness::MacroFreshness>>,
 }
@@ -170,7 +172,7 @@ pub struct OutlineExtractor {
 
 /// The owning finish: one copy of every borrowed name/qualifier into the detachable
 /// product (shared by the public entry and the tree-cache oracle seam).
-fn product_from_parts(parts: product::ExtractedParts<'_>) -> FileProduct {
+pub(crate) fn product_from_parts(parts: product::ExtractedParts<'_>) -> FileProduct {
   FileProduct {
       version: product::PRODUCT_FORMAT_VERSION,
       // The never-matching default stamp: persisting callers stat the source and stamp the
@@ -193,6 +195,7 @@ fn product_from_parts(parts: product::ExtractedParts<'_>) -> FileProduct {
         .into_iter()
         .map(|r| ProductRef {
           from_entity_index: r.from_entity_index,
+          source_context: None,
           name: r.name.into_owned(),
           kind: r.kind,
           start: r.start,
@@ -249,7 +252,102 @@ fn product_from_parts(parts: product::ExtractedParts<'_>) -> FileProduct {
     }
 }
 
+#[cfg(feature = "builtin-parser")]
+struct PreparedIncludeContext {
+  context: crate::cpp_include_context::IncludeContext,
+  products: HashMap<String, FileProduct>,
+}
+
+#[cfg(feature = "builtin-parser")]
+impl PreparedIncludeContext {
+  fn product(&self, path: &str, source: &str) -> Option<FileProduct> {
+    let physical = std::fs::canonicalize(path).ok()?;
+    let input = self.context.files.iter().find(|file| file.path == physical)?;
+    if input.source != source || !self.context.is_current() { return None; }
+    self.products.get(physical.to_str()?).cloned()
+  }
+}
+
 impl OutlineExtractor {
+  /// Prepare one fresh common parse per explicit group. Actual input paths must
+  /// be unique across groups; every physical file must later be present in the
+  /// manifest. No context snapshot authorizes persistent product/tree replay.
+  pub fn with_cpp_textual_include_contexts(mut self, groups: &[crate::CppTextualIncludeContext]) -> Result<Self, String> {
+    if groups.is_empty() { return Ok(self); }
+    #[cfg(not(feature = "builtin-parser"))]
+    { let _ = &mut self; Err("textual C++ includes require builtin-parser".into()) }
+    #[cfg(feature = "builtin-parser")]
+    {
+      if !self.cpp_textual_contexts.is_empty() { return Err("textual include contexts already configured".into()); }
+      let mut paths = std::collections::HashSet::new();
+      let mut hash = xxhash_rust::xxh3::Xxh3::new();
+      hash.update(b"vorpal-cpp-textual-context-config-v1\0");
+      hash.update(&self.rules_digest.to_le_bytes());
+      hash.update(&serde_json::to_vec(groups).map_err(|err| err.to_string())?);
+      self.rules_digest = hash.digest();
+      for group in groups {
+        let context = crate::cpp_include_context::audit_context(&group.root, &group.includes).map_err(|err| err.to_string())?;
+        for file in &context.files {
+          if !paths.insert(file.path.clone()) { return Err("one physical source belongs to multiple textual include contexts".into()); }
+          if SgLang::from_path(&file.path) != Some(SgLang::Builtin(vorpal_language::SupportLang::Cpp)) {
+            return Err("textual include contexts require C++ source paths".into());
+          }
+        }
+        let report = self.project_include_context(&context).map_err(|err| err.to_string())?;
+        let products = crate::cpp_include_projection::physical_products(&context, report).map_err(|err| err.to_string())?;
+        self.cpp_textual_contexts.push(PreparedIncludeContext { context, products });
+      }
+      self.check_cpp_context_freshness()?;
+      Ok(self)
+    }
+  }
+
+  pub fn cpp_textual_contexts_enabled(&self) -> bool {
+    #[cfg(feature = "builtin-parser")] { !self.cpp_textual_contexts.is_empty() }
+    #[cfg(not(feature = "builtin-parser"))] { false }
+  }
+
+  #[cfg(feature = "builtin-parser")]
+  fn textual_context_for(&self, path: &str) -> Option<&PreparedIncludeContext> {
+    if self.cpp_textual_contexts.is_empty() { return None; }
+    let physical = std::fs::canonicalize(path).ok()?;
+    self.cpp_textual_contexts.iter().find(|context| context.context.files.iter().any(|file| file.path == physical))
+  }
+
+  #[cfg(not(feature = "builtin-parser"))]
+  fn textual_context_for(&self, _path: &str) -> Option<()> { None }
+
+  pub fn check_cpp_context_freshness(&self) -> Result<(), String> {
+    #[cfg(feature = "builtin-parser")]
+    if self.cpp_textual_contexts.iter().any(|context| !context.context.is_current()) {
+      return Err("textual include inputs changed during indexing; retry the build".into());
+    }
+    Ok(())
+  }
+
+  /// Exact prepared inputs for the live build's deferred commit gate. No trees
+  /// or parser context escape into that background persistence tail.
+  pub fn cpp_context_input_manifests(&self) -> Vec<Vec<crate::SourceContextInput>> {
+    #[cfg(feature = "builtin-parser")]
+    { self.cpp_textual_contexts.iter().map(|group| group.context.files.iter().map(|file| crate::SourceContextInput {
+      path: file.path.to_str().expect("validated UTF-8 input").into(),
+      digest: xxhash_rust::xxh3::xxh3_64(file.source.as_bytes()),
+    }).collect()).collect() }
+    #[cfg(not(feature = "builtin-parser"))] { Vec::new() }
+  }
+
+  pub fn validate_cpp_context_manifest(&self, paths: impl Iterator<Item = impl AsRef<std::path::Path>>) -> Result<(), String> {
+    #[cfg(feature = "builtin-parser")]
+    if !self.cpp_textual_contexts.is_empty() {
+      let indexed: std::collections::HashSet<_> = paths.filter_map(|path| std::fs::canonicalize(path).ok()).collect();
+      if self.cpp_textual_contexts.iter().flat_map(|context| &context.context.files).any(|file| !indexed.contains(&file.path)) {
+        return Err("every selected textual include and its root must be indexed; a missing/ignored/external input cannot contribute hidden definitions".into());
+      }
+    }
+    #[cfg(not(feature = "builtin-parser"))] let _ = paths;
+    Ok(())
+  }
+
   /// The built-in outline rule set (`DEFAULT_OUTLINE_RULES`), compiled once per process.
   pub fn new() -> Result<Self, String> {
     let by_lang = DEFAULT_EXTRACTORS
@@ -265,6 +363,8 @@ impl OutlineExtractor {
     Ok(Self {
       by_lang,
       cpp_macro_roots: None,
+      #[cfg(feature = "builtin-parser")]
+      cpp_textual_contexts: Vec::new(),
       cpp_macro_compiler: None,
       cpp_macro_freshness: None,
       dynamic_specs: HashMap::new(),
@@ -277,6 +377,8 @@ impl OutlineExtractor {
     Ok(Self {
       by_lang: Arc::new(ExtractorSet::Eager(compile_rules(rules_yaml)?)),
       cpp_macro_roots: None,
+      #[cfg(feature = "builtin-parser")]
+      cpp_textual_contexts: Vec::new(),
       cpp_macro_compiler: None,
       cpp_macro_freshness: None,
       dynamic_specs: HashMap::new(),
@@ -397,6 +499,8 @@ impl OutlineExtractor {
       by_lang: Arc::new(ExtractorSet::Eager(compile_groups(rules)?)),
       dynamic_specs,
       cpp_macro_roots: None,
+      #[cfg(feature = "builtin-parser")]
+      cpp_textual_contexts: Vec::new(),
       cpp_macro_compiler: None,
       cpp_macro_freshness: None,
       rules_digest: h.digest(),
@@ -473,7 +577,7 @@ impl OutlineExtractor {
   }
 
   pub fn cpp_macro_recovery_enabled(&self) -> bool {
-    self.cpp_macro_roots.is_some() || self.cpp_macro_compiler.is_some()
+    self.cpp_macro_roots.is_some() || self.cpp_macro_compiler.is_some() || self.cpp_textual_contexts_enabled()
   }
 
   fn compiler_applies(&self, path: &str) -> bool {
@@ -486,6 +590,7 @@ impl OutlineExtractor {
   /// Replay identity from current source/include bytes, including missing
   /// candidates which may now shadow an existing header. Failure declines reuse.
   pub fn extraction_identity_for_path(&self, path: &str) -> Option<u64> {
+    if self.textual_context_for(path).is_some() { return None; }
     // Native observers do not yet certify every native dependency. An identity
     // from a previous capture must never authorize product replay.
     if self.compiler_applies(path)
@@ -574,12 +679,44 @@ impl OutlineExtractor {
 }
 
 impl OutlineExtractor {
+  /// Inspect physical definitions and call owners in a genuine selected include
+  /// context. This report cannot be passed to product replay or KG ingestion.
+  /// Explicit production groups use the separate validated physical-product handoff.
+  #[cfg(feature = "builtin-parser")]
+  pub fn audit_include_projection(
+    &self,
+    root: &std::path::Path,
+    selected: &[std::path::PathBuf],
+  ) -> Result<crate::cpp_include_projection::ProjectionAudit, crate::cpp_include_context::ContextError> {
+    let context = crate::cpp_include_context::audit_context(root, selected)?;
+    self.project_include_context(&context)
+  }
+
+  #[cfg(feature = "builtin-parser")]
+  fn project_include_context(&self, context: &crate::cpp_include_context::IncludeContext)
+    -> Result<crate::cpp_include_projection::ProjectionAudit, crate::cpp_include_context::ContextError> {
+    use crate::cpp_include_context::ContextError;
+    let lang = SgLang::Builtin(vorpal_language::SupportLang::Cpp);
+    let path = context.files[0].path.to_str().ok_or_else(|| ContextError("non-UTF-8 context root".into()))?;
+    let grep = vorpal_language::with_cpp_statement_macros(&[], || lang.grep(&context.source));
+    let report = self.extract_from_grep(lang, path, &context.source, &grep, None, |parts| {
+      crate::cpp_include_projection::project(context, &grep, parts)
+    }).ok_or_else(|| ContextError("C++ extraction unavailable".into()))??;
+    if !context.is_current() { return Err(ContextError("input changed during projection".into())); }
+    Ok(report)
+  }
+
   /// Extract one file into a cacheable [`FileProduct`]: outline items plus references keyed by
   /// their enclosing definition's *entity path* (stable across runs, unlike `NodeId`s). This is
   /// the owning finish over the single extraction body ([`OutlineExtractor::extract_with`]) —
   /// batch ingest, tests, and single-file callers take it; the streaming pipeline uses
   /// [`OutlineExtractor::extract_product_encoded`] and never materializes the owned product.
   pub fn extract_product(&self, path: &str, source: &str) -> Option<FileProduct> {
+    #[cfg(feature = "builtin-parser")]
+    if let Some(context) = self.textual_context_for(path) {
+      let _ = crate::tree_cache::take_reuse(path);
+      return context.product(path, source);
+    }
     self.extract_with(path, source, product_from_parts)
   }
 
@@ -605,6 +742,15 @@ impl OutlineExtractor {
     source_mtime_ns: u64,
     buf: &mut Vec<u8>,
   ) -> Option<product::ProductStats> {
+    #[cfg(feature = "builtin-parser")]
+    if self.textual_context_for(path).is_some() {
+      let mut product = self.extract_product(path, source)?;
+      product.source_size = source_size;
+      product.source_mtime_ns = source_mtime_ns;
+      let stats = product::ProductStats { error_nodes: product.error_nodes, error_bytes: product.error_bytes };
+      product::encode_product_into(&product, buf);
+      return Some(stats);
+    }
     self.extract_with(path, source, |parts| {
       let stats = product::ProductStats {
         error_nodes: parts.error_nodes,
@@ -680,7 +826,12 @@ impl OutlineExtractor {
     }
     #[cfg(feature = "builtin-parser")]
     let grep = if lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
-      vorpal_language::with_cpp_statement_macros(&[], || parse(lang, path, source))
+      vorpal_language::with_cpp_statement_macros(&[], || {
+        if self.cpp_textual_contexts_enabled() {
+          let _ = crate::tree_cache::take_reuse(path);
+          lang.grep(source)
+        } else { parse(lang, path, source) }
+      })
     } else {
       parse(lang, path, source)
     };
@@ -710,7 +861,7 @@ impl OutlineExtractor {
     if *root.lang() != lang || !self.extracts(lang) {
       return None;
     }
-    if (self.cpp_macro_roots.is_some() || self.compiler_applies(path)) && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
+    if (self.cpp_macro_roots.is_some() || self.compiler_applies(path) || self.cpp_textual_contexts_enabled()) && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
       return self.extract_product(path, root.source());
     }
     self.extract_from_grep(lang, path, root.source(), root, None, product_from_parts)

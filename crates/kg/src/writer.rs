@@ -30,6 +30,12 @@ pub struct NodeDef<'a> {
   pub span: (u32, u32),
 }
 
+/// The exact durable identity stored by `define`, independent of dense IDs.
+pub fn external_entity_id(path: &str, entity_path: &str) -> u128 {
+  let key = CanonicalKey::of(path, entity_path);
+  u128::from_le_bytes(key.as_bytes()[..16].try_into().unwrap())
+}
+
 /// Where the writer's string heap lives. Shard writers and small trees build in RAM; the
 /// merged writer of a streaming commit writes **through to disk** as shards absorb — the
 /// concatenated heap (~140 MB at kernel scale) never occupies anonymous memory, and the
@@ -133,6 +139,7 @@ pub struct KgWriter {
   flags: Vec<u8>,
   span_start: Vec<u32>,
   span_end: Vec<u32>,
+  source_contexts: std::collections::BTreeMap<u128, Box<vorpal_outline::model::DefinitionSourceContext>>,
 }
 
 impl KgWriter {
@@ -269,6 +276,7 @@ impl KgWriter {
         content_hash: content_hash(&[item_entity, signature]),
         span: clamp_span(&item.entry.range.byte_offset),
       });
+      self.record_source_context(item_id, path, &item.entry);
       self.add_edge(file_id, item_id, EdgeType::DEFINES);
       spans.push((item.entry.range.byte_offset.clone(), item_id));
 
@@ -288,11 +296,36 @@ impl KgWriter {
           content_hash: content_hash(&[member_entity, msig]),
           span: clamp_span(&member.entry.range.byte_offset),
         });
+        self.record_source_context(member_id, path, &member.entry);
         self.add_edge(item_id, member_id, mkind.containment_edge());
         spans.push((member.entry.range.byte_offset.clone(), member_id));
       }
     }
     spans
+  }
+
+  fn record_source_context(&mut self, id: NodeId, path: &str, entry: &vorpal_outline::model::OutlineEntry<'_>) {
+    let Some(context) = entry.source_context.as_deref() else { return; };
+    let row = id.raw() as usize;
+    let external_id = (u128::from(self.eid_hi[row]) << 64) | u128::from(self.eid_lo[row]);
+    let fingerprint = crate::kg::context_content_hash(context, crate::kg::ContextNodeIdentity {
+      external_id, kind: self.kind[row], exported: self.flags[row] & 1 != 0,
+      path, name: &entry.name, signature: &entry.signature,
+      span: (self.span_start[row], self.span_end[row]),
+    });
+    if self.flags[row] & 2 != 0 {
+      assert_eq!(self.content_hash[row], fingerprint, "conflicting original-source context for one definition");
+    }
+    self.flags[row] |= 2;
+    self.content_hash[row] = fingerprint;
+    self.source_contexts.insert(external_id, Box::new(context.clone()));
+  }
+
+  /// Original multi-file provenance, keyed by a durable external identity.
+  pub fn source_context(&self, row: usize) -> Option<&vorpal_outline::model::DefinitionSourceContext> {
+    if self.flags.get(row)? & 2 == 0 { return None; }
+    let (lo, hi) = self.node_eid(row)?;
+    self.source_contexts.get(&((u128::from(hi) << 64) | u128::from(lo))).map(Box::as_ref)
   }
 
   /// Release growth slack on every column, the string heap, and the edge log. Vec doubling
@@ -415,6 +448,7 @@ impl KgWriter {
     self.eid_lo.extend_from_slice(&other.eid_lo);
     self.eid_hi.extend_from_slice(&other.eid_hi);
     self.flags.extend_from_slice(&other.flags);
+    self.source_contexts.extend(other.source_contexts.iter().map(|(key, context)| (*key, context.clone())));
     self.span_start.extend_from_slice(&other.span_start);
     self.span_end.extend_from_slice(&other.span_end);
     for (src, dst, etype) in other.edges.iter() {
@@ -444,6 +478,7 @@ impl KgWriter {
     self.eid_lo.clear();
     self.eid_hi.clear();
     self.flags.clear();
+    self.source_contexts.clear();
     self.span_start.clear();
     self.span_end.clear();
   }
@@ -611,7 +646,7 @@ impl KgWriter {
     let mut directory = SegmentDirectory::new();
     directory.insert(0, n as u64, 0);
 
-    match self.heap {
+    let mut kg = match self.heap {
       HeapStore::Ram(heap) => Kg::new(nodes, heap, graph, directory),
       HeapStore::Mapped { column, path } => {
         Kg::with_heap_column(nodes, column, Some(path), graph, directory)
@@ -620,7 +655,9 @@ impl KgWriter {
         unreachable!("finalize_streamed_heap runs before seal on the streaming path")
       }
     }
-    .expect("sealed segment carries every column the builder just wrote")
+    .expect("sealed segment carries every column the builder just wrote");
+    kg.set_source_contexts(self.source_contexts);
+    kg
   }
 }
 
@@ -859,6 +896,7 @@ impl KgWriter {
     directory.insert(0, n as u64, 0);
     let mut kg = Kg::new(nodes, new_heap, graph, directory)
       .expect("sealed segment carries every column the builder just wrote");
+    kg.set_source_contexts(self.source_contexts.clone());
     let (hashes, ids) = names;
     kg.set_names_index(hashes, ids);
     crate::phase_stamp("seal-canonical: done");

@@ -11,7 +11,10 @@ use crate::error::SegmentError;
 
 pub(crate) const MAGIC: &[u8; 8] = b"VSEG0001";
 pub(crate) const FOOTER_MAGIC: &[u8; 8] = b"VSEGEND1";
-pub(crate) const FORMAT_VERSION: u32 = 1;
+// Version 2 reserves node flag bit 1 for required original multi-file provenance.
+// Version-1 graph readers ignore that flag and would misattribute evidence spans;
+// they must reject these generations rather than silently dropping the sidecar.
+pub(crate) const FORMAT_VERSION: u32 = 2;
 
 pub(crate) const HEADER_LEN: usize = 4096;
 pub(crate) const FOOTER_LEN: usize = 4096;

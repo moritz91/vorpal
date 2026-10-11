@@ -162,6 +162,8 @@ public:
 class Observer : public PPCallbacks {
   Preprocessor &pp;
   SourceManager &sm;
+  const FileEntry *physicalRoot;
+  unsigned rootVisits = 0;
   // One fresh preprocessing action only, keyed by the actual immutable buffer
   // identity, never by a path and never retained across files/requests.
   std::unordered_map<unsigned, std::string> bufferHashes;
@@ -179,8 +181,40 @@ class Observer : public PPCallbacks {
     }
     return row;
   }
+  void emitLiteralMsvcWarning(SourceLocation loc, SourceLocation expansion) {
+    // MSVC /E retains these operator tokens; LLVM consumes them in preprocessing.
+    // Observe the literal physical spelling at the actual pragma callback, without
+    // dropping native tokens or substituting expanded/parameterized operands.
+    auto cursor = sm.getSpellingLoc(loc);
+    std::vector<std::string> parts;
+    for (unsigned i = 0; i < 7; ++i) {
+      if (cursor.isInvalid()) return;
+      Token part;
+      if (Lexer::getRawToken(cursor, part, sm, pp.getLangOpts(), true)) return;
+      parts.push_back(pp.getSpelling(part));
+      cursor = Lexer::getLocForEndOfToken(part.getLocation(), 0, sm, pp.getLangOpts());
+    }
+    if (parts[0] != "__pragma" || parts[1] != "(" || parts[2] != "warning"
+        || parts[3] != "(" || (parts[4] != "push" && parts[4] != "pop")
+        || parts[5] != ")" || parts[6] != ")") return;
+    for (const auto &part : parts)
+      emit(llvm::json::Object{{"kind", "root_token"}, {"spelling", part},
+        {"path", sm.getFilename(expansion).str()},
+        {"offset", int64_t(sm.getFileOffset(expansion))},
+        {"from_macro", loc.isMacroID()}});
+  }
 public:
-  Observer(Preprocessor &pp) : pp(pp), sm(pp.getSourceManager()) {}
+  Observer(Preprocessor &pp, const FileEntry *physicalRoot)
+      : pp(pp), sm(pp.getSourceManager()), physicalRoot(physicalRoot) {}
+  void FileChanged(SourceLocation loc, FileChangeReason reason,
+                   SrcMgr::CharacteristicKind, FileID) override {
+    if (physicalRoot && reason == EnterFile && loc.isValid()
+        && sm.getFileEntryForID(sm.getFileID(loc)) == physicalRoot) {
+      ++rootVisits;
+      emit(llvm::json::Object{{"kind", "physical_root_visit"},
+        {"path", sm.getFilename(loc).str()}, {"visit", int64_t(rootVisits)}});
+    }
+  }
   void MacroExpands(const Token &token, const MacroDefinition &definition,
                     SourceRange range, const MacroArgs *) override {
     auto name = pp.getSpelling(token);
@@ -188,7 +222,9 @@ public:
       emit(llvm::json::Object{{"kind", "volatile_macro"}, {"name", name}, {"location", location(range.getBegin())}});
     // Observe every expansion rooted in the original translation unit, including
     // nested replacement/argument effects. Never infer macro status from a name.
-    if (!sm.isWrittenInMainFile(sm.getExpansionLoc(token.getLocation()))) return;
+    auto expansion = sm.getExpansionLoc(token.getLocation());
+    if (physicalRoot ? sm.getFileEntryForID(sm.getFileID(expansion)) != physicalRoot
+                     : !sm.isWrittenInMainFile(expansion)) return;
     llvm::json::Object row{{"kind", "macro"}, {"name", name},
         {"begin", location(range.getBegin())}, {"end", location(range.getEnd())},
         {"end_exclusive", location(Lexer::getLocForEndOfToken(range.getEnd(), 0, sm, pp.getLangOpts()))}};
@@ -204,6 +240,15 @@ public:
     }
     emit(std::move(row));
   }
+  void PragmaDirective(SourceLocation loc, PragmaIntroducerKind introducer) override {
+    auto expansion = sm.getExpansionLoc(loc);
+    if (expansion.isInvalid()
+        || (physicalRoot ? sm.getFileEntryForID(sm.getFileID(expansion)) != physicalRoot
+                         : !sm.isWrittenInMainFile(expansion))) return;
+    if (introducer == PIK___pragma) emitLiteralMsvcWarning(loc, expansion);
+    emit(llvm::json::Object{{"kind", "root_pragma"},
+      {"hash_pragma", introducer == PIK_HashPragma}, {"location", location(loc)}});
+  }
   void HasInclude(SourceLocation loc, llvm::StringRef name, bool angled,
                   OptionalFileEntryRef file, SrcMgr::CharacteristicKind) override {
     emit(llvm::json::Object{{"kind", "has_include"}, {"name", name.str()}, {"angled", angled},
@@ -215,7 +260,17 @@ public:
   }
 };
 class ObserveAction : public PreprocessorFrontendAction {
+  std::string selectedPath;
+  const FileEntry *physicalRoot = nullptr;
+public:
+  explicit ObserveAction(std::string selectedPath) : selectedPath(std::move(selectedPath)) {}
+private:
   bool BeginSourceFileAction(CompilerInstance &ci) override {
+    if (!selectedPath.empty()) {
+      auto file = ci.getFileManager().getFileRef(selectedPath);
+      if (!file) return false;
+      physicalRoot = &file->getFileEntry();
+    }
     std::string cc1;
     ci.getInvocation().generateCC1CommandLine([&](const llvm::Twine &argument) {
       cc1 += argument.str(); cc1.push_back('\0');
@@ -226,7 +281,7 @@ class ObserveAction : public PreprocessorFrontendAction {
       {"ms_compatibility_version", int64_t(ci.getLangOpts().MSCompatibilityVersion)},
       {"cxx20", bool(ci.getLangOpts().CPlusPlus20)},
       {"production_proof_contract", false}});
-    ci.getPreprocessor().addPPCallbacks(std::make_unique<Observer>(ci.getPreprocessor()));
+    ci.getPreprocessor().addPPCallbacks(std::make_unique<Observer>(ci.getPreprocessor(), physicalRoot));
     return true;
   }
   void ExecuteAction() override {
@@ -237,7 +292,9 @@ class ObserveAction : public PreprocessorFrontendAction {
       pp.Lex(token);
       auto &sm = pp.getSourceManager();
       auto expansion = sm.getExpansionLoc(token.getLocation());
-      if (token.isNot(tok::eof) && expansion.isValid() && sm.isWrittenInMainFile(expansion)) {
+      if (token.isNot(tok::eof) && expansion.isValid()
+          && (physicalRoot ? sm.getFileEntryForID(sm.getFileID(expansion)) == physicalRoot
+                           : sm.isWrittenInMainFile(expansion))) {
         emit(llvm::json::Object{{"kind", "root_token"}, {"spelling", pp.getSpelling(token)},
           {"path", sm.getFilename(expansion).str()}, {"offset", int64_t(sm.getFileOffset(expansion))},
           {"from_macro", token.getLocation().isMacroID()}});
@@ -286,7 +343,15 @@ int main(int argc, char **argv) {
   if (argc == 3 && std::string(argv[1]) == "--native-hash-offsets")
     return nativeHashOffsets(argv[2]);
   std::vector<std::string> args{VORPAL_CLANG_DRIVER, "--driver-mode=cl"};
-  for (int i = 1; i < argc; ++i) args.emplace_back(argv[i]);
+  std::string selectedPath;
+  for (int i = 1; i < argc; ++i) {
+    if (std::string(argv[i]) == "--physical-source") {
+      if (!selectedPath.empty() || i + 1 >= argc) return 2;
+      selectedPath = argv[++i];
+    } else {
+      args.emplace_back(argv[i]);
+    }
+  }
   auto fs = llvm::makeIntrusiveRefCnt<ObservedFS>();
   if (argc == 3 && std::string(argv[1]) == "--fs-audit") {
     llvm::SmallString<256> cwd;
@@ -305,7 +370,7 @@ int main(int argc, char **argv) {
     return error ? 1 : 0;
   }
   auto files = llvm::makeIntrusiveRefCnt<FileManager>(FileSystemOptions{}, fs);
-  tooling::ToolInvocation invocation(std::move(args), std::make_unique<ObserveAction>(), files.get());
+  tooling::ToolInvocation invocation(std::move(args), std::make_unique<ObserveAction>(selectedPath), files.get());
   bool ok = invocation.run();
   emit(llvm::json::Object{{"kind", "complete"}, {"success", ok}, {"production_backend", false}});
   return ok ? 0 : 1;

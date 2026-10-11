@@ -446,6 +446,7 @@ pub struct NodeView<'a> {
   pub exported: bool,
   /// Definition byte range in `path`; `(0, 0)` when unknown (File nodes, pre-span segments).
   pub span: (u32, u32),
+  pub source_context: Option<&'a vorpal_outline::model::DefinitionSourceContext>,
 }
 
 /// Directory positions of the node segment's columns, resolved once at construction so point
@@ -513,6 +514,7 @@ impl NodeColumns {
 
 /// A queryable knowledge graph: a node segment (SoA columns) + string heap + compacted graph.
 pub struct Kg {
+  pub(crate) source_contexts: std::collections::BTreeMap<u128, Box<vorpal_outline::model::DefinitionSourceContext>>,
   /// Node slabs covering the dense id space in order — ONE for a sealed in-RAM graph or a
   /// flat (v1) generation, one per bucket for a bucketed (P4.2) generation. `cols` and
   /// `heaps` are parallel: slab k's heap-offset columns are LOCAL to `heaps[k]`, so a
@@ -547,7 +549,150 @@ pub struct Kg {
   communities: std::sync::OnceLock<Option<Vec<u32>>>,
 }
 
+pub(crate) struct ContextNodeIdentity<'a> {
+  pub external_id: u128,
+  pub kind: u8,
+  pub exported: bool,
+  pub path: &'a str,
+  pub name: &'a str,
+  pub signature: &'a str,
+  pub span: (u32, u32),
+}
+
+/// Bind authored node attributes to the complete original-source provenance.
+/// This replaces the ordinary structural content hash only on flagged nodes.
+pub(crate) fn context_content_hash(context: &vorpal_outline::model::DefinitionSourceContext, node: ContextNodeIdentity<'_>) -> u64 {
+  let mut hash = xxhash_rust::xxh3::Xxh3::new();
+  hash.update(b"vorpal-definition-source-context-v1\0");
+  hash.update(&node.external_id.to_le_bytes());
+  hash.update(&[node.kind, u8::from(node.exported)]);
+  hash.update(&node.span.0.to_le_bytes());
+  hash.update(&node.span.1.to_le_bytes());
+  for text in [node.path, node.name, node.signature] {
+    hash.update(&(text.len() as u64).to_le_bytes());
+    hash.update(text.as_bytes());
+  }
+  hash.update(&serde_json::to_vec(context).expect("serializable original-source provenance"));
+  hash.digest()
+}
+
 impl Kg {
+  fn source_context_ids(&self) -> Result<Vec<NodeId>, &'static str> {
+    let mut ids = Vec::new();
+    let mut base = 0u64;
+    for (segment, cols) in self.segments.iter().zip(&self.cols) {
+      let flags = segment.column_at(cols.flags).and_then(|column| column.as_slice::<u8>())
+        .ok_or("invalid node context flags")?;
+      for (row, flags) in flags.iter().enumerate() {
+        if flags & 2 != 0 { ids.push(NodeId::new(base + row as u64)); }
+      }
+      base += segment.row_count();
+    }
+    Ok(ids)
+  }
+
+  /// Sparse provenance follows durable IDs through shard absorption and dense-ID
+  /// reordering. Tombstoned definitions are filtered at canonical seal.
+  pub(crate) fn set_source_contexts(&mut self, mut contexts: std::collections::BTreeMap<u128, Box<vorpal_outline::model::DefinitionSourceContext>>) {
+    let alive: std::collections::BTreeSet<_> = self.source_context_ids().expect("valid flags").into_iter()
+      .map(|id| self.node(id).and_then(|node| node.external_id).expect("context node has durable identity")).collect();
+    contexts.retain(|key, _| alive.contains(key));
+    self.source_contexts = contexts;
+    self.validate_source_contexts().expect("inconsistent original definition provenance");
+  }
+
+  fn validate_source_contexts(&self) -> Result<(), &'static str> {
+    let ids = self.source_context_ids()?;
+    if ids.len() != self.source_contexts.len() { return Err("missing or duplicate definition provenance"); }
+    for id in ids {
+      let node = self.node(id).ok_or("invalid context node")?;
+      let context = node.source_context.ok_or("missing definition provenance")?;
+      let valid = |span: &vorpal_outline::model::PhysicalSourceSpan| {
+        !span.path.is_empty() && span.range.byte_offset.start < span.range.byte_offset.end
+          && (span.range.start.line, span.range.start.column) <= (span.range.end.line, span.range.end.column)
+      };
+      if context.root.is_empty() || context.name.path != node.path || !valid(&context.name)
+        || !context.inputs_are_valid()
+        || context.identity.len() != 64 || !context.identity.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || context.parts.is_empty() || context.parts.len() > 256 || context.parts.iter().any(|part| !valid(part))
+        || !context.parts.iter().any(|part| part.path == node.path
+          && part.range.byte_offset.start == node.span.0 as usize && part.range.byte_offset.end == node.span.1 as usize
+          && part.range.byte_offset.start <= context.name.range.byte_offset.start
+          && part.range.byte_offset.end >= context.name.range.byte_offset.end) {
+        return Err("inconsistent physical definition provenance");
+      }
+      let fingerprint = context_content_hash(context, ContextNodeIdentity {
+        external_id: node.external_id.ok_or("context node missing durable ID")?,
+        kind: node.kind.tag(), exported: node.exported, path: node.path, name: node.name,
+        signature: node.signature, span: node.span,
+      });
+      if fingerprint != node.content_hash { return Err("definition provenance disagrees with node content"); }
+    }
+    Ok(())
+  }
+
+  /// Layout-independent binding to the exact context-bearing nodes. A flat
+  /// in-memory seal and its bucketed reload must agree, including shifted IDs.
+  fn source_context_stamp(&self) -> Result<u64, &'static str> {
+    let mut hash = xxhash_rust::xxh3::Xxh3::new();
+    hash.update(b"vorpal-source-context-nodes-v1\0");
+    hash.update(&(self.node_count() as u64).to_le_bytes());
+    for id in self.source_context_ids()? {
+      let node = self.node(id).ok_or("invalid context node")?;
+      hash.update(&id.raw().to_le_bytes());
+      hash.update(&node.external_id.ok_or("context node missing durable ID")?.to_le_bytes());
+      hash.update(&node.content_hash.to_le_bytes());
+      hash.update(&node.span.0.to_le_bytes());
+      hash.update(&node.span.1.to_le_bytes());
+      for text in [node.path, node.name, node.signature] {
+        hash.update(&(text.len() as u64).to_le_bytes());
+        hash.update(text.as_bytes());
+      }
+    }
+    Ok(hash.digest())
+  }
+
+  fn save_source_contexts(&self, dir: &Path) -> io::Result<()> {
+    const NAME: &str = "source_contexts.json";
+    if self.source_contexts.is_empty() {
+      return match fs::remove_file(dir.join(NAME)) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+      };
+    }
+    let entries: Vec<_> = self.source_contexts.iter().map(|(id, context)| (format!("{id:032x}"), context)).collect();
+    let stamp = self.source_context_stamp().map_err(io::Error::other)?;
+    let bytes = serde_json::to_vec(&(1u32, stamp, entries)).map_err(io::Error::other)?;
+    if bytes.len() > 64 * 1024 * 1024 { return Err(io::Error::other("definition provenance exceeds metadata limit")); }
+    write_via_tmp(dir, NAME, |output| std::io::Write::write_all(output, &bytes))
+  }
+
+  fn load_source_contexts(&mut self, dir: &Path) -> Result<(), SegmentError> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    match fs::File::open(dir.join("source_contexts.json")) {
+      Ok(input) => { input.take(64 * 1024 * 1024 + 1).read_to_end(&mut bytes)?; }
+      Err(error) if error.kind() == io::ErrorKind::NotFound => {
+        return self.validate_source_contexts().map_err(SegmentError::Corrupt);
+      }
+      Err(error) => return Err(error.into()),
+    }
+    if bytes.len() > 64 * 1024 * 1024 { return Err(SegmentError::Corrupt("definition provenance exceeds metadata limit")); }
+    type Contexts = Vec<(String, Box<vorpal_outline::model::DefinitionSourceContext>)>;
+    let (version, stamp, entries): (u32, u64, Contexts) = serde_json::from_slice(&bytes)
+      .map_err(|_| SegmentError::Corrupt("invalid definition provenance"))?;
+    if version != 1 || stamp != self.source_context_stamp().map_err(SegmentError::Corrupt)? {
+      return Err(SegmentError::Corrupt("definition provenance from different nodes"));
+    }
+    for (key, context) in entries {
+      if key.len() != 32 { return Err(SegmentError::Corrupt("invalid definition identity")); }
+      let key = u128::from_str_radix(&key, 16).map_err(|_| SegmentError::Corrupt("invalid definition identity"))?;
+      if self.source_contexts.insert(key, context).is_some() { return Err(SegmentError::Corrupt("duplicate definition identity")); }
+    }
+    self.validate_source_contexts().map_err(SegmentError::Corrupt)
+  }
+
   pub(crate) fn new(
     nodes: Segment,
     heap: Vec<u8>,
@@ -598,6 +743,7 @@ impl Kg {
       ))?;
     let total_rows = segments.iter().map(Segment::row_count).sum();
     Ok(Self {
+      source_contexts: Default::default(),
       segments,
       cols,
       heaps,
@@ -952,7 +1098,8 @@ impl Kg {
     let (segment, cols) = (&self.segments[seg], &self.cols[seg]);
     let kind = SymbolKind::from_tag(segment.column_at(cols.kind)?.get_u8(row)?);
     let content_hash = segment.column_at(cols.content_hash)?.get_u64(row)?;
-    let exported = segment.column_at(cols.flags)?.get_u8(row)? & 1 != 0;
+    let flags = segment.column_at(cols.flags)?.get_u8(row)?;
+    let exported = flags & 1 != 0;
     let span = match (cols.span_start, cols.span_end) {
       (Some(start_col), Some(end_col)) => (
         segment.column_at(start_col)?.get_u32(row)?,
@@ -977,6 +1124,7 @@ impl Kg {
       external_id,
       exported,
       span,
+      source_context: if flags & 2 != 0 { self.source_contexts.get(&external_id?).map(Box::as_ref) } else { None },
     })
   }
 
@@ -1008,6 +1156,25 @@ impl Kg {
       base += rows;
     }
     hits
+  }
+
+  /// Actual physical origins of one retained occurrence. Contextual ownership
+  /// never makes offsets local to the owner's file. Coincident name/span rows
+  /// in different pieces retain every real origin, without guessing a path.
+  pub fn evidence_paths(&self, row: &crate::EvidenceRow) -> Vec<&str> {
+    let Some(node) = self.node(NodeId::new(row.from as u64)) else { return Vec::new(); };
+    let Some(context) = node.source_context else { return vec![node.path]; };
+    let edge = crate::EdgeType(row.etype).base().0;
+    let mut paths = Vec::new();
+    for reference in &context.references {
+      if reference.name_hash == row.name_hash && reference.edge_type == edge
+        && reference.physical.range.byte_offset.start == row.span_start as usize
+        && reference.physical.range.byte_offset.end == row.span_end as usize
+        && !paths.contains(&reference.physical.path.as_str()) {
+        paths.push(reference.physical.path.as_str());
+      }
+    }
+    paths
   }
 
   fn heap_str(&self, seg: usize, off_col: usize, len_col: usize, row: u64) -> Option<&str> {
@@ -1345,6 +1512,7 @@ impl Kg {
   pub fn save_with(&self, dir: &Path, layout: &SegmentLayout) -> io::Result<()> {
     crate::phase_stamp("kg save: start");
     fs::create_dir_all(dir)?;
+    self.validate_source_contexts().map_err(io::Error::other)?;
     // Every artifact lands via tmp + rename: a rebuild must never truncate a file a live
     // reader — this process's daemon, or another process — still has mapped (truncating a
     // mapped file makes later reads fault). Rename swaps the directory entry; the old inode
@@ -1408,6 +1576,7 @@ impl Kg {
         }
       }
     }
+    self.save_source_contexts(dir)?;
     crate::phase_stamp("kg save: done");
     Ok(())
   }
@@ -1990,6 +2159,7 @@ impl Kg {
         "graph and node segment describe different node universes (mixed index generation)",
       ));
     }
+    kg.load_source_contexts(dir)?;
     kg.names = open_names_index(dir, &policy, kg.node_count());
     if let Some(store) = crate::evidence::EvidenceStore::open(dir) {
       let _ = kg.evidence.set(store);

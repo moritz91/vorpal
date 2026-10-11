@@ -65,10 +65,10 @@ migration, policy #1). The format is a property of a generation, never mixed wit
 <!-- BEGIN GENERATED VERSION TABLE -->
 | Artifact | Constant | Value | On mismatch |
 |---|---|---|---|
-| extraction products (`products/*.vpb`, pack bodies) | `PRODUCT_FORMAT_VERSION` (crates/ingest/src/product.rs) | 23 | cache miss → re-parse |
+| extraction products (`products/*.vpb`, pack bodies) | `PRODUCT_FORMAT_VERSION` (crates/ingest/src/product.rs) | 24 | cache miss → re-parse |
 | product pack, bucketed layout (`products/<k>.pack` + `products/toc.bin`) — the default | `BUCKET_VERSION` (crates/ingest/src/pack.rs) | 1 | pack ignored → rebuilt by next build |
 | product pack, legacy flat layout (`products.pack`/`products.idx`) — deprecated, written only under `VORPAL_FORMAT=flat`; reads retained | `PACK_VERSION` (crates/ingest/src/pack.rs) | 2 | pack ignored → rebuilt by next build |
-| graph segments (`*.vseg`, `strings.heap`, `graph.bin`) | `FORMAT_VERSION` (crates/segment/src/format.rs) | 1 | `Kg::load` fails loudly → rebuild |
+| graph segments (`*.vseg`, `strings.heap`, `graph.bin`) | `FORMAT_VERSION` (crates/segment/src/format.rs) | 2 | `Kg::load` fails loudly → rebuild |
 | evidence sidecar (`evidence.bin`) | `VERSION` (crates/kg/src/evidence.rs) | 2 | sidecar treated as absent → `why` reports no evidence |
 | edge slabs (`edges/<k>.bin` + toc) | `VERSION` (crates/kg/src/edgestore.rs) | 1 | family treated as absent → scoped composes decline; next full build rewrites it |
 | usage postings (`usage/<k>.bin` + toc) | `VERSION` (crates/kg/src/usagestore.rs) | 1 | family treated as absent → scoped composes decline; next full build rewrites it |
@@ -88,3 +88,15 @@ node-segment stamp and the persisted model provenance rather than a standalone f
 version: any mismatch routes queries to the exact fallback until a re-warm rebuilds it.
 The reference spill (`.refs.spill`) is process-private scratch — created, read once, and
 deleted within a single build; it is deliberately unversioned and never persisted.
+
+Textual C++ include contexts require `source_contexts.json` whenever graph nodes carry
+original definition provenance. This version-1 artifact enters generation identity and
+binds each durable node identity to its original physical source parts, reference sites,
+and all input digests. Missing, incomplete, foreign, or mismatched provenance fails graph
+loading; it cannot be treated as an optional feature. Ordinary graphs need no such file.
+Product version 24 carries the corresponding definition and reference context metadata.
+Segment version 2 prevents version-1 graph readers from ignoring the required node flag
+and interpreting foreign-file evidence offsets as offsets in the owner's file. Rebuilding
+also upgrades ordinary generations; graph artifacts are never migrated in place.
+Context builds reparse the complete configured group and validate every input again before
+publishing a generation, including deferred live publication.

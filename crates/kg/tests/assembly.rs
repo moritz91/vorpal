@@ -27,6 +27,7 @@ fn entry(
     name: Cow::Borrowed(name),
     range: range(),
     signature: Cow::Borrowed(sig),
+    source_context: None,
     ast_kind: Cow::Borrowed(""),
   }
 }

@@ -4,11 +4,195 @@ use vorpal_language::{
   with_cpp_statement_macro_sites, with_cpp_statement_macros,
 };
 
+#[test]
+fn proven_inline_specifiers_keep_authored_declarations_and_empty_context() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// α\nFORCE static unsigned int receive() { body(); return 1; }\nvoid ordinary() { FORCE(); }\n".replace('\n', newline);
+    let sites = [CppProvenMacroSite {
+      offset: source.find("FORCE").unwrap().try_into().unwrap(),
+      name: "FORCE".into(),
+      kind: CppProvenMacroKind::InlineSpecifier,
+    }];
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    let parsed = with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&source));
+    assert!(!parsed.root().has_error());
+    let specifier = parsed
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "storage_class_specifier" && n.text() == "FORCE")
+      .unwrap();
+    assert_eq!(&source[specifier.range()], "FORCE");
+    let call = parsed
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "call_expression" && n.text() == "FORCE()")
+      .unwrap();
+    assert_eq!(&source[call.range()], "FORCE()");
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    let bad = source.replace("body();", "body()");
+    assert!(
+      with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&bad))
+        .root()
+        .has_error()
+    );
+  }
+}
+
 fn site(source: &str, needle: &str, open_if: bool) -> CppStatementMacroSite {
   CppStatementMacroSite {
     offset: source.find(needle).unwrap().try_into().unwrap(),
     name: "CHECK".to_owned(),
     open_if,
+  }
+}
+
+#[test]
+fn proven_try_handlers_keep_original_bodies_and_require_complete_syntax() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// Grüße 日本語\nvoid run() { ENTER { work(); } HANDLE { recovered(); } after(); }\nvoid ordinary() { ENTER(); HANDLE(); }".replace('\n', newline);
+    let sites = [
+      CppProvenMacroSite {
+        offset: source.find("ENTER").unwrap().try_into().unwrap(),
+        name: "ENTER".into(),
+        kind: CppProvenMacroKind::TryPrefix,
+      },
+      CppProvenMacroSite {
+        offset: source.find("HANDLE").unwrap().try_into().unwrap(),
+        name: "HANDLE".into(),
+        kind: CppProvenMacroKind::CatchAllPrefix,
+      },
+    ];
+    with_cpp_proven_macro_sites(&sites, || {
+      let parsed = SupportLang::Cpp.grep(&source);
+      assert!(!parsed.root().has_error());
+      let owner = parsed
+        .root()
+        .dfs()
+        .find(|n| n.kind().as_ref() == "try_statement")
+        .unwrap();
+      assert_eq!(owner.text(), "ENTER { work(); } HANDLE { recovered(); }");
+      assert_eq!(&source[owner.range()], owner.text());
+      assert_eq!(owner.field("body").unwrap().text(), "{ work(); }");
+      let handler = owner
+        .dfs()
+        .find(|n| n.kind().as_ref() == "catch_clause")
+        .unwrap();
+      assert_eq!(handler.text(), "HANDLE { recovered(); }");
+      assert!(handler.field("parameters").is_none());
+      assert_eq!(handler.field("body").unwrap().text(), "{ recovered(); }");
+      for name in ["ENTER()", "HANDLE()", "work()", "recovered()", "after()"] {
+        assert_eq!(
+          parsed
+            .root()
+            .dfs()
+            .filter(|n| n.kind().as_ref() == "call_expression" && n.text() == name)
+            .count(),
+          1
+        );
+      }
+      with_cpp_proven_macro_sites(&[], || {
+        assert!(SupportLang::Cpp.grep(&source).root().has_error())
+      });
+      assert!(!SupportLang::Cpp.grep(&source).root().has_error());
+    });
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    for invalid in [
+      source.replace("work();", "work()"),
+      source.replace("HANDLE { recovered(); }", ""),
+      source.replace("ENTER { work(); }", ""),
+    ] {
+      let mut invalid_sites: Vec<_> = sites
+        .iter()
+        .filter_map(|site| {
+          invalid.find(&site.name).map(|offset| CppProvenMacroSite {
+            offset: offset.try_into().unwrap(),
+            name: site.name.clone(),
+            kind: site.kind,
+          })
+        })
+        .collect();
+      invalid_sites.sort_by_key(|site| site.offset);
+      assert!(
+        with_cpp_proven_macro_sites(&invalid_sites, || SupportLang::Cpp.grep(&invalid))
+          .root()
+          .has_error(),
+        "{invalid}"
+      );
+    }
+  }
+}
+
+#[test]
+fn proven_typed_catch_keeps_authored_parameter_spans() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source =
+      "// 日本語\nvoid run() { ENTER { work(); } HANDLE /* source */ (Token&) { recovered(); } }"
+        .replace('\n', newline);
+    let sites = [
+      CppProvenMacroSite {
+        offset: source.find("ENTER").unwrap().try_into().unwrap(),
+        name: "ENTER".into(),
+        kind: CppProvenMacroKind::TryPrefix,
+      },
+      CppProvenMacroSite {
+        offset: source.find("HANDLE").unwrap().try_into().unwrap(),
+        name: "HANDLE".into(),
+        kind: CppProvenMacroKind::CatchParameterPrefix,
+      },
+    ];
+    let root = with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&source));
+    assert!(!root.root().has_error());
+    let handler = root
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "catch_clause")
+      .unwrap();
+    let parameters = handler.field("parameters").unwrap();
+    assert_eq!(parameters.text(), "(Token&)");
+    assert_eq!(&source[parameters.range()], "(Token&)");
+    assert_eq!(handler.field("body").unwrap().text(), "{ recovered(); }");
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+  }
+}
+
+#[test]
+fn complete_declaration_sites_keep_original_spans_and_decline_statement_roles() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// Grüße 日本語\nnamespace scope { CHECK /* original */ (Type)\nvoid following() { after(); } }".replace('\n', newline);
+    let sites = [CppProvenMacroSite {
+      offset: source.find("CHECK").unwrap().try_into().unwrap(),
+      name: "CHECK".into(),
+      kind: CppProvenMacroKind::DeclarationList,
+    }];
+    let parsed = with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&source));
+    assert!(!parsed.root().has_error());
+    let declaration = parsed
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "macro_declaration")
+      .unwrap();
+    assert_eq!(declaration.text(), "CHECK /* original */ (Type)");
+    assert_eq!(declaration.field("arguments").unwrap().text(), "(Type)");
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    let local = source.replace("namespace scope", "void invalid()");
+    let local_sites = [CppProvenMacroSite {
+      offset: local.find("CHECK").unwrap().try_into().unwrap(),
+      name: "CHECK".into(),
+      kind: CppProvenMacroKind::DeclarationList,
+    }];
+    let declined = with_cpp_proven_macro_sites(&local_sites, || SupportLang::Cpp.grep(&local));
+    // Grammar recovery may still choose a declaration branch inside a block;
+    // the production proof must separately reject the original local context.
+    assert!(
+      declined
+        .root()
+        .dfs()
+        .all(|n| n.kind().as_ref() != "macro_statement")
+    );
   }
 }
 
@@ -150,4 +334,206 @@ fn included_range_offsets_are_absolute_original_bytes() {
   assert!(!tree.root_node().has_error());
   assert!(tree.root_node().to_sexp().contains("macro_statement"));
   assert!(parser.parse(&source, None).unwrap().root_node().has_error());
+}
+
+#[test]
+fn proven_function_prefixes_preserve_original_bodies_and_do_not_leak_roles() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// Grüße 日本語\nCHECK /* name */ (42) { body(); }\nvoid ordinary() { after(); }"
+      .replace('\n', newline);
+    let offset = source.find("CHECK").unwrap();
+    let sites = [CppProvenMacroSite {
+      offset: offset.try_into().unwrap(),
+      name: "CHECK".into(),
+      kind: CppProvenMacroKind::FunctionPrefix,
+    }];
+    std::thread::scope(|scope| {
+      for _ in 0..4 {
+        scope.spawn(|| {
+          with_cpp_proven_macro_sites(&sites, || {
+            let parsed = SupportLang::Cpp.grep(&source);
+            let root = parsed.root();
+            assert!(!root.has_error());
+            let owner = root
+              .dfs()
+              .find(|n| n.kind().as_ref() == "function_definition" && n.range().start == offset)
+              .unwrap();
+            assert_eq!(owner.field("name").unwrap().text(), "CHECK");
+            assert_eq!(owner.field("arguments").unwrap().text(), "(42)");
+            assert_eq!(owner.field("body").unwrap().text(), "{ body(); }");
+            with_cpp_statement_macros(&[], || {
+              assert!(SupportLang::Cpp.grep(&source).root().has_error())
+            });
+            let panic = std::panic::catch_unwind(|| {
+              with_cpp_proven_macro_sites::<()>(&[], || panic!("fixture"))
+            });
+            assert!(panic.is_err());
+            assert!(!SupportLang::Cpp.grep(&source).root().has_error());
+          });
+          assert!(SupportLang::Cpp.grep(&source).root().has_error());
+        });
+      }
+    });
+    for source in [
+      "void run() { CHECK(42) { body(); } }",
+      "CHECK(42) { missing() }",
+    ] {
+      let sites = [CppProvenMacroSite {
+        offset: source.find("CHECK").unwrap().try_into().unwrap(),
+        name: "CHECK".into(),
+        kind: CppProvenMacroKind::FunctionPrefix,
+      }];
+      assert!(
+        with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(source))
+          .root()
+          .has_error()
+      );
+    }
+  }
+}
+
+#[test]
+fn proven_case_loop_prefixes_preserve_original_bodies_and_empty_context_errors() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// Grüße 日本語\nvoid run() { switch(0) { CHECK /* name */ (42) { body(); } break; } after(); }".replace('\n', newline);
+    let sites = [CppProvenMacroSite {
+      offset: source.find("CHECK").unwrap().try_into().unwrap(),
+      name: "CHECK".into(),
+      kind: CppProvenMacroKind::CaseLoopPrefix,
+    }];
+    let root = with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&source));
+    assert!(!root.root().has_error());
+    let case = root
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "case_statement")
+      .unwrap();
+    assert_eq!(case.field("name").unwrap().text(), "CHECK");
+    assert_eq!(case.field("arguments").unwrap().text(), "(42)");
+    assert_eq!(case.field("body").unwrap().text(), "{ body(); }");
+    assert!(case.field("value").is_none());
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    let invalid = source.replace("body();", "body()");
+    assert!(
+      with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&invalid))
+        .root()
+        .has_error()
+    );
+  }
+}
+
+#[test]
+fn proven_try_prefix_accepts_complete_conditional_original_handlers() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source = "// α\nvoid run() { ENTER { body(); }\n#if !defined(DISABLE)\ncatch (Error& ex) { recover(ex); }\n#endif\nafter(); }\n".replace('\n', newline);
+    let sites = [CppProvenMacroSite {
+      offset: source.find("ENTER").unwrap().try_into().unwrap(),
+      name: "ENTER".into(),
+      kind: CppProvenMacroKind::TryPrefix,
+    }];
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+    let parsed = with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&source));
+    assert!(!parsed.root().has_error());
+    let guard = parsed
+      .root()
+      .dfs()
+      .find(|n| n.kind().as_ref() == "preproc_if")
+      .unwrap();
+    assert_eq!(
+      guard.field("condition").unwrap().text(),
+      "!defined(DISABLE)"
+    );
+    let handler = guard
+      .dfs()
+      .find(|n| n.kind().as_ref() == "catch_clause")
+      .unwrap();
+    assert_eq!(
+      &source[handler.range()],
+      "catch (Error& ex) { recover(ex); }"
+    );
+    assert_eq!(handler.field("parameters").unwrap().text(), "(Error& ex)");
+    for spelling in ["body()", "recover(ex)", "after()"] {
+      assert_eq!(
+        parsed
+          .root()
+          .dfs()
+          .filter(|n| n.kind().as_ref() == "call_expression" && n.text() == spelling)
+          .count(),
+        1
+      );
+    }
+    for invalid in [
+      source.replace("recover(ex);", "recover(ex)"),
+      source.replace("catch (Error& ex) { recover(ex); }", ""),
+      source.replace("#endif", ""),
+    ] {
+      assert!(
+        with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&invalid))
+          .root()
+          .has_error(),
+        "{invalid}"
+      );
+    }
+    assert!(SupportLang::Cpp.grep(&source).root().has_error());
+  }
+}
+
+#[test]
+fn proven_annotations_keep_names_without_runtime_callees_and_empty_context_leaks() {
+  use vorpal_language::{CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites};
+  for newline in ["\n", "\r\n"] {
+    let source="// α\nBEGIN\nvoid run() { EMPTY\nint value; END\nbody(); }\nvoid ordinary() { BEGIN(); EMPTY(); END(); }\n".replace('\n',newline);
+    let sites: Vec<_> = ["BEGIN", "EMPTY", "END"]
+      .into_iter()
+      .map(|name| CppProvenMacroSite {
+        offset: source.find(name).unwrap().try_into().unwrap(),
+        name: name.into(),
+        kind: CppProvenMacroKind::Annotation,
+      })
+      .collect();
+    assert!(!SupportLang::Cpp.grep(&source).root().dfs().any(|n| n.kind().as_ref() == "macro_annotation"));
+    with_cpp_proven_macro_sites(&sites, || {
+      let parsed = SupportLang::Cpp.grep(&source);
+      assert!(!parsed.root().has_error());
+      let annotations: Vec<_> = parsed
+        .root()
+        .dfs()
+        .filter(|n| n.kind().as_ref() == "macro_annotation")
+        .collect();
+      assert_eq!(annotations.len(), 3);
+      for (node, name) in annotations.iter().zip(["BEGIN", "EMPTY", "END"]) {
+        assert_eq!(&source[node.range()], name);
+        assert_eq!(node.field("name").unwrap().text(), name);
+      }
+      for spelling in ["BEGIN()", "EMPTY()", "END()", "body()"] {
+        assert_eq!(
+          parsed
+            .root()
+            .dfs()
+            .filter(|n| n.kind().as_ref() == "call_expression" && n.text() == spelling)
+            .count(),
+          1
+        );
+      }
+      with_cpp_proven_macro_sites(&[], || {
+        assert!(!SupportLang::Cpp.grep(&source).root().dfs().any(|n| n.kind().as_ref() == "macro_annotation"))
+      });
+      assert!(!SupportLang::Cpp.grep(&source).root().has_error());
+    });
+    assert!(!SupportLang::Cpp.grep(&source).root().dfs().any(|n| n.kind().as_ref() == "macro_annotation"));
+    for invalid in [
+      source.replace("body();", "body()"),
+      source.replace("BEGIN();", "BEGIN()"),
+      source.replace("int value;", "int value"),
+    ] {
+      assert!(
+        with_cpp_proven_macro_sites(&sites, || SupportLang::Cpp.grep(&invalid))
+          .root()
+          .has_error()
+      );
+    }
+  }
 }

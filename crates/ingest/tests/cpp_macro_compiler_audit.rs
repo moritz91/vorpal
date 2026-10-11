@@ -11,6 +11,64 @@ use vorpal_ingest::cpp_macro_recovery::audit_recovery;
 const HEADER: &str = "#define CHECK(x) if (!(x)) { throw Failure(x); }\n";
 
 #[test]
+fn native_replacement_end_ignores_real_trailing_comments_but_not_literal_payload() {
+  for newline in ["\n", "\r\n"] {
+    for replacement in [
+      "{ sink(x); }",
+      "{ sink(\"// payload /* literal */\"); sink(x); }",
+    ] {
+      for suffix in [
+        "  // ordinary comment",
+        " /* comment */ /* after */",
+        " // fabricated()",
+      ] {
+        let header = format!("#define CHECK(x) {replacement}{suffix}{newline}");
+        let source = format!("void run() {{ CHECK(value()) }}{newline}");
+        let definitions = [DefinitionBuffer {
+          path: Path::new("proof.h"),
+          source: &header,
+        }];
+        let mut expansions = [expansion(&source, "CHECK(value())", &header, "CHECK")];
+        let end = "#define CHECK(x) ".len() + replacement.len();
+        expansions[0].definition.as_mut().unwrap().end = end;
+        let names = BTreeSet::from(["CHECK".to_owned()]);
+        let obs = Observation {
+          path: Path::new("main.cc"),
+          source: &source,
+          definitions: &definitions,
+          expansions: &expansions,
+          expanded_names: &names,
+          complete: true,
+          volatile_inputs: false,
+        };
+        let report = audit(obs.path, &source, &obs).unwrap();
+        assert!(!report.has_error, "{header}");
+        for wrong in [
+          end - 1,
+          header.trim_end().len(),
+          header.find("//").unwrap_or(end),
+        ] {
+          if wrong == end {
+            continue;
+          }
+          let mut invalid = expansions.clone();
+          invalid[0].definition.as_mut().unwrap().end = wrong;
+          let invalid_obs = Observation {
+            expansions: &invalid,
+            ..obs
+          };
+          assert_eq!(
+            audit(obs.path, &source, &invalid_obs).unwrap_err(),
+            Declined::InvalidDefinition,
+            "{wrong}: {header}"
+          );
+        }
+      }
+    }
+  }
+}
+
+#[test]
 fn native_raw_literal_line_endings_compare_without_rewriting_source_or_directives() {
   for prefix in ["R", "u8R", "uR", "UR", "LR"] {
     for delimiter in ["", "tag", "abcdefghijklmnop"] {

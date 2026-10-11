@@ -60,7 +60,8 @@ use vorpal_resolve::{RefForm, RefKind};
 // outline; every call reference carries its call shape (`arity << 2 | opaque << 1 | plain`).
 // 23: parse health counts MISSING tokens alongside ERROR nodes; layout unchanged.
 // Re-key products so a prior missing-only tree cannot replay as clean.
-pub const PRODUCT_FORMAT_VERSION: u32 = 23;
+// 24: original multi-file definition provenance and scoped physical references.
+pub const PRODUCT_FORMAT_VERSION: u32 = 24;
 
 /// Cap on recorded top-level cuts per file: a file with more direct root children than this
 /// records none (chunk-scoped parsing degrades to the whole-file parse, never to a wrong one).
@@ -145,6 +146,7 @@ pub struct FileProduct {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductRef {
   pub from_entity_index: u32,
+  pub source_context: Option<Box<ReferenceSourceContext>>,
   pub name: String,
   pub kind: u8,
   /// Aliased-import local rebinding (`as z`), when the grammar provides one.
@@ -171,6 +173,16 @@ pub struct ProductRef {
   pub call_shape: u32,
   /// Call-site arguments (G-M1 capture; consumed by data-flow in G-M3).
   pub args: Vec<ProductArg>,
+}
+
+/// A reference's proven include scope and, for a cross-file function body,
+/// its original owner's durable external identity. Evidence stays in this
+/// product's physical file; no foreign range is stored as a local offset.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ReferenceSourceContext {
+  pub root: String,
+  pub identity: String,
+  pub owner_external: Option<u128>,
 }
 
 /// One definition's near-clone sketch (see `signature.rs`).
@@ -287,6 +299,7 @@ fn own_entry(entry: OutlineEntry<'_>) -> OutlineEntry<'static> {
     name: entry.name.into_owned().into(),
     range: entry.range,
     signature: entry.signature.into_owned().into(),
+    source_context: entry.source_context,
     ast_kind: std::borrow::Cow::Borrowed(intern_kind(&entry.ast_kind)),
   }
 }
@@ -649,7 +662,37 @@ fn push_pos(buf: &mut Vec<u8>, v: usize) -> io::Result<()> {
   Ok(())
 }
 
+fn valid_context_range(range: &SourceRange) -> bool {
+  range.byte_offset.start < range.byte_offset.end
+    && (range.start.line, range.start.column) <= (range.end.line, range.end.column)
+}
+
+fn validate_definition_context(entry: &OutlineEntry<'_>) -> io::Result<()> {
+  let Some(context) = &entry.source_context else { return Ok(()); };
+  if context.root.is_empty() || context.name.path.is_empty()
+    || !context.inputs_are_valid()
+    || context.identity.len() != 64 || !context.identity.bytes().all(|byte| byte.is_ascii_hexdigit())
+    || !valid_context_range(&context.name.range) || context.parts.is_empty()
+    || context.parts.len() > 256
+    || context.parts.iter().any(|part| part.path.is_empty() || !valid_context_range(&part.range))
+    || !context.parts.iter().any(|part| part.path == context.name.path
+      && part.range == entry.range
+      && part.range.byte_offset.start <= context.name.range.byte_offset.start
+      && part.range.byte_offset.end >= context.name.range.byte_offset.end) {
+    return Err(corrupt("inconsistent definition context"));
+  }
+  Ok(())
+}
+
+fn read_reference_context(json: &str) -> io::Result<ReferenceSourceContext> {
+  let context: ReferenceSourceContext = serde_json::from_str(json)
+    .map_err(|_| corrupt("invalid reference context"))?;
+  if context.root.is_empty() || context.identity.len() != 64 || !context.identity.bytes().all(|b| b.is_ascii_hexdigit()) { return Err(corrupt("invalid reference context identity")); }
+  Ok(context)
+}
+
 fn push_entry(buf: &mut Vec<u8>, entry: &OutlineEntry<'_>) -> io::Result<()> {
+  validate_definition_context(entry)?;
   buf.push(role_tag(entry.role));
   buf.push(symbol_type_tag(entry.symbol_type));
   push_str(buf, &entry.name);
@@ -661,6 +704,10 @@ fn push_entry(buf: &mut Vec<u8>, entry: &OutlineEntry<'_>) -> io::Result<()> {
   push_pos(buf, entry.range.end.column)?;
   push_str(buf, &entry.signature);
   push_str(buf, &entry.ast_kind);
+  buf.push(u8::from(entry.source_context.is_some()));
+  if let Some(context) = &entry.source_context {
+    push_str(buf, &serde_json::to_string(context).map_err(|_| corrupt("invalid definition context"))?);
+  }
   Ok(())
 }
 
@@ -743,9 +790,16 @@ pub fn encode_product_into(product: &FileProduct, buf: &mut Vec<u8>) {
     // (+u16 count). The overwhelmingly common no-extras ref costs ONE byte, not five.
     let flags = u8::from(r.receiver.is_some())
       | (u8::from(r.receiver_type.is_some()) << 1)
-      | (u8::from(!r.args.is_empty()) << 2);
+      | (u8::from(!r.args.is_empty()) << 2)
+      | (u8::from(r.source_context.is_some()) << 3);
     buf.push(flags);
     push_leb(buf, r.call_shape);
+    if let Some(context) = &r.source_context {
+      match serde_json::to_string(context) {
+        Ok(json) => push_str(buf, &json),
+        Err(_) => { buf.truncate(rollback); return; }
+      }
+    }
     if let Some(v) = &r.receiver {
       push_str(buf, v);
     }
@@ -895,6 +949,7 @@ impl<'a> Reader<'a> {
       name: entry.name.into_owned().into(),
       range: entry.range,
       signature: entry.signature.into_owned().into(),
+      source_context: entry.source_context,
       ast_kind: std::borrow::Cow::Borrowed(ast_kind),
     })
   }
@@ -918,7 +973,12 @@ impl<'a> Reader<'a> {
     };
     let signature = self.str_borrowed()?;
     let ast_kind = intern_kind(self.str_borrowed()?);
-    Ok(OutlineEntry {
+    let source_context = match self.u8()? {
+      0 => None,
+      1 => Some(Box::new(serde_json::from_str(self.str_borrowed()?).map_err(|_| corrupt("invalid definition context"))?)),
+      _ => return Err(corrupt("invalid definition context flag")),
+    };
+    let entry = OutlineEntry {
       role,
       symbol_type,
       name: std::borrow::Cow::Borrowed(name),
@@ -928,8 +988,11 @@ impl<'a> Reader<'a> {
         end,
       },
       signature: std::borrow::Cow::Borrowed(signature),
+      source_context,
       ast_kind: std::borrow::Cow::Borrowed(ast_kind),
-    })
+    };
+    validate_definition_context(&entry)?;
+    Ok(entry)
   }
 }
 
@@ -982,6 +1045,14 @@ pub struct RefView<'a> {
   /// Argument records: encoded bytes (the replay path, decoded lazily) or a borrow of the
   /// owned records (the just-parsed bridge) — one accessor serves both.
   args: ArgsSrc<'a>,
+  source_context: RefContextSrc<'a>,
+}
+
+#[derive(Clone, Copy)]
+enum RefContextSrc<'a> {
+  None,
+  Owned(&'a ReferenceSourceContext),
+  Encoded(&'a str),
 }
 
 #[derive(Clone, Copy)]
@@ -1000,6 +1071,21 @@ pub struct ArgView<'a> {
 }
 
 impl<'a> RefView<'a> {
+  pub(crate) fn with_source_context(mut self, context: Option<&'a ReferenceSourceContext>) -> Self {
+    self.source_context = context.map_or(RefContextSrc::None, RefContextSrc::Owned);
+    self
+  }
+
+  /// Context metadata is sparse; ordinary refs allocate nothing. Encoded JSON
+  /// is validated by the decoder before a view is returned.
+  pub fn source_context(&self) -> Option<std::borrow::Cow<'a, ReferenceSourceContext>> {
+    match self.source_context {
+      RefContextSrc::None => None,
+      RefContextSrc::Owned(context) => Some(std::borrow::Cow::Borrowed(context)),
+      RefContextSrc::Encoded(json) => Some(std::borrow::Cow::Owned(serde_json::from_str(json).expect("validated reference context"))),
+    }
+  }
+
   /// Bridge an owned ref into the shared apply path, argument records included (borrowed).
   #[allow(clippy::too_many_arguments)]
   pub(crate) fn bridge(
@@ -1031,6 +1117,7 @@ impl<'a> RefView<'a> {
       call_shape,
       receiver_type_origin,
       args: ArgsSrc::Owned(args),
+      source_context: RefContextSrc::None,
     }
   }
 
@@ -1246,6 +1333,7 @@ impl<'a> Iterator for RefRows<'a> {
     }
     let flags = r.u8().ok()?;
     let call_shape = r.leb().ok()?;
+    if flags & 8 != 0 { r.str_borrowed().ok()?; }
     if flags & 1 != 0 {
       r.str_borrowed().ok()?; // receiver
     }
@@ -1457,6 +1545,12 @@ pub fn decode_product_view(bytes: &[u8]) -> io::Result<ProductView<'_>> {
     };
     let flags = r.u8()?;
     let call_shape = r.leb()?;
+    if flags & !15 != 0 { return Err(corrupt("unknown reference flags")); }
+    let source_context = if flags & 8 != 0 {
+      let json = r.str_borrowed()?;
+      read_reference_context(json)?;
+      RefContextSrc::Encoded(json)
+    } else { RefContextSrc::None };
     let receiver = if flags & 1 != 0 {
       Some(r.str_borrowed()?)
     } else {
@@ -1483,6 +1577,7 @@ pub fn decode_product_view(bytes: &[u8]) -> io::Result<ProductView<'_>> {
     let args_bytes = &bytes[args_start..r.off];
     refs.push(RefView {
       from_entity_index,
+      source_context,
       name,
       kind,
       start,
@@ -1633,6 +1728,10 @@ pub fn decode_product(bytes: &[u8]) -> io::Result<FileProduct> {
     let alias = if r.u8()? != 0 { Some(r.str()?) } else { None };
     let flags = r.u8()?;
     let call_shape = r.leb()?;
+    if flags & !15 != 0 { return Err(corrupt("unknown reference flags")); }
+    let source_context = if flags & 8 != 0 {
+      Some(Box::new(read_reference_context(r.str_borrowed()?)?))
+    } else { None };
     let receiver = if flags & 1 != 0 { Some(r.str()?) } else { None };
     let (receiver_type, receiver_type_origin) = if flags & 2 != 0 {
       (Some(r.str()?), r.u8()?)
@@ -1655,6 +1754,7 @@ pub fn decode_product(bytes: &[u8]) -> io::Result<FileProduct> {
     }
     refs.push(ProductRef {
       from_entity_index,
+      source_context,
       name,
       kind,
       start,
@@ -1777,6 +1877,7 @@ mod tests {
     assert_eq!(a.range, b.range);
     assert_eq!(a.signature, b.signature);
     assert_eq!(a.ast_kind, b.ast_kind);
+    assert_eq!(a.source_context, b.source_context);
   }
 
   #[test]
@@ -1812,6 +1913,63 @@ mod tests {
       // Encoding is deterministic.
       assert_eq!(bytes, encode_product(&decoded), "{path}");
     }
+  }
+
+  #[test]
+  fn original_definition_parts_and_foreign_call_owner_survive_owned_and_view_decoders() {
+    use vorpal_outline::model::{DefinitionSourceContext, PhysicalSourceSpan};
+    let extractor = OutlineExtractor::new().unwrap();
+    let mut product = extractor.extract_product("head.cc", "int read() { return after(1); }\n").unwrap();
+    let name_start = "int ".len();
+    let name = PhysicalSourceSpan {
+      path: "head.cc".into(),
+      range: SourceRange {
+        byte_offset: name_start..name_start + 4,
+        start: SourcePosition { line: 0, column: 4 },
+        end: SourcePosition { line: 0, column: 8 },
+      },
+    };
+    let head = PhysicalSourceSpan { path: "head.cc".into(), range: product.items[0].entry.range.clone() };
+    let tail = PhysicalSourceSpan { path: "α-tail.cc".into(), range: SourceRange {
+      byte_offset: 0..2,
+      start: SourcePosition { line: 0, column: 0 },
+      end: SourcePosition { line: 0, column: 2 },
+    } };
+    product.items[0].entry.source_context = Some(Box::new(DefinitionSourceContext {
+      root: "root.cc".into(), identity: "a".repeat(64), references: Vec::new(),
+      inputs: ["root.cc", "head.cc", "α-tail.cc"].into_iter().map(|path| vorpal_outline::model::SourceContextInput { path: path.into(), digest: 0 }).collect(), name, parts: vec![head, tail],
+    }));
+    for reference in &mut product.refs {
+      reference.source_context = Some(Box::new(ReferenceSourceContext {
+        root: "root.cc".into(), identity: "a".repeat(64), owner_external: Some(u128::MAX),
+      }));
+    }
+    let bytes = encode_product(&product);
+    assert!(!bytes.is_empty());
+    let owned = decode_product(&bytes).unwrap();
+    assert_products_equal(&product, &owned);
+    let view = decode_product_view(&bytes).unwrap();
+    assert_entries_equal(&product.items[0].entry, &view.items[0].entry);
+    for (reference, borrowed) in product.refs.iter().zip(&view.refs) {
+      assert_eq!(borrowed.source_context().as_deref(), reference.source_context.as_deref());
+      let bridge = RefView::bridge(reference.from_entity_index, &reference.name, reference.kind,
+        reference.start, reference.end, reference.qualifier.as_deref(), reference.form,
+        reference.alias.as_deref(), reference.receiver.as_deref(), reference.receiver_type.as_deref(),
+        reference.receiver_type_origin, reference.call_shape, &reference.args)
+        .with_source_context(reference.source_context.as_deref());
+      assert_eq!(bridge.source_context().as_deref(), reference.source_context.as_deref());
+    }
+    assert_eq!(peek_product_refs(&bytes).unwrap().count(), product.refs.len());
+    for length in 0..bytes.len() {
+      assert!(decode_product(&bytes[..length]).is_err());
+      assert!(decode_product_view(&bytes[..length]).is_err());
+    }
+    // Valid length framing cannot turn malformed provenance into a plain ref.
+    let mut corrupt_bytes = bytes.clone();
+    let json_start = corrupt_bytes.windows(b"{\"root\"".len()).position(|bytes| bytes == b"{\"root\"").unwrap();
+    corrupt_bytes[json_start] = b'!';
+    assert!(decode_product(&corrupt_bytes).is_err());
+    assert!(decode_product_view(&corrupt_bytes).is_err());
   }
 
   #[test]

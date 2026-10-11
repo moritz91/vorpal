@@ -30,6 +30,7 @@ fn function<'a>(name: &'a str) -> OutlineItem<'a> {
       name: Cow::Borrowed(name),
       range: range(0..24),
       signature: Cow::Borrowed(name),
+      source_context: None,
       ast_kind: Cow::Borrowed("function_definition"),
     },
     is_import: false,

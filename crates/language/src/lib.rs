@@ -25,7 +25,8 @@ mod cpp;
 mod cpp_statement_macros;
 #[cfg(feature = "tree-sitter-cpp")]
 pub use cpp_statement_macros::{
-  CppStatementMacroSite, with_cpp_statement_macro_kinds, with_cpp_statement_macro_sites,
+  CppStatementMacroSite, CppProvenMacroKind, CppProvenMacroSite, with_cpp_proven_macro_sites,
+  with_cpp_statement_macro_kinds, with_cpp_statement_macro_sites,
   with_cpp_statement_macros,
 };
 mod csharp;
@@ -657,10 +658,9 @@ impl LanguageExt for SupportLang {
 /// while that still matches the linked grammar (so editing a grammar — e.g. adding PEP 810's
 /// `lazy` node — invalidates exactly the stale products, not the whole cache).
 ///
-/// It is a structural fingerprint, not a hash of the grammar source: the rare edit that changes
-/// parse *actions* without changing any count or name (a pure precedence tweak) can escape it.
-/// Such edits do not change the node/field surface products are built from, so the residual risk
-/// is negligible; a `PRODUCT_FORMAT_VERSION` bump remains the escape hatch for anything subtler.
+/// Lexer/scanner changes can alter trees without changing that structural surface. Builtin
+/// patches of this kind also fold in [`grammar_behavior_revision`], shared with the remote
+/// parity fingerprint. Bump that revision whenever the patch's parsing behavior changes.
 pub fn grammar_digest(lang: SupportLang) -> u64 {
   use std::sync::OnceLock;
   static CACHE: OnceLock<Vec<u64>> = OnceLock::new();
@@ -724,10 +724,11 @@ pub fn grammar_info(lang: SupportLang) -> GrammarInfo {
 }
 
 /// One element of a grammar's observable surface, in enumeration order. This enumeration is
-/// THE definition of "what a grammar is" for identity purposes: the product-cache digest
+/// The structural part of grammar identity: the product-cache digest
 /// ([`grammar_digest_of`]) and the remote extraction-parity fingerprint both consume it —
 /// each with its own byte framing, which is why events are structured rather than bytes —
-/// so the two identities can never drift on *which* surface they observe (ADOPTION F-M0).
+/// so the two identities observe the same structural surface (ADOPTION F-M0). Builtin
+/// behavior patches additionally share [`grammar_behavior_revision`].
 pub enum GrammarSurfaceEvent<'t> {
   Name(Option<&'t str>),
   Abi(u64),
@@ -811,7 +812,25 @@ pub fn grammar_digest_of(ts: &TSLanguage) -> u64 {
 }
 
 fn compute_grammar_digest(lang: SupportLang) -> u64 {
-  grammar_digest_of(&lang.get_ts_language())
+  let structural = grammar_digest_of(&lang.get_ts_language());
+  let Some(revision) = grammar_behavior_revision(lang) else {
+    return structural;
+  };
+  let mut h = xxhash_rust::xxh3::Xxh3::new();
+  h.update(b"vorpal-grammar-behavior/v1\0");
+  h.update(&structural.to_le_bytes());
+  h.update(revision);
+  h.digest()
+}
+
+/// Identity of builtin behavior patches that leave ABI, names and parser counts unchanged.
+/// Dynamic grammars with the same name do not inherit a builtin patch's revision.
+/// Both Markdown parsers classify physical NUL as U+FFFD while retaining source spans.
+pub fn grammar_behavior_revision(lang: SupportLang) -> Option<&'static [u8]> {
+  match lang {
+    SupportLang::Markdown => Some(b"markdown-physical-nul-v1"),
+    _ => None,
+  }
 }
 
 /// Guess which programming language a file is written in

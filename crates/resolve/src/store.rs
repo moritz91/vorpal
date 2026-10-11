@@ -1,6 +1,6 @@
 //! Retained reference store for the memory-primary daemon (SUBSECOND.md Phase 3).
 //!
-//! The same 34-byte records as [`crate::spill`], but **long-lived**: references append
+//! The same 43-byte records as [`crate::spill`], but **long-lived**: references append
 //! per-file, each file owning a contiguous record range, so an edited file's old references
 //! retire by range — never by content inspection — and its replacements append at the tail.
 //! Each link feeds only the alive ranges.

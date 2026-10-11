@@ -66,6 +66,26 @@ fn index(src: &std::path::Path, out: &std::path::Path, config: &std::path::Path)
   );
 }
 
+#[test]
+fn textual_context_paths_resolve_against_external_config_in_index_and_mcp() {
+  let temp = fixture_dir();
+  let src = temp.path().join("src"); let settings = temp.path().join("settings");
+  fs::create_dir(&src).unwrap(); fs::create_dir(&settings).unwrap();
+  fs::write(src.join("root.cc"), "namespace Actual {\n#include \"head.cc\"\n#include \"tail.cc\"\n}\n").unwrap();
+  fs::write(src.join("head.cc"), "int real() {\n").unwrap();
+  let tail = src.join("tail.cc"); fs::write(&tail, "return 42;\n}\n").unwrap();
+  let config = settings.join("vorpalconfig.yml");
+  fs::write(&config, serde_yaml::to_string(&json!({"ruleDirs":[],"cppTextualIncludeContexts":[{"root":"../src/root.cc","includes":["../src/head.cc","../src/tail.cc"]}]})).unwrap()).unwrap();
+  let output = temp.path().join("index");
+  index(&src, &output, &config);
+  assert!(vorpal_index::parse_health_report(&output).unwrap().contains("parse health: clean"));
+  assert!(health(mcp_rebuild(&src, &output, &config)).contains("parse health: clean"));
+  fs::write(&tail, "return 42\n}\n").unwrap();
+  assert!(health(mcp_rebuild(&src, &output, &config)).contains("carry ERROR/MISSING nodes"));
+  fs::write(&tail, "return 42;\n}\n").unwrap();
+  assert!(health(mcp_rebuild(&src, &output, &config)).contains("parse health: clean"));
+}
+
 fn mcp_rebuild(src: &std::path::Path, out: &std::path::Path, config: &std::path::Path) -> Value {
   let mut child = Command::new(env!("CARGO_BIN_EXE_vorpal"))
     .current_dir(src)

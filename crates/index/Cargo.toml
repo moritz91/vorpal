@@ -73,6 +73,8 @@ alloc-ledger = [
 ]
 
 [dev-dependencies]
+tempfile = "3.10.1"
+vorpal-lang-registry.workspace = true
 vorpal-query.workspace = true
 fd-lock = "4.0.4"
 vorpal-dynamic.workspace = true

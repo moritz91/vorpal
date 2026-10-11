@@ -5,7 +5,7 @@
 #include <string.h>
 #include <wctype.h>
 
-enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO, PROVEN_OPEN_IF_MACRO };
+enum TokenType { RAW_STRING_DELIMITER, RAW_STRING_CONTENT, PROVEN_STATEMENT_MACRO, PROVEN_OPEN_IF_MACRO, PROVEN_FUNCTION_MACRO, PROVEN_DECLARATION_MACRO, PROVEN_CASE_LOOP_MACRO, PROVEN_INLINE_SPECIFIER_MACRO, PROVEN_TRY_MACRO, PROVEN_CATCH_ALL_MACRO, PROVEN_CATCH_PARAMETER_MACRO, PROVEN_ANNOTATION_MACRO };
 
 // vorpal: scoped statement-macro proof context; never serialized into a tree.
 #if defined(_MSC_VER)
@@ -21,7 +21,7 @@ const char *tree_sitter_cpp_set_statement_macros(const char *names) {
 typedef struct {
     uint32_t offset;
     const char *name;
-    bool open_if;
+    uint8_t kind;
 } StatementMacroSite;
 typedef struct {
     const StatementMacroSite *sites;
@@ -107,10 +107,28 @@ static bool scan_statement_macro(TSLexer *lexer, const bool *valid_symbols) {
     }
     if (!length) return false;
     lexer->mark_end(lexer);
+    if (site && ((site->kind >= 5 && site->kind <= 7) || site->kind == 9)) {
+        if (strlen(site->name) != length || memcmp(site->name, name, length)) return false;
+        enum TokenType kind = site->kind == 5 ? PROVEN_INLINE_SPECIFIER_MACRO :
+                              site->kind == 6 ? PROVEN_TRY_MACRO :
+                              site->kind == 7 ? PROVEN_CATCH_ALL_MACRO : PROVEN_ANNOTATION_MACRO;
+        if (!valid_symbols[kind]) return false;
+        lexer->result_symbol = kind;
+        return true;
+    }
     if (!statement_spacing(lexer) || lexer->lookahead != '(') return false;
     if (site) {
         if (strlen(site->name) != length || memcmp(site->name, name, length)) return false;
-        enum TokenType kind = site->open_if ? PROVEN_OPEN_IF_MACRO : PROVEN_STATEMENT_MACRO;
+        enum TokenType kind;
+        switch (site->kind) {
+          case 0: kind = PROVEN_STATEMENT_MACRO; break;
+          case 1: kind = PROVEN_OPEN_IF_MACRO; break;
+          case 2: kind = PROVEN_FUNCTION_MACRO; break;
+          case 3: kind = PROVEN_DECLARATION_MACRO; break;
+          case 4: kind = PROVEN_CASE_LOOP_MACRO; break;
+          case 8: kind = PROVEN_CATCH_PARAMETER_MACRO; break;
+          default: return false;
+        }
         if (!valid_symbols[kind]) return false;
         lexer->result_symbol = kind;
         return true;
@@ -232,7 +250,7 @@ bool tree_sitter_cpp_external_scanner_scan(void *payload, TSLexer *lexer, const 
         return false;
     }
 
-    if (valid_symbols[PROVEN_STATEMENT_MACRO] || valid_symbols[PROVEN_OPEN_IF_MACRO]) {
+    if (valid_symbols[PROVEN_STATEMENT_MACRO] || valid_symbols[PROVEN_OPEN_IF_MACRO] || valid_symbols[PROVEN_FUNCTION_MACRO] || valid_symbols[PROVEN_DECLARATION_MACRO] || valid_symbols[PROVEN_CASE_LOOP_MACRO] || valid_symbols[PROVEN_INLINE_SPECIFIER_MACRO] || valid_symbols[PROVEN_TRY_MACRO] || valid_symbols[PROVEN_CATCH_ALL_MACRO] || valid_symbols[PROVEN_CATCH_PARAMETER_MACRO] || valid_symbols[PROVEN_ANNOTATION_MACRO]) {
         return scan_statement_macro(lexer, valid_symbols);
     }
 

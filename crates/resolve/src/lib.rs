@@ -15,6 +15,8 @@
 //! `imports` / `of_type`, differing only by [`RefKind`]. Feed a [`SymbolTable`] (built from a
 //! [`vorpal_kg::Kg`] via [`SymbolTable::from_kg`]) plus [`Reference`]s to [`resolve_all`].
 
+mod context;
+pub use context::{ContextId, ContextScope, ReferenceContext};
 pub mod intern;
 mod reach;
 mod reference;

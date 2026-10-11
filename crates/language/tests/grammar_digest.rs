@@ -1,6 +1,4 @@
-//! F-M0 acceptance: the shared-surface refactor of the grammar digest is VALUE-IDENTICAL
-//! to the historical inline implementation for every compiled-in grammar. Digests live in
-//! product headers on disk — a changed value would silently invalidate every cache.
+//! Structural framing stays historical; explicit behavior patches re-key only their language.
 
 use vorpal_language::{LanguageExt, SupportLang, grammar_digest, grammar_digest_of};
 
@@ -37,13 +35,31 @@ fn legacy_digest(lang: SupportLang) -> u64 {
 }
 
 #[test]
-fn surface_walk_digest_is_value_identical_to_legacy_for_every_grammar() {
+fn structural_framing_stays_legacy_and_behavior_patches_rekey_only_markdown() {
   for &lang in SupportLang::all_langs() {
     let legacy = legacy_digest(lang);
     let through_cache = grammar_digest(lang);
     let through_surface = grammar_digest_of(&lang.get_ts_language());
-    assert_eq!(legacy, through_surface, "{lang:?}: surface walk drifted from legacy bytes");
-    assert_eq!(legacy, through_cache, "{lang:?}: cached digest drifted");
+    assert_eq!(
+      legacy, through_surface,
+      "{lang:?}: surface walk drifted from legacy bytes"
+    );
+    if lang == SupportLang::Markdown {
+      assert_ne!(
+        legacy, through_cache,
+        "lexer-only changes must invalidate old products"
+      );
+      let mut expected = xxhash_rust::xxh3::Xxh3::new();
+      expected.update(b"vorpal-grammar-behavior/v1\0");
+      expected.update(&legacy.to_le_bytes());
+      expected.update(b"markdown-physical-nul-v1");
+      assert_eq!(through_cache, expected.digest());
+    } else {
+      assert_eq!(
+        legacy, through_cache,
+        "{lang:?}: unrelated cached digest drifted"
+      );
+    }
     assert_ne!(legacy, 0, "{lang:?}: degenerate digest");
   }
 }

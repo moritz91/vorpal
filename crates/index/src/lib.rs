@@ -53,6 +53,7 @@ use vorpal_ingest::{
 // access through this crate.
 pub use vorpal_ingest::{DynamicCanary, ExtractionEnv, RuleSource};
 pub use vorpal_ingest::cpp_macro_compiler::CompilerCommand;
+pub use vorpal_ingest::CppTextualIncludeContext;
 pub use vorpal_kg::{Direction, EdgeType, Kg};
 use vorpal_kg::NodeId;
 
@@ -411,6 +412,7 @@ pub struct PendingPersist {
   /// before the manifest/commit, so the deferred tail overlaps it exactly like the
   /// synchronous tail does.
   pack: Option<std::thread::JoinHandle<io::Result<()>>>,
+  cpp_context_inputs: Vec<Vec<vorpal_ingest::SourceContextInput>>,
 }
 
 impl PendingPersist {
@@ -429,8 +431,15 @@ impl PendingPersist {
       reach_graph,
       kg,
       layout,
-      pack,
+      mut pack,
+      cpp_context_inputs,
     } = self;
+    for inputs in &cpp_context_inputs {
+      if let Err(err) = records::read_context_inputs(inputs) {
+        if let Some(pack) = pack.take() { let _ = pack.join(); }
+        return Err(format!("textual include inputs changed before persistence: {err:?}"));
+      }
+    }
     let evidence_bases = kg
       .node_id_map(&layout)
       .map_err(|err| format!("evidence bases: {err}"))?;
@@ -471,6 +480,9 @@ impl PendingPersist {
     manifest
       .save(&staging.join("manifest.bin"))
       .map_err(|err| format!("manifest save failed: {err}"))?;
+    for inputs in &cpp_context_inputs {
+      records::read_context_inputs(inputs).map_err(|err| format!("textual include inputs changed before commit: {err:?}"))?;
+    }
     let id = commit_generation(&out, &prior, staging)
       .map_err(|err| format!("generation commit failed: {err}"))?;
     Ok(out.join("gen").join(id))
@@ -532,7 +544,7 @@ fn build_index_inner(
   live: Option<&mut LiveSlots>,
   env: &vorpal_ingest::ExtractionEnv,
 ) -> Result<IndexReport, Box<dyn Error>> {
-  if (env.cpp_macro_include_roots.is_some() || env.cpp_macro_compiler.is_some())
+  if (env.cpp_macro_include_roots.is_some() || env.cpp_macro_compiler.is_some() || !env.cpp_textual_include_contexts.is_empty())
     && vorpal_ingest::cpp_macro_evidence::path_has_redirected_components(src)
   {
     return Err(io::Error::other(
@@ -579,6 +591,7 @@ fn build_index_inner(
   let hinted_prior = vorpal_kg::resolve_index_dir(out);
   let mut manifest = 'scan: {
     if let Some(hints) = hints
+      && !extractor.cpp_textual_contexts_enabled()
       && let Ok(prior_manifest) = Manifest::load(&hinted_prior.join("manifest.bin"))
       && let Some(patched) = patch_manifest(&prior_manifest, hints, |p| extractor.handles(p))
     {
@@ -590,6 +603,7 @@ fn build_index_inner(
     vorpal_kg::phase_stamp("scan: manifest done");
     swept
   };
+  extractor.validate_cpp_context_manifest(manifest.entries().iter().map(|entry| Path::new(&entry.path))).map_err(io::Error::other)?;
   manifest.set_grammar_stamp(vorpal_ingest::extraction_identity(
     vorpal_ingest::global_grammar_stamp(),
     rules_digest,
@@ -1086,6 +1100,10 @@ fn build_index_inner(
       return Err(err.into());
     }
   };
+  if let Err(err) = extractor.check_cpp_context_freshness() {
+    let _ = pack_thread.join();
+    return Err(io::Error::other(err).into());
+  }
   // Near-clone pairing starts HERE — its input (the sig spill) closed with the stream, and
   // it needs nothing else, so it overlaps the pack tail, cochange, the table build, AND
   // resolution instead of only the link (it was the link's critical path by ~110ms at
@@ -1246,6 +1264,7 @@ fn build_index_inner(
       live_files: manifest.entries().len(),
     },
   };
+  extractor.check_cpp_context_freshness().map_err(io::Error::other)?;
   if let Some(slots) = live {
     // Deferred persistence: the sealed graph is answer-complete NOW — hand it to the daemon
     // and move the artifact writes + content-addressed commit onto its background thread.
@@ -1269,6 +1288,7 @@ fn build_index_inner(
       kg,
       layout,
       pack: Some(pack_thread),
+      cpp_context_inputs: extractor.cpp_context_input_manifests(),
     });
     return Ok(report);
   }
@@ -1314,6 +1334,7 @@ fn build_index_inner(
   sigs_result??;
   reach_result?;
   kg_result?;
+  extractor.check_cpp_context_freshness().map_err(io::Error::other)?;
   manifest.save(&staging.join("manifest.bin"))?;
   // Commit: name the staged generation by its content, atomically repoint CURRENT, GC.
   commit_generation(out, &prior, staging)?;
@@ -1324,7 +1345,7 @@ fn build_index_inner(
 /// (sorted) order. Lazy sidecars added after commit (the ANN tier) are deliberately excluded:
 /// they are stamp-validated against the node segment, deterministic given the generation, and
 /// must not change its identity.
-pub(crate) const GENERATION_ARTIFACTS: [&str; 10] = [
+pub(crate) const GENERATION_ARTIFACTS: [&str; 11] = [
   "dataflow.bin",
   "reach.bin",
   "evidence.bin",
@@ -1335,6 +1356,7 @@ pub(crate) const GENERATION_ARTIFACTS: [&str; 10] = [
   "products.idx",
   "products.pack",
   "strings.heap",
+  "source_contexts.json",
 ];
 
 /// Whether `name` is a legal generation-artifact name: the fixed flat set, a bucketed
@@ -7019,8 +7041,9 @@ pub fn explain_edge_on(
     rows.len(),
     if rows.len() == 1 { "" } else { "s" }
   );
-  let from_path = from_view.path.to_string();
   for row in rows {
+    let physical_paths = kg.evidence_paths(&row);
+    let from_path = if physical_paths.is_empty() { "(physical provenance unavailable)".into() } else { physical_paths.join(" | ") };
     let reason = vorpal_ingest::ResolveReason::from_tag(row.reason).label();
     let grade = confidence_label(row.confidence);
     let _ = writeln!(
@@ -7055,6 +7078,12 @@ pub fn explain_edge_on(
     // only when the file's current bytes still match the digest this generation indexed, so
     // the rendered token can never be silently inconsistent with the edge. Without a pack
     // digest to check (older generation), the snippet is labeled as current-file contents.
+    if let Some(context) = from_view.source_context
+      && records::definition_context_parts(context, 0).is_err() {
+      let _ = writeln!(out, "    (include input changed since indexing — snippet omitted)");
+      continue;
+    }
+    if physical_paths.len() != 1 { continue; }
     if let Ok(bytes) = fs::read(&from_path) {
       let indexed_digest = artifacts_dir
         .and_then(open_generation_pack)
@@ -7449,7 +7478,7 @@ pub fn explain_absence_on(kg: &Kg, from_id: u64, name: &str) -> Result<String, B
       out,
       "  no {} edge  [{verdict}]  {}:{}..{}",
       vorpal_kg::EdgeType(row.etype).name(),
-      from_view.path,
+      kg.evidence_paths(&row).join(" | "),
       row.span_start,
       row.span_end
     );

@@ -67,6 +67,28 @@ anonymous:
           kind: identifier
 ---
 
+id: cpp-native-function-body
+language: Cpp
+role: item
+symbolType: function
+rule:
+  kind: function_definition
+  all:
+    - has:
+        field: name
+        pattern: $NAME
+    - has:
+        field: arguments
+        kind: argument_list
+    - has:
+        field: body
+        kind: compound_statement
+name: $NAME
+# A native generator is an original local body boundary, not an original named
+# function. Generated symbols require separate explicit expansion provenance.
+anonymous: true
+---
+
 id: cpp-class
 language: Cpp
 role: item

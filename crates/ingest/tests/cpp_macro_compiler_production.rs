@@ -7,11 +7,1239 @@ use vorpal_ingest::{ExtractionEnv, OutlineExtractor, encode_product_into};
 const SOURCE: &str = "#include <unknown-sdk.h>\nvoid run() { CHECK(value())\nafter(); }\n#undef CHECK\nvoid CHECK(int);\nvoid ordinary() { CHECK(other()); }\nvoid value() {}\nvoid after() {}\nvoid other() {}\n";
 
 #[test]
+fn native_try_prefixes_preserve_calls_and_decline_unproven_handlers() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "// GrÃ¼ÃŸe æ—¥æœ¬èªž\nvoid run() { CHECK { body(); } HANDLE { recovered(); } after(); }\n#undef CHECK\n#undef HANDLE\nvoid ordinary() { CHECK(other()); HANDLE(); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK try\n#define HANDLE catch (...)\n".replace('\n', newline),
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "control-prefix-origin",
+      "control-prefix-anchor",
+      "control-prefix-offset",
+      "control-prefix-extra",
+      "control-prefix",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "control-prefix",
+        "{mode}: {}",
+        product.error_nodes
+      );
+    }
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    for name in ["body", "recovered", "after", "other", "HANDLE"] {
+      let call = product
+        .refs
+        .iter()
+        .find(|r| r.kind == 0 && r.name == name)
+        .unwrap();
+      assert_eq!(
+        &source[call.start as usize..call.end as usize],
+        format!("{name}()")
+      );
+    }
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "CHECK")
+        .count(),
+      1
+    );
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        product.source_size,
+        product.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handed = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handed, &mut encoded);
+    assert_eq!(owned, encoded);
+    for bad in [
+      source.replace("body();", "body()"),
+      source.replace("HANDLE { recovered(); }", ""),
+    ] {
+      fs::write(&path, &bad).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &bad)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+    fs::write(&path, &source).unwrap();
+    for header in [
+      "#define CHECK() try\n#define HANDLE catch (...)\n",
+      "#define CHECK try\n#define HANDLE catch (int)\n",
+      "#define CHECK int\n#define HANDLE catch (...)\n",
+    ] {
+      fs::write(dir.path().join("proof.h"), header).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &source)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+    assert_eq!(
+      extractor.extraction_identity_for_path(path.to_str().unwrap()),
+      None
+    );
+  }
+}
+
+#[test]
+fn native_warning_inventory_requires_matching_active_literal_source_directives() {
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "#pragma warning(push)\n#pragma warning(disable:4180) // literal original comment\n#pragma optimize(\"\", off)\nvoid run() { CHECK { body(); } HANDLE { recovered(); } }\n#pragma optimize(\"\", on)\n#pragma warning(pop)\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK try\n#define HANDLE catch (...)\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "control-prefix-pragma-missing",
+      "control-prefix-pragma-mismatch",
+      "control-prefix-pragma-offset",
+      "control-prefix-pragma-duplicate",
+      "control-prefix",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(product.error_nodes == 0, mode == "control-prefix", "{mode}");
+    }
+    for directive in [
+      "#pragma pack(push,1)",
+      "#pragma warning(SETTING)",
+      "#pragma warning(disable:4180 4800)",
+      "#pragma optimize(\"g\",off)",
+      "#pragma optimize(\" \",off)",
+    ] {
+      let bad = source.replacen("#pragma warning(push)", directive, 1);
+      fs::write(&path, &bad).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &bad)
+          .unwrap()
+          .error_nodes
+          > 0,
+        "{directive}"
+      );
+    }
+  }
+}
+
+#[test]
+fn native_typed_handlers_require_unchanged_original_parameters() {
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "// GrÃ¼ÃŸe æ—¥æœ¬èªž\nvoid run() { CHECK { body(); } HANDLE /* physical */ (Token&) { recovered(); } after(); }\n#undef CHECK\n#undef HANDLE\nvoid ordinary() { HANDLE(); }\n".replace('\n',newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK try\n#define HANDLE(type_1) catch (type_1)\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "control-prefix-typed-origin",
+      "control-prefix-typed-token",
+      "control-prefix-typed-anchor",
+      "control-prefix-typed",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let p = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(p.error_nodes == 0, mode == "control-prefix-typed", "{mode}");
+      if mode == "control-prefix-typed" {
+        for name in ["body", "recovered", "after", "HANDLE"] {
+          let call = p
+            .refs
+            .iter()
+            .find(|r| r.kind == 0 && r.name == name)
+            .unwrap();
+          assert_eq!(
+            &source[call.start as usize..call.end as usize],
+            format!("{name}()")
+          );
+        }
+      }
+    }
+    for bad in [
+      source.replace("recovered();", "recovered()"),
+      source.replace("(Token&)", "()"),
+      source.replace("(Token&)", "(Token&, Token&)"),
+    ] {
+      fs::write(&path, &bad).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &bad)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+  }
+}
+
+#[test]
+fn native_namespace_registration_generators_keep_original_invocations_only() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source="// GrÃ¼ÃŸe æ—¥æœ¬èªž\nnamespace original { CHECK(Type)\nvoid following() { after(); } }\n#undef CHECK\nvoid ordinary() { CHECK(Type()); }\n".replace('\n',newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(T) namespace { Registry<T> registered(\"name\"); }\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for (mode, clean) in [
+      ("declaration-list-variables-truncated", false),
+      ("declaration-list-variables-warning-unpaired", false),
+      ("declaration-list-variables", true),
+      ("declaration-list-variables-warning", true),
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let p = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(p.error_nodes == 0, clean, "{mode}");
+      if clean {
+        assert!(!p.items.iter().any(|i| i.entry.name == "registered"));
+        let call = p
+          .refs
+          .iter()
+          .find(|r| r.kind == 0 && r.name == "after")
+          .unwrap();
+        assert_eq!(&source[call.start as usize..call.end as usize], "after()");
+        assert_eq!(
+          p.refs
+            .iter()
+            .filter(|r| r.kind == 0 && r.name == "CHECK")
+            .count(),
+          1
+        );
+      }
+    }
+    let p = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    let mut owned = Vec::new();
+    encode_product_into(&p, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        p.source_size,
+        p.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handed = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handed, &mut encoded);
+    assert_eq!(owned, encoded);
+    let bad = source.replace("after();", "after()");
+    fs::write(&path, &bad).unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &bad)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    let local = source.replace("namespace original", "void local()");
+    fs::write(&path, &local).unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &local)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    let effectful = source.replace("CHECK(Type)", "CHECK(Type())");
+    fs::write(&path, &effectful).unwrap();
+    fs::write(
+      dir.path().join("mode"),
+      "declaration-list-variables-effectful",
+    )
+    .unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &effectful)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+  }
+}
+
+#[test]
+fn native_inline_specifiers_keep_authored_function_types_and_calls() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "CHECK static unsigned int receive() { body(); return 1; }\n#undef CHECK\nvoid ordinary() { CHECK(other()); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(dir.path().join("proof.h"), "#define CHECK __forceinline\n").unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "inline-specifier-origin",
+      "inline-specifier-anchor",
+      "inline-specifier-offset",
+      "inline-specifier-extra",
+      "inline-specifier",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "inline-specifier",
+        "{mode}: {}",
+        product.error_nodes
+      );
+    }
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    let function = product
+      .items
+      .iter()
+      .find(|i| i.entry.name == "receive")
+      .unwrap();
+    assert_eq!(
+      &source[function.entry.range.byte_offset.clone()],
+      "CHECK static unsigned int receive() { body(); return 1; }"
+    );
+    for name in ["body", "other"] {
+      let call = product
+        .refs
+        .iter()
+        .find(|r| r.kind == 0 && r.name == name)
+        .unwrap();
+      assert_eq!(
+        &source[call.start as usize..call.end as usize],
+        format!("{name}()")
+      );
+    }
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "CHECK")
+        .count(),
+      1
+    );
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        product.source_size,
+        product.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handed = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handed, &mut encoded);
+    assert_eq!(owned, encoded);
+    let bad = source.replace("body();", "body()");
+    fs::write(&path, &bad).unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &bad)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK() __forceinline\n",
+    )
+    .unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    fs::write(dir.path().join("proof.h"), "#define CHECK int\n").unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    assert_eq!(
+      extractor.extraction_identity_for_path(path.to_str().unwrap()),
+      None
+    );
+  }
+}
+
+#[test]
+fn native_array_statement_lists_preserve_following_assignments_and_errors() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "void run(int *data) { CHECK(data[0]) /* following original assignment */\nx0 += 512; after(); }\n#undef CHECK\nvoid ordinary() { CHECK(other()); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(X) int x0 = SCALE(X); x0 += 1;\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "array-generator-origin",
+      "array-generator-offset",
+      "array-generator-length",
+      "array-generator-unclosed",
+      "array-generator",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "array-generator",
+        "{mode}: {}",
+        product.error_nodes
+      );
+    }
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "CHECK")
+        .count(),
+      1
+    );
+    for name in ["after", "other"] {
+      let call = product
+        .refs
+        .iter()
+        .find(|r| r.kind == 0 && r.name == name)
+        .unwrap();
+      assert_eq!(
+        &source[call.start as usize..call.end as usize],
+        format!("{name}()")
+      );
+    }
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        product.source_size,
+        product.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handed = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handed, &mut encoded);
+    assert_eq!(owned, encoded);
+    for bad in [
+      source.replace("after();", "after()"),
+      source.replace("CHECK(data[0])", "if(ok) CHECK(data[0])"),
+      source.replace("CHECK(data[0])", "object.CHECK(data[0])"),
+    ] {
+      fs::write(&path, &bad).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &bad)
+          .unwrap()
+          .error_nodes
+          > 0,
+        "{bad}"
+      );
+    }
+    for (mode, invocation) in [
+      ("array-generator-call", "CHECK(data[index()])"),
+      ("array-generator-expanding", "CHECK(DISPATCH[0])"),
+    ] {
+      let bad = source.replace("CHECK(data[0])", invocation);
+      fs::write(&path, &bad).unwrap();
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &bad)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+    fs::write(&path, &source).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+  }
+}
+
+#[test]
+fn native_case_loop_generators_keep_original_bodies_and_reject_wrong_contexts() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "void run() { switch(0) { CHECK(42) /* body */ { body(); } break; } after(); }\n#undef CHECK\nvoid ordinary() { CHECK(other()); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(x) case x: for(int i=0;i<2;++i)\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "case-loop-origin",
+      "case-loop-unclosed",
+      "case-loop-extra",
+      "case-loop",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "case-loop",
+        "{mode}: {}",
+        product.error_nodes
+      );
+    }
+    assert_eq!(
+      extractor.extraction_identity_for_path(path.to_str().unwrap()),
+      None
+    );
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&product, &mut encoded);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        product.source_size,
+        product.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(encoded, streamed);
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handed = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut handed_bytes = Vec::new();
+    encode_product_into(&handed, &mut handed_bytes);
+    assert_eq!(encoded, handed_bytes);
+    assert!(product.refs.iter().any(|r| r.kind == 0 && r.name == "body"));
+    assert!(
+      product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && r.name == "after")
+    );
+    assert_eq!(
+      product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == "CHECK")
+        .count(),
+      1
+    );
+    assert!(!product.items.iter().any(|i| i.entry.name == "proof"));
+    for changed in [
+      source.replace("body();", "body()"),
+      source.replace("switch(0)", "if(true)"),
+      source.replace("CHECK(42)", "if(true) CHECK(42)"),
+      source.replace("CHECK(42)", "object.CHECK(42)"),
+    ] {
+      fs::write(&path, &changed).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &changed)
+          .unwrap()
+          .error_nodes
+          > 0,
+        "{changed}"
+      );
+    }
+  }
+}
+
+#[test]
+fn native_complete_declaration_generators_keep_original_invocations_and_following_code() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "namespace scope { CHECK(Type)\nvoid following() { after(); } }\n#undef CHECK\nvoid ordinary() { CHECK(other()); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(x) template<> int storage<x>(); template<> int other<x>();\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "declaration-list-origin",
+      "declaration-list-unclosed",
+      "declaration-list-expression",
+      "declaration-list",
+      "declaration-list-definitions",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        matches!(mode, "declaration-list" | "declaration-list-definitions"),
+        "{mode}: {}",
+        product.error_nodes
+      );
+      if product.error_nodes == 0 {
+        assert!(
+          !product
+            .items
+            .iter()
+            .any(|i| ["storage", "other", "Type"].contains(&i.entry.name.as_ref()))
+        );
+        assert_eq!(
+          product
+            .refs
+            .iter()
+            .filter(|r| r.kind == 0 && r.name == "CHECK")
+            .count(),
+          1
+        );
+        for name in ["after", "other"] {
+          let call = product
+            .refs
+            .iter()
+            .find(|r| r.kind == 0 && r.name == name)
+            .unwrap();
+          assert_eq!(
+            &source[call.start as usize..call.end as usize],
+            format!("{name}()")
+          );
+        }
+        let mut owned = Vec::new();
+        encode_product_into(&product, &mut owned);
+        let mut streamed = Vec::new();
+        extractor
+          .extract_product_encoded(
+            path.to_str().unwrap(),
+            &source,
+            product.source_size,
+            product.source_mtime_ns,
+            &mut streamed,
+          )
+          .unwrap();
+        assert_eq!(owned, streamed);
+        let raw =
+          vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+        let mut handed = Vec::new();
+        encode_product_into(
+          &extractor
+            .extract_product_from_root(path.to_str().unwrap(), &raw)
+            .unwrap(),
+          &mut handed,
+        );
+        assert_eq!(owned, handed);
+        assert_eq!(
+          extractor.extraction_identity_for_path(path.to_str().unwrap()),
+          None
+        );
+      }
+    }
+    for damage in [
+      source.replace("after();", "after()"),
+      source.replace("namespace scope {", "void invalid() {"),
+      source.replace("CHECK(Type)", "if (ready) CHECK(Type)"),
+    ] {
+      fs::write(&path, &damage).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &damage)
+          .unwrap()
+          .error_nodes
+          > 0,
+        "{damage}"
+      );
+    }
+    fs::write(&path, &source).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+  }
+}
+
+#[test]
+fn nested_native_numeric_argument_macros_preserve_runtime_calls_and_original_semicolons() {
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "void run() { CHECK(value() + BUTTON)\nafter(); }\n#undef CHECK\nvoid ordinary() { CHECK(other()); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    let header = "#define CHECK(x) if(x) { consume(); }\n#define BUTTON 1\n";
+    fs::write(dir.path().join("proof.h"), header).unwrap();
+    for mode in [
+      "literal-argument-anchor",
+      "literal-argument-offset",
+      "literal-argument-duplicate",
+      "literal-argument",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "literal-argument",
+        "{mode}"
+      );
+      if mode == "literal-argument" {
+        for name in ["value", "after", "other"] {
+          let call = product
+            .refs
+            .iter()
+            .find(|r| r.kind == 0 && r.name == name)
+            .unwrap();
+          assert_eq!(
+            &source[call.start as usize..call.end as usize],
+            format!("{name}()")
+          );
+        }
+        assert!(
+          !product
+            .refs
+            .iter()
+            .any(|r| ["BUTTON", "consume"].contains(&r.name.as_str()) && r.kind == 0)
+        );
+      }
+    }
+    for replacement in ["sizeof", "(1)", "1 + 2"] {
+      fs::write(
+        dir.path().join("proof.h"),
+        header.replace("BUTTON 1", &format!("BUTTON {replacement}")),
+      )
+      .unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &source)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(x) do { consume(x); } while(0)\n#define BUTTON 1\n",
+    )
+    .unwrap();
+    assert!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap()
+        .error_nodes
+        > 0
+    );
+    let terminated = source.replace("CHECK(value() + BUTTON)", "CHECK(value() + BUTTON);");
+    fs::write(&path, &terminated).unwrap();
+    assert_eq!(
+      extractor
+        .extract_product(path.to_str().unwrap(), &terminated)
+        .unwrap()
+        .error_nodes,
+      0
+    );
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(x) { ignored(); }\n#define BUTTON 1\n",
+    )
+    .unwrap();
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    assert_eq!(product.error_nodes, 0);
+    assert!(
+      !product
+        .refs
+        .iter()
+        .any(|r| r.kind == 0 && r.name == "value")
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+  }
+}
+
+#[test]
+fn native_function_head_generators_retain_anonymous_original_body_boundaries() {
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "CHECK(42) { body(); }\n#undef CHECK\nvoid CHECK(int x) { ordinary(); }\nvoid following() { after(); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(x) void test_##x()\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "function-prefix-origin",
+      "function-prefix-unclosed",
+      "function-prefix",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "function-prefix",
+        "{mode}"
+      );
+      if mode == "function-prefix" {
+        assert!(!product.items.iter().any(|i| i.entry.name == "test_42"));
+        assert_eq!(
+          product
+            .items
+            .iter()
+            .filter(|i| i.entry.name == "CHECK")
+            .count(),
+          1
+        );
+        for name in ["body", "ordinary", "after"] {
+          let call = product
+            .refs
+            .iter()
+            .find(|r| r.kind == 0 && r.name == name)
+            .unwrap();
+          assert_eq!(
+            &source[call.start as usize..call.end as usize],
+            format!("{name}()")
+          );
+        }
+      }
+    }
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        product.source_size,
+        product.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(owned, streamed);
+    use vorpal_core::tree_sitter::LanguageExt;
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handed = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handed, &mut encoded);
+    assert_eq!(owned, encoded);
+    for damage in [
+      source.replace("body();", "body()"),
+      source.replace(
+        "CHECK(42) { body(); }",
+        "void invalid() { CHECK(42) { body(); } }",
+      ),
+    ] {
+      fs::write(&path, &damage).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &damage)
+          .unwrap()
+          .error_nodes
+          > 0,
+        "{damage}"
+      );
+    }
+    let separated = source.replace("CHECK(42)", "CHECK(42);");
+    fs::write(&path, &separated).unwrap();
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &separated)
+      .unwrap();
+    let raw = OutlineExtractor::new()
+      .unwrap()
+      .extract_product(path.to_str().unwrap(), &separated)
+      .unwrap();
+    assert_eq!(product.error_nodes, raw.error_nodes);
+    fs::write(&path, &source).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+  }
+}
+
+#[test]
+fn native_x_generators_use_exact_fresh_token_sites_in_direct_blocks() {
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = "void run() { CHECK(DISPATCH)\nafter(); }\n#undef CHECK\nvoid ordinary() { CHECK(other()); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(
+      dir.path().join("proof.h"),
+      "#define CHECK(X) X(First) X(Second)\n#define DISPATCH(T) if(ready) { consume<T>(); }\n",
+    )
+    .unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "x-generator-offset",
+      "x-generator-origin",
+      "x-generator-length",
+      "x-generator-unclosed",
+      "x-generator",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(product.error_nodes == 0, mode == "x-generator", "{mode}");
+      if mode == "x-generator" {
+        assert!(
+          !product
+            .refs
+            .iter()
+            .any(|r| ["DISPATCH", "first", "second", "consume"].contains(&r.name.as_str()))
+        );
+        for name in ["after", "other"] {
+          let call = product
+            .refs
+            .iter()
+            .find(|r| r.kind == 0 && r.name == name)
+            .unwrap();
+          assert_eq!(
+            &source[call.start as usize..call.end as usize],
+            format!("{name}()")
+          );
+        }
+        assert_eq!(
+          product
+            .refs
+            .iter()
+            .filter(|r| r.kind == 0 && r.name == "CHECK")
+            .count(),
+          1
+        );
+        let mut owned = Vec::new();
+        encode_product_into(&product, &mut owned);
+        let mut streamed = Vec::new();
+        extractor
+          .extract_product_encoded(
+            path.to_str().unwrap(),
+            &source,
+            product.source_size,
+            product.source_mtime_ns,
+            &mut streamed,
+          )
+          .unwrap();
+        assert_eq!(owned, streamed);
+        use vorpal_core::tree_sitter::LanguageExt;
+        let raw =
+          vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+        let handed = extractor
+          .extract_product_from_root(path.to_str().unwrap(), &raw)
+          .unwrap();
+        let mut encoded = Vec::new();
+        encode_product_into(&handed, &mut encoded);
+        assert_eq!(owned, encoded);
+      }
+    }
+    assert_eq!(
+      extractor.extraction_identity_for_path(path.to_str().unwrap()),
+      None
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+    // A generated statement list is not one statement inside a control arm.
+    let source = "void run() { if (ready) CHECK(DISPATCH)\nafter(); }\n";
+    fs::write(&path, source).unwrap();
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), source)
+      .unwrap();
+    assert!(product.error_nodes > 0);
+    for invalid in [
+      "void run() { CHECK(DISPATCH), after() }\n",
+      "void run() { CHECK(DISPATCH)\nafter() }\n",
+    ] {
+      fs::write(&path, invalid).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), invalid)
+        .unwrap();
+      assert!(product.error_nodes > 0);
+    }
+  }
+}
+
+#[test]
+fn fresh_native_stringification_and_pasting_keep_original_names_and_arguments() {
+  for newline in ["\n", "\r\n"] {
+    for pasted in [false, true] {
+      let dir = tempfile::tempdir().unwrap();
+      let path = dir.path().join("main.cc");
+      let invocation = if pasted {
+        "CHECK(value)"
+      } else {
+        "CHECK(value())"
+      };
+      let source = format!("// GrÃ¼ÃŸe æ—¥æœ¬èªž\nvoid run() {{ {invocation}\nafter(); }}\n#undef CHECK\nvoid CHECK(int); void ordinary() {{ CHECK(other()); }}\nvoid following() {{ later(); }}\n").replace('\n', newline);
+      fs::write(&path, &source).unwrap();
+      let header = if pasted {
+        "#define CHECK(x) try { log(#x); test_##x(); } catch (...) {}\n"
+      } else {
+        "#define CHECK(x) { log(#x); sink(x); }\n"
+      };
+      fs::write(dir.path().join("proof.h"), header.replace('\n', newline)).unwrap();
+      if pasted {
+        fs::write(dir.path().join("mode"), "native-operators").unwrap();
+      }
+      let env = ExtractionEnv {
+        cpp_macro_compiler: Some(provider::command(dir.path(), &path)),
+        ..Default::default()
+      };
+      let product = env
+        .extractor()
+        .unwrap()
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(product.error_nodes, 0, "pasted={pasted}");
+      for name in ["after", "other", "later"] {
+        let call = product
+          .refs
+          .iter()
+          .find(|r| r.kind == 0 && r.name == name)
+          .unwrap();
+        assert_eq!(
+          &source[call.start as usize..call.end as usize],
+          format!("{name}()")
+        );
+      }
+      assert!(
+        !product
+          .refs
+          .iter()
+          .any(|r| ["log", "sink", "test_value"].contains(&r.name.as_str()))
+      );
+      assert_eq!(
+        product
+          .refs
+          .iter()
+          .filter(|r| r.kind == 0 && r.name == "value")
+          .count(),
+        usize::from(!pasted)
+      );
+      assert_eq!(
+        product
+          .refs
+          .iter()
+          .filter(|r| r.kind == 0 && r.name == "CHECK")
+          .count(),
+        1
+      );
+      assert!(product.items.iter().any(|n| n.entry.name == "following"));
+      assert_eq!(fs::read_to_string(&path).unwrap(), source);
+      assert!(
+        OutlineExtractor::new()
+          .unwrap()
+          .extract_product(path.to_str().unwrap(), &source)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+  }
+}
+
+#[test]
+fn stringification_alone_does_not_turn_argument_text_into_runtime_calls() {
+  let dir = tempfile::tempdir().unwrap();
+  let path = dir.path().join("main.cc");
+  fs::write(&path, SOURCE).unwrap();
+  fs::write(
+    dir.path().join("proof.h"),
+    "#define CHECK(x) { log(#x); }\n",
+  )
+  .unwrap();
+  let product = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+    .unwrap()
+    .extract_product(path.to_str().unwrap(), SOURCE)
+    .unwrap();
+  assert_eq!(product.error_nodes, 0);
+  assert!(
+    !product
+      .refs
+      .iter()
+      .any(|r| r.kind == 0 && r.name == "value")
+  );
+  assert!(
+    product
+      .refs
+      .iter()
+      .any(|r| r.kind == 0 && r.name == "after")
+  );
+  assert!(
+    product
+      .refs
+      .iter()
+      .any(|r| r.kind == 0 && r.name == "other")
+  );
+}
+
+#[test]
+fn native_operator_recovery_retains_missing_original_semicolons() {
+  for (header, invocation) in [
+    (
+      "#define CHECK(x) do { log(#x); test_##x(); } while(false)\n",
+      "CHECK(value)",
+    ),
+    (
+      "#define CHECK(x) { log(#x); test_##x(); }\n",
+      "CHECK(value)\n#undef CHECK\nCHECK(other())",
+    ),
+  ] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let source = format!("void run() {{ {invocation}\nafter(); }}\n");
+    fs::write(&path, &source).unwrap();
+    fs::write(dir.path().join("proof.h"), header).unwrap();
+    fs::write(dir.path().join("mode"), "native-operators").unwrap();
+    let product = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap()
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    assert!(product.error_nodes > 0, "{header}");
+    assert_eq!(fs::read_to_string(&path).unwrap(), source);
+  }
+}
+
+#[test]
 fn fresh_compiler_products_keep_original_sites_and_never_authorize_replay() {
   for newline in ["\n", "\r\n"] {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.cc");
-    let source = format!("// Grüße 日本語{newline}{}", SOURCE.replace('\n', newline));
+    let source = format!(
+      "// GrÃ¼ÃŸe æ—¥æœ¬èªž{newline}{}",
+      SOURCE.replace('\n', newline)
+    );
     fs::write(&path, &source).unwrap();
     fs::write(
       dir.path().join("proof.h"),
@@ -364,4 +1592,116 @@ fn observed_type_name_expansions_are_not_published_as_original_named_types() {
     .collect();
   assert_eq!(types.len(), 1);
   assert!(source[types[0].entry.range.byte_offset.clone()].contains("ordinary"));
+}
+
+#[test]
+fn native_annotations_require_exact_empty_or_literal_warning_definitions() {
+  use vorpal_language::LanguageExt;
+  for newline in ["\n", "\r\n"] {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.cc");
+    let header = "#define CHECK __pragma(warning(push))\n#define EMPTY\n#define HANDLE __pragma(warning(pop))\n".replace('\n', newline);
+    let source = "// α\nvoid run() {\nCHECK\nEMPTY\nstatic int value;\nHANDLE\nafter(); }\n#undef CHECK\n#undef EMPTY\n#undef HANDLE\nvoid ordinary() { CHECK(); EMPTY(); HANDLE(); }\nvoid following() { final_call(); }\n".replace('\n', newline);
+    fs::write(&path, &source).unwrap();
+    fs::write(dir.path().join("proof.h"), &header).unwrap();
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+      .unwrap();
+    for mode in [
+      "annotation-prefix-origin",
+      "annotation-prefix-anchor",
+      "annotation-prefix-offset",
+      "annotation-prefix-token",
+      "annotation-prefix-empty-origin",
+      "annotation-prefix",
+    ] {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let product = extractor
+        .extract_product(path.to_str().unwrap(), &source)
+        .unwrap();
+      assert_eq!(
+        product.error_nodes == 0,
+        mode == "annotation-prefix",
+        "{mode}"
+      );
+    }
+    let product = extractor
+      .extract_product(path.to_str().unwrap(), &source)
+      .unwrap();
+    for (name, spelling) in [
+      ("CHECK", "CHECK()"),
+      ("EMPTY", "EMPTY()"),
+      ("HANDLE", "HANDLE()"),
+      ("after", "after()"),
+      ("final_call", "final_call()"),
+    ] {
+      let calls: Vec<_> = product
+        .refs
+        .iter()
+        .filter(|r| r.kind == 0 && r.name == name)
+        .collect();
+      assert_eq!(calls.len(), 1, "{name}");
+      assert_eq!(
+        &source[calls[0].start as usize..calls[0].end as usize],
+        spelling
+      );
+    }
+    assert!(product.items.iter().any(|i| i.entry.name == "following"));
+    let mut owned = Vec::new();
+    encode_product_into(&product, &mut owned);
+    let mut streamed = Vec::new();
+    extractor
+      .extract_product_encoded(
+        path.to_str().unwrap(),
+        &source,
+        product.source_size,
+        product.source_mtime_ns,
+        &mut streamed,
+      )
+      .unwrap();
+    assert_eq!(owned, streamed);
+    let raw =
+      vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(&source);
+    let handoff = extractor
+      .extract_product_from_root(path.to_str().unwrap(), &raw)
+      .unwrap();
+    let mut encoded = Vec::new();
+    encode_product_into(&handoff, &mut encoded);
+    assert_eq!(owned, encoded);
+    for invalid in [
+      source.replace("after();", "after()"),
+      source.replace("CHECK();", "CHECK()"),
+      source.replace("static int value;", "static int value"),
+    ] {
+      fs::write(&path, &invalid).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &invalid)
+          .unwrap()
+          .error_nodes
+          > 0,
+        "{invalid}"
+      );
+    }
+    fs::write(&path, &source).unwrap();
+    for invalid_header in [
+      header.replace("#define EMPTY", "#define EMPTY 1"),
+      header.replace(
+        "#define CHECK __pragma(warning(push))",
+        "#define CHECK __pragma(warning(disable:4100))",
+      ),
+      header.replace("#define EMPTY", "#define EMPTY()"),
+      header.replace("warning(push)", "warning(OPERAND)"),
+    ] {
+      fs::write(dir.path().join("proof.h"), invalid_header).unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), &source)
+          .unwrap()
+          .error_nodes
+          > 0
+      );
+    }
+  }
 }

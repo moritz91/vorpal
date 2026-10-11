@@ -7,7 +7,7 @@
 //! temp file written behind a `BufWriter` and a streaming read whose in-flight memory is a
 //! few chunks.
 //!
-//! Records are fixed-width 34-byte little-endian, portable by construction, but the file is
+//! Records are fixed-width 43-byte little-endian, portable by construction, but the file is
 //! **process-private**: it stores interned `NameId` bits, which are meaningless outside the
 //! process that wrote them (and are never stable across runs). Create, read, delete — never
 //! persist.
@@ -24,7 +24,8 @@ use crate::reference::{RefForm, RefKind, Reference};
 /// Bytes per spilled reference record.
 // 39 since G-M2: +4 receiver-type NameId bits (0 = none) +1 origin tag. Process-private
 // scratch — no versioning, both sides are this binary.
-pub(crate) const RECORD: usize = 39;
+// +4 since textual include ownership: a typed, session-private context id.
+pub(crate) const RECORD: usize = 43;
 
 /// References per read chunk (~1 MB in flight per chunk).
 pub const SPILL_CHUNK: usize = 32_768;
@@ -83,6 +84,7 @@ pub(crate) fn encode_record(reference: &Reference, buf: &mut [u8; RECORD]) {
   let receiver_type = reference.receiver_type.map(NameId::to_bits).unwrap_or(0);
   buf[34..38].copy_from_slice(&receiver_type.to_le_bytes());
   buf[38] = reference.receiver_type_origin;
+  buf[39..43].copy_from_slice(&reference.source_context.map(crate::ContextId::bits).unwrap_or(0).to_le_bytes());
 }
 
 pub(crate) fn decode_record<'i>(interner: &'i Interner, buf: &[u8; RECORD]) -> Reference<'i> {
@@ -103,6 +105,7 @@ pub(crate) fn decode_record<'i>(interner: &'i Interner, buf: &[u8; RECORD]) -> R
     alias: interner.id_from_bits(u32_at(30)),
     receiver_type: interner.id_from_bits(u32_at(34)),
     receiver_type_origin: buf[38],
+    source_context: crate::ContextId::from_bits(u32_at(39)),
   }
 }
 

@@ -169,6 +169,23 @@
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
+            "name": "_macro_function_definition"
+          },
+          "named": true,
+          "value": "function_definition"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
             "name": "_native_dll_linkage"
           },
           "named": true,
@@ -378,6 +395,14 @@
           },
           "named": true,
           "value": "preproc_ifdef"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
         },
         {
           "type": "ALIAS",
@@ -5268,6 +5293,10 @@
         {
           "type": "STRING",
           "value": "thread_local"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_proven_inline_specifier_macro"
         }
       ]
     },
@@ -6662,6 +6691,15 @@
         {
           "type": "SYMBOL",
           "name": "conditional_split_if_statement"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_macro_case_loop_statement"
+          },
+          "named": true,
+          "value": "case_statement"
         }
       ]
     },
@@ -14826,43 +14864,117 @@
       ]
     },
     "try_statement": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "try"
-        },
-        {
-          "type": "FIELD",
-          "name": "body",
-          "content": {
-            "type": "SYMBOL",
-            "name": "compound_statement"
+      "type": "PREC_RIGHT",
+      "value": 1,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "try"
+              },
+              {
+                "type": "ALIAS",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "_proven_try_macro"
+                },
+                "named": false,
+                "value": "try"
+              }
+            ]
+          },
+          {
+            "type": "FIELD",
+            "name": "body",
+            "content": {
+              "type": "SYMBOL",
+              "name": "compound_statement"
+            }
+          },
+          {
+            "type": "REPEAT1",
+            "content": {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "catch_clause"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_conditional_catch_if"
+                  },
+                  "named": true,
+                  "value": "preproc_if"
+                },
+                {
+                  "type": "ALIAS",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "_conditional_catch_ifdef"
+                  },
+                  "named": true,
+                  "value": "preproc_ifdef"
+                }
+              ]
+            }
           }
-        },
-        {
-          "type": "REPEAT1",
-          "content": {
-            "type": "SYMBOL",
-            "name": "catch_clause"
-          }
-        }
-      ]
+        ]
+      }
     },
     "catch_clause": {
       "type": "SEQ",
       "members": [
         {
-          "type": "STRING",
-          "value": "catch"
-        },
-        {
-          "type": "FIELD",
-          "name": "parameters",
-          "content": {
-            "type": "SYMBOL",
-            "name": "parameter_list"
-          }
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "STRING",
+                      "value": "catch"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_proven_catch_parameter_macro"
+                      },
+                      "named": false,
+                      "value": "catch"
+                    }
+                  ]
+                },
+                {
+                  "type": "FIELD",
+                  "name": "parameters",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "parameter_list"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_proven_catch_all_macro"
+              },
+              "named": false,
+              "value": "catch"
+            }
+          ]
         },
         {
           "type": "FIELD",
@@ -21588,6 +21700,15 @@
         {
           "type": "SYMBOL",
           "name": "conditional_split_if_statement"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_macro_case_loop_statement"
+          },
+          "named": true,
+          "value": "case_statement"
         }
       ]
     },
@@ -21741,6 +21862,14 @@
           },
           "named": true,
           "value": "declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
         },
         {
           "type": "ALIAS",
@@ -22393,6 +22522,14 @@
           "value": "declaration"
         },
         {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
@@ -22772,8 +22909,22 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "STRING",
-          "value": "@try"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "@try"
+            },
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_proven_try_macro"
+              },
+              "named": false,
+              "value": "try"
+            }
+          ]
         },
         {
           "type": "FIELD",
@@ -22806,21 +22957,54 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "STRING",
-          "value": "@catch"
-        },
-        {
-          "type": "FIELD",
-          "name": "parameters",
-          "content": {
-            "type": "ALIAS",
-            "content": {
-              "type": "SYMBOL",
-              "name": "_objc_catch_parameters"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "STRING",
+                      "value": "@catch"
+                    },
+                    {
+                      "type": "ALIAS",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_proven_catch_parameter_macro"
+                      },
+                      "named": false,
+                      "value": "catch"
+                    }
+                  ]
+                },
+                {
+                  "type": "FIELD",
+                  "name": "parameters",
+                  "content": {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_objc_catch_parameters"
+                    },
+                    "named": true,
+                    "value": "parameter_list"
+                  }
+                }
+              ]
             },
-            "named": true,
-            "value": "parameter_list"
-          }
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_proven_catch_all_macro"
+              },
+              "named": false,
+              "value": "catch"
+            }
+          ]
         },
         {
           "type": "FIELD",
@@ -28093,6 +28277,14 @@
           "value": "declaration"
         },
         {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
@@ -29246,6 +29438,118 @@
         ]
       }
     },
+    "_macro_function_definition": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_proven_function_macro"
+            },
+            "named": true,
+            "value": "identifier"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "arguments",
+          "content": {
+            "type": "SYMBOL",
+            "name": "argument_list"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "body",
+          "content": {
+            "type": "SYMBOL",
+            "name": "compound_statement"
+          }
+        }
+      ]
+    },
+    "macro_declaration": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_proven_declaration_macro"
+            },
+            "named": true,
+            "value": "identifier"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "arguments",
+          "content": {
+            "type": "SYMBOL",
+            "name": "argument_list"
+          }
+        }
+      ]
+    },
+    "_macro_case_loop_statement": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_proven_case_loop_macro"
+            },
+            "named": true,
+            "value": "identifier"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "arguments",
+          "content": {
+            "type": "SYMBOL",
+            "name": "argument_list"
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "body",
+          "content": {
+            "type": "SYMBOL",
+            "name": "compound_statement"
+          }
+        }
+      ]
+    },
+    "macro_annotation": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_proven_annotation_macro"
+            },
+            "named": true,
+            "value": "identifier"
+          }
+        }
+      ]
+    },
     "_cli_top_level_item": {
       "type": "CHOICE",
       "members": [
@@ -29419,6 +29723,23 @@
           },
           "named": true,
           "value": "preproc_ifdef"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_macro_function_definition"
+          },
+          "named": true,
+          "value": "function_definition"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
         },
         {
           "type": "ALIAS",
@@ -29627,6 +29948,14 @@
           },
           "named": true,
           "value": "preproc_ifdef"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
         },
         {
           "type": "ALIAS",
@@ -31525,6 +31854,14 @@
           "value": "preproc_ifdef"
         },
         {
+          "type": "SYMBOL",
+          "name": "macro_declaration"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "macro_annotation"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
@@ -32668,6 +33005,112 @@
           ]
         }
       ]
+    },
+    "_conditional_catch_if": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "PATTERN",
+            "value": "#[ \t]*if"
+          },
+          "named": false,
+          "value": "#if"
+        },
+        {
+          "type": "FIELD",
+          "name": "condition",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_preproc_expression"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "\n"
+        },
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "SYMBOL",
+            "name": "catch_clause"
+          }
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "PATTERN",
+            "value": "#[ \t]*endif"
+          },
+          "named": false,
+          "value": "#endif"
+        },
+        {
+          "type": "STRING",
+          "value": "\n"
+        }
+      ]
+    },
+    "_conditional_catch_ifdef": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "PATTERN",
+                "value": "#[ \t]*ifdef"
+              },
+              "named": false,
+              "value": "#ifdef"
+            },
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "PATTERN",
+                "value": "#[ \t]*ifndef"
+              },
+              "named": false,
+              "value": "#ifndef"
+            }
+          ]
+        },
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "\n"
+        },
+        {
+          "type": "REPEAT1",
+          "content": {
+            "type": "SYMBOL",
+            "name": "catch_clause"
+          }
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "PATTERN",
+            "value": "#[ \t]*endif"
+          },
+          "named": false,
+          "value": "#endif"
+        },
+        {
+          "type": "STRING",
+          "value": "\n"
+        }
+      ]
     }
   },
   "extras": [
@@ -33356,6 +33799,38 @@
     {
       "type": "SYMBOL",
       "name": "_proven_open_if_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_function_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_declaration_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_case_loop_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_inline_specifier_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_try_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_catch_all_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_catch_parameter_macro"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_proven_annotation_macro"
     }
   ],
   "inline": [
