@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 from cpp_macro_native_projection import project_root, validated_hash_offsets, observed_literal_once_lines
-from cpp_macro_clang_context import clang_plan, project_clang_root, sdk_identity
+from cpp_macro_clang_context import clang_plan, project_clang_root, sdk_identity, clang_diagnostic_line
 
 
 def digest(data):
@@ -191,6 +191,12 @@ def main():
         lines = text.split('\n')
         directives = {t.location.line for t in tokens if t.spelling == "#"
                       and not lines[t.location.line-1][:t.location.column-1].strip()}
+        if args.driver_mode == "clang":
+            # Known diagnostics remain comparison tokens, independently emitted
+            # by real PP callbacks. Unsupported pragmas remain in the mandatory
+            # native directive inventory and conservatively decline recovery.
+            directives = {line for line in directives
+                          if not clang_diagnostic_line(lines[line-1].strip())}
         return ([t.spelling for t in tokens if t.location.line not in directives],
                 [lines[line-1].strip() for line in sorted(directives)], input_digests)
 

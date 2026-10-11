@@ -3,10 +3,21 @@ import sys
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from cpp_macro_clang_context import clang_plan, project_clang_root
+from cpp_macro_clang_context import clang_plan, project_clang_root, clang_diagnostic_line
 
 
 class ClangContext(unittest.TestCase):
+    def test_only_literal_bounded_clang_diagnostics_are_comparison_tokens(self):
+        for line in ['#pragma clang diagnostic push', '#pragma clang diagnostic pop',
+                     '#pragma GCC diagnostic ignored "-Wmissing-field-initializers"',
+                     '#pragma clang diagnostic ignored "-Warc-performSelector-leaks"']:
+            self.assertTrue(clang_diagnostic_line(line))
+        for line in ['#pragma unknown', '#pragma clang diagnostic error "-Wall"',
+                     '#pragma clang diagnostic ignored UNKNOWN',
+                     '#pragma clang diagnostic ignored "payload"',
+                     '#pragma clang diagnostic push extra']:
+            self.assertFalse(clang_diagnostic_line(line))
+
     def project(self, data, hashes=None):
         if hashes is None:
             hashes, offset = set(), 0

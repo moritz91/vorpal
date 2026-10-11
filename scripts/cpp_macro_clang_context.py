@@ -9,6 +9,10 @@ from pathlib import Path
 import re
 
 
+def clang_diagnostic_line(line):
+    return bool(re.fullmatch(r'#\s*pragma\s+(?:clang|GCC)\s+diagnostic\s+(?:push|pop|ignored\s+"-W[A-Za-z0-9-]+")', line))
+
+
 def clang_plan(arguments, translation_unit, physical):
     if (len(arguments) < 2 or arguments[-1] != '-fsyntax-only'
             or physical(arguments[-2]) != physical(translation_unit)):
