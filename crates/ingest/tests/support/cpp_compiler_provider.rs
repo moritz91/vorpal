@@ -151,6 +151,26 @@ fn compiler_provider_process() {
     packet["expansions"] = json!([{"name":"CHECK","start":start,"end":start+5,"definition":null},{"name":"HANDLE","start":field,"end":field+6,"definition":null}]);
     packet["expandedNames"] = json!(["CHECK", "HANDLE"]);
     packet["calleeSites"] = json!([{"name":"CHECK","start":start},{"name":"HANDLE","start":field}]);
+    if mode.starts_with("objc-ownership-builtin") {
+      let runs: Vec<_> = qualifiers.iter().map(|q| {
+        let ownership = match *q {
+          "__strong" => "strong", "__weak" => "weak",
+          "__unsafe_unretained" => "none", "__autoreleasing" => "autoreleasing",
+          _ => "invalid",
+        };
+        vec!["__attribute__", "(", "(", "objc_ownership", "(", ownership, ")", ")", ")"]
+      }).collect();
+      let mut tokens: Vec<_> = runs.iter().flatten().copied().collect();
+      if mode == "objc-ownership-builtin-mismatch" { tokens[5] = "other"; }
+      if mode == "objc-ownership-builtin-attribute" { tokens[3] = "unknown_attribute"; }
+      if mode == "objc-ownership-builtin-truncated" { tokens.remove(8); }
+      for key in ["nativeBefore", "nativeAfter", "observedTokens"] { packet[key] = json!(tokens); }
+      let mut origins: Vec<_> = runs.iter().zip([start, field]).flat_map(|(run,offset)| run.iter().map(move |_| json!({"offset":offset,"fromMacro":true}))).collect();
+      if mode == "objc-ownership-builtin-truncated" { origins.remove(8); }
+      if mode == "objc-ownership-builtin-origin" { origins[8]["fromMacro"] = json!(false); }
+      packet["observedTokenSites"] = json!(origins);
+      packet["expandedNames"] = json!(["CHECK", "HANDLE", qualifiers[0]]);
+    }
     if mode == "objc-ownership-origin" { packet["observedTokenSites"][0]["fromMacro"] = json!(false); }
     if mode == "objc-ownership-anchor" { packet["specifierMacros"][0]["definition"]["end"] = json!(header.len()+1); }
     if mode == "objc-ownership-offset" { packet["specifierMacros"][0]["start"] = json!(source.len()); }

@@ -59,6 +59,20 @@ fn native_objc_ownership_aliases_require_fresh_exact_sites() {
       fs::write(dir.path().join("proof.h"), format!("#define CHECK {value}\n#define HANDLE {value}\n")).unwrap();
       assert!(extractor.extract_product(path.to_str().unwrap(), &source).unwrap().error_nodes > 0, "{value}");
     }
+    for qualifier in ["__strong", "__weak", "__unsafe_unretained", "__autoreleasing"] {
+      fs::write(dir.path().join("proof.h"), format!("#define CHECK {qualifier}\n#define HANDLE {qualifier}\n").replace('\n', newline)).unwrap();
+      for mode in ["objc-ownership-builtin-mismatch", "objc-ownership-builtin-attribute", "objc-ownership-builtin-truncated", "objc-ownership-builtin-origin", "objc-ownership-builtin"] {
+        fs::write(dir.path().join("mode"), mode).unwrap();
+        let product = extractor.extract_product(path.to_str().unwrap(), &source).unwrap();
+        assert_eq!(product.error_nodes == 0, mode == "objc-ownership-builtin", "{qualifier}: {mode}");
+        if mode == "objc-ownership-builtin" {
+          let calls: Vec<_> = product.refs.iter().filter(|r| r.kind == 0).map(|r| r.name.as_str()).collect();
+          assert_eq!(calls.iter().filter(|&&n| n == "CHECK").count(), 1);
+          assert_eq!(calls.iter().filter(|&&n| n == "HANDLE").count(), 1);
+          assert!(calls.contains(&"allocate") && calls.contains(&"after"));
+        }
+      }
+    }
   }
 }
 

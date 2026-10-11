@@ -1,5 +1,61 @@
 # Fresh native C++ macro recovery
 
+## Separate macOS Foundation context
+
+The opt-in `--driver-mode clang` accepts only a bounded Objective-C++ syntax plan
+ending in the physical translation-unit path and `-fsyntax-only`. It requires
+one explicit `-isysroot` macOS SDK with Foundation and SDKSettings.json; the
+matching LLVM 19 observer uses `--native-driver-mode g++`. The default remains
+MSVC. Native output/input line markers, virtual predefine buffers and Clang
+enter/return flags are handled separately from MSVC warning frames. Only known
+Clang/GCC diagnostic push/pop/ignored controls become comparison tokens from
+the actual pragma callbacks. Both native streams must match these tokens too;
+unknown directives remain mandatory boundaries. No authored source is rewritten.
+
+`.github/workflows/objc-foundation.yml` uses a real macOS 15 runner and the SDK
+selected by `xcrun`. `scripts/cpp_objc_foundation_control.py` compiles, links and
+runs Catch2 with Apple Clang/Foundation both with ARC and manual reference
+counting. Matching Homebrew LLVM 19 performs the independently compared native
+preprocessing/physical callback captures against that same SDK. LLVM version
+equivalence is not inferred from Apple's Clang branding.
+
+The public Catch2 v2.13.9 source is checksum-pinned. Its separately constructed
+CRLF test mirror has exactly the SHA-256 and offsets of the existing Hades header
+(`ed84f023b21d49f1e337a70601e2af205767eec0004ec5624f5e8340d4b0f7bb`).
+No private Hades checkout or source edits are needed on the runner. Artifacts
+retain control logs and digests, not SDK buffers or native preprocessor output.
+
+This compiler context identifies the SDK settings, ordered explicit plan,
+compiler/provider/observer/libclang, environment and fresh physical input digests.
+Header digests and redirects are rechecked within the capture; source, real TU
+and definition buffers must remain unchanged. ARC and MRC have separate product
+identities. Existing native replay/cache gates still recapture on each listed
+file/query; these digests do not certify a dependency-complete replay cache.
+The SDK integration tests exercise owned/streaming extraction and ordinary MCP
+warm health/graph queries with external header edits/removal/restoration.
+
+On a real macOS developer host, prepare and validate the explicit command plans
+and `cppMacroCompiler` commands with:
+
+```sh
+python3 scripts/cpp_objc_foundation_control.py \
+  --llvm-root "$(brew --prefix llvm@19)" \
+  --observer /absolute/path/to/vorpal_cpp_macro_observer \
+  --directory /absolute/path/to/isolated-foundation-context
+VORPAL_TEST_OBJC_FOUNDATION_CASES=/absolute/path/to/isolated-foundation-context/cases.json \
+  cargo test -p vorpal-ingest --test cpp_objc_foundation -- --nocapture
+VORPAL_TEST_OBJC_FOUNDATION_CASES=/absolute/path/to/isolated-foundation-context/cases.json \
+  cargo test -p vorpal-mcp --test cpp_objc_foundation -- --nocapture
+```
+
+Commands/plans select one genuine context per physical file. A macOS proof is not
+an active Windows/MSVC branch or a portable offline packet: the productive Windows
+MCP configuration and installed release are unchanged. Its inactive Objective-C
+aliases remain raw unless that server is explicitly provided a genuine fresh
+context; CI observations never authorize later Windows product replay.
+
+## MSVC deployment
+
 `cppMacroCompiler` explicitly selects a **trusted local preprocess-only driver**.
 Listed translation units use the compiler path. Optional `cppMacroIncludeRoots`
 can recover other files independently; a failed compiler capture never falls back
