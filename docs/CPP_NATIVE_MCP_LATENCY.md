@@ -74,6 +74,11 @@ optional-header and genuine split-source controls.
 
 ## Windows Hades measurement, 2026-10-11
 
+The next [report-only MSVC dependency audit](CPP_NATIVE_DEPENDENCY_AUDIT.md)
+observes native file probes and directory inventories, with original bytes and
+negative states bracketed. It exposes remaining completeness/race boundaries;
+its reports never authorize reuse between requests.
+
 Both runs use published `0.10.2+moritz.5`, 20 explicit MSVC source contexts,
 the same genuine textual include group and 1,744 unchanged physical files.
 Only the candidate provider path changes in the isolated configuration. Three

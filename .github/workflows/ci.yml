@@ -77,6 +77,43 @@ jobs:
           cargo test --locked -p vorpal-outline --test c_family_outline_rules
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+  native-dependency-audit:
+    name: MSVC native dependency audit
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: microsoft/Detours
+          ref: e4bfd6b03e50de46b47abfbd1e46b384f0c5f833 # v4.0.1, MIT
+          path: .native-audit-detours
+      - name: Build isolated native probe and run real MSVC controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $vsRoot = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          & "$vsRoot/Common7/Tools/Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation | Out-Null
+          Push-Location .native-audit-detours/src
+          nmake /nologo
+          $detoursExit = $LASTEXITCODE
+          Pop-Location
+          if ($detoursExit -ne 0) { exit $detoursExit }
+          $build = "$env:RUNNER_TEMP/native-dependency-build"
+          cmake -S scripts/native_dependency_audit -B $build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DDETOURS_ROOT=$pwd/.native-audit-detours"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build $build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/cpp_native_dependency_control.py --launcher "$build/vorpal_native_audit.exe" --dll "$build/vorpal_native_probe64.dll" --directory "$env:RUNNER_TEMP/native-dependency-controls"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Preserve report-only control summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-dependency-audit-controls
+          path: ${{ runner.temp }}/native-dependency-controls/controls.json
+          if-no-files-found: ignore
+
   # The encoder's x86 GEMM rungs (crates/ann/src/encoder/{gemm_x86,gemm_i8}.rs) can
   # only be MEASURED on x86 hardware: the development machine is Apple silicon, where
   # Rosetta/QEMU emulation proves AVX2 correctness but no rate, and AVX-512 / VNNI are
