@@ -77,6 +77,10 @@ pipeline again even when source files and timestamps have not changed. An
 authorized source root is required; a frozen external index cannot claim freshness.
 This costs native preprocessing on every such query and can be slow on large SDKs.
 
+The [native dependency audit](CPP_NATIVE_DEPENDENCY_AUDIT.md) is a separate,
+report-only Windows research tool. It observes actual MSVC filesystem operations
+and directory-cache inputs; it is not enabled by this provider or the MCP config.
+
 The [latency benchmark](CPP_NATIVE_MCP_LATENCY.md) measures verified cold builds,
 startup and repeated ordinary MCP requests with an isolated external index.
 Pure lexer results may be reused for exactly equal buffers within one bracketed
