@@ -10,6 +10,31 @@ import hashlib
 import re
 
 
+class CaptureLexMemo:
+    """Two immutable lexer results, scoped to ONE native before/after capture.
+
+    Full byte equality is required, including markers, literals and line endings.
+    This stores no physical path resolution, header reads, compiler context,
+    observation packet or proof. Those are independently repeated by the caller.
+    A new provider invocation always starts empty. Exceptions never populate it.
+    """
+    def __init__(self):
+        self._hashes = None
+        self._tokens = None
+
+    def hash_offsets(self, data, lex):
+        if self._hashes is None or self._hashes[0] != data:
+            result = frozenset(lex())
+            self._hashes = (data, result)
+        return self._hashes[1]
+
+    def root_tokens(self, data, lex):
+        if self._tokens is None or self._tokens[0] != data:
+            spellings, directives = lex()
+            self._tokens = (data, tuple(spellings), tuple(directives))
+        return self._tokens[1:]
+
+
 def validated_hash_offsets(observation, data):
     if (not isinstance(observation, dict)
             or set(observation) != {'kind', 'version', 'bytes', 'sha256', 'offsets'}
@@ -62,16 +87,17 @@ def project_root(data, directive_offsets, source, physical, authored_external_he
     lines = [part + b'\n' for part in parts[:-1]]
     if parts[-1]:
         lines.append(parts[-1])
-    offsets, offset = [], 0
-    for line in lines:
-        offsets.append(offset)
+    # Classify physical hashes once. Both projection passes consult the same
+    # immutable buffer; quoted payload hashes are absent from lexer offsets.
+    directive_lines, offset = set(), 0
+    for index, line in enumerate(lines):
+        prefix = len(line) - len(line.lstrip(b' \t\v\f\r'))
+        if offset + prefix in directive_offsets:
+            directive_lines.add(index)
         offset += len(line)
 
     def directive(index):
-        if index >= len(lines):
-            return False
-        prefix = len(lines[index]) - len(lines[index].lstrip(b' \t\v\f\r'))
-        return offsets[index] + prefix in directive_offsets
+        return index in directive_lines
 
     def marker(index):
         if not directive(index):

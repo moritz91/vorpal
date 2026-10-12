@@ -17,7 +17,7 @@ import shutil
 import subprocess
 import sys
 import time
-from cpp_macro_native_projection import project_root, validated_hash_offsets, observed_literal_once_lines
+from cpp_macro_native_projection import CaptureLexMemo, project_root, validated_hash_offsets, observed_literal_once_lines
 from cpp_macro_clang_context import clang_plan, project_clang_root, sdk_identity, clang_diagnostic_line
 
 
@@ -129,24 +129,31 @@ def main():
         if result.returncode or output.stat().st_size > 128 * 1024 * 1024:
             raise RuntimeError("preprocess-only compiler run failed or exceeded limit")
 
+    # Pure lexical work can repeat within the bracketed capture. This memo never
+    # crosses a request and cannot certify include dependencies or product replay.
+    lex_memo = CaptureLexMemo()
+
     def native_tokens(file, label):
         data = file.read_bytes()
-        index = cindex.Index.create()
-        # A fake #line inside a raw string is payload. Lex the complete native
-        # output BEFORE interpreting markers, so physical token boundaries govern.
-        if args.native_hash_lexer:
-            hashes = scratch / (label + "-hashes.json")
-            run([args.observer, "--native-hash-offsets", str(file)], hashes,
-                scratch / (label + "-hashes.stderr"))
-            directive_offsets = validated_hash_offsets(load(hashes), data)
-        else:
+
+        def lex_hashes():
+            # A fake #line inside a raw string is payload. Lex the complete native
+            # output BEFORE interpreting markers, so physical boundaries govern.
+            if args.native_hash_lexer:
+                hashes = scratch / (label + "-hashes.json")
+                run([args.observer, "--native-hash-offsets", str(file)], hashes,
+                    scratch / (label + "-hashes.stderr"))
+                return validated_hash_offsets(load(hashes), data)
+            index = cindex.Index.create()
             virtual = str(scratch / (label + "-full.cc"))
             tu = index.parse(virtual, args=["-std=c++20", "-fms-extensions"],
                              unsaved_files=[(virtual, data.decode("utf-8"))],
                              options=cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES)
             tokens = tu.get_tokens(extent=tu.get_extent(virtual, (0, len(data))))
-            directive_offsets = {t.location.offset for t in tokens
-                                 if t.kind == cindex.TokenKind.PUNCTUATION and t.spelling == "#"}
+            return {t.location.offset for t in tokens
+                    if t.kind == cindex.TokenKind.PUNCTUATION and t.spelling == "#"}
+
+        directive_offsets = lex_memo.hash_offsets(data, lex_hashes)
         inputs, resolved_paths = set(), {}
 
         def input_path(path):
@@ -186,22 +193,26 @@ def main():
             projected = project_root(data, directive_offsets, source, physical, True,
                                      forced_inputs=forced_inputs, translation_unit=translation_unit,
                                      literal_once_lines=literal_once_lines)
-        text = projected.decode("utf-8")
-        virtual = str(scratch / (label + "-root.cc"))
-        tu = index.parse(virtual, args=["-std=c++20", "-fms-extensions"], unsaved_files=[(virtual, text)])
-        tokens = [t for t in tu.get_tokens(extent=tu.get_extent(virtual, (0, len(text.encode()))))
-                  if t.kind != cindex.TokenKind.COMMENT]
-        lines = text.split('\n')
-        directives = {t.location.line for t in tokens if t.spelling == "#"
-                      and not lines[t.location.line-1][:t.location.column-1].strip()}
-        if args.driver_mode == "clang":
-            # Known diagnostics remain comparison tokens, independently emitted
-            # by real PP callbacks. Unsupported pragmas remain in the mandatory
-            # native directive inventory and conservatively decline recovery.
-            directives = {line for line in directives
-                          if not clang_diagnostic_line(lines[line-1].strip())}
-        return ([t.spelling for t in tokens if t.location.line not in directives],
-                [lines[line-1].strip() for line in sorted(directives)], input_digests)
+        def lex_root():
+            text = projected.decode("utf-8")
+            index = cindex.Index.create()
+            virtual = str(scratch / (label + "-root.cc"))
+            tu = index.parse(virtual, args=["-std=c++20", "-fms-extensions"], unsaved_files=[(virtual, text)])
+            tokens = [t for t in tu.get_tokens(extent=tu.get_extent(virtual, (0, len(projected))))
+                      if t.kind != cindex.TokenKind.COMMENT]
+            lines = text.split('\n')
+            directives = {t.location.line for t in tokens if t.spelling == "#"
+                          and not lines[t.location.line-1][:t.location.column-1].strip()}
+            if args.driver_mode == "clang":
+                # Known diagnostics remain comparison tokens, independently emitted
+                # by real PP callbacks. Unknown directives still decline recovery.
+                directives = {line for line in directives
+                              if not clang_diagnostic_line(lines[line-1].strip())}
+            return ([t.spelling for t in tokens if t.location.line not in directives],
+                    [lines[line-1].strip() for line in sorted(directives)])
+
+        spellings, directives = lex_memo.root_tokens(projected, lex_root)
+        return spellings, directives, input_digests
 
     before_context = context()
     before_file = scratch / "native-before.i"
