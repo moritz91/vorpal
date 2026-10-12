@@ -5,6 +5,8 @@
 #include <detours.h>
 #include <string>
 #include "format.h"
+#include "payload.h"
+#include "input_bytes.h"
 
 using Create = NTSTATUS (NTAPI *)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES,
     PIO_STATUS_BLOCK, PLARGE_INTEGER, ULONG, ULONG, ULONG, ULONG, PVOID, ULONG);
@@ -34,6 +36,9 @@ static Information realInformation;
 static decltype(&CreateProcessW) realProcessW = CreateProcessW;
 static decltype(&CreateProcessA) realProcessA = CreateProcessA;
 static char dllPath[32768];
+static bool debuggerOwned;
+static InputBytes returnedBytes;
+static uint64_t executionCreated;
 static HANDLE logFile = INVALID_HANDLE_VALUE;
 static SRWLOCK logLock = SRWLOCK_INIT;
 static uint64_t sequence, traceBytes;
@@ -72,7 +77,7 @@ static bool writeBytes(const void* data, DWORD size) {
   return WriteFile(logFile, data, size, &written, nullptr) && written == size;
 }
 
-static void emit(Kind kind, NTSTATUS status, uint32_t access, uint64_t begin,
+static uint64_t emit(Kind kind, NTSTATUS status, uint32_t access, uint64_t begin,
                  const std::wstring& name, const std::wstring& resolved = {}) {
   AcquireSRWLockExclusive(&logLock);
   const DWORD nameBytes = static_cast<DWORD>(name.size() * sizeof(wchar_t));
@@ -89,6 +94,7 @@ static void emit(Kind kind, NTSTATUS status, uint32_t access, uint64_t begin,
       || !writeBytes(resolved.data(), resolvedBytes)) InterlockedExchange(&failed, 1);
   traceBytes += size;
   ReleaseSRWLockExclusive(&logLock);
+  return record.sequence;
 }
 
 // Resolve paths while recursion is suppressed, then restore the API's original
@@ -106,14 +112,16 @@ struct Scope {
     if (trace) { inside = true; try { name = handlePath(handle); } catch (...) { InterlockedExchange(&failed, 1); } }
     SetLastError(incoming);
   }
-  void finish(Kind kind, NTSTATUS status, uint32_t access = 0, HANDLE handle = nullptr) {
+  uint64_t finish(Kind kind, NTSTATUS status, uint32_t access = 0, HANDLE handle = nullptr, bool release = true) {
     const DWORD outgoing = GetLastError();
+    uint64_t emitted = 0;
     if (trace) {
-      try { emit(kind, status, access, begin, name, handle ? handlePath(handle) : std::wstring{}); }
+      try { emitted = emit(kind, status, access, begin, name, handle ? handlePath(handle) : std::wstring{}); }
       catch (...) { InterlockedExchange(&failed, 1); }
-      inside = false;
+      if (release) inside = false;
     }
     SetLastError(outgoing);
+    return emitted;
   }
 };
 
@@ -142,13 +150,45 @@ static NTSTATUS NTAPI probeFullAttributes(POBJECT_ATTRIBUTES attrs, PVOID output
 }
 static NTSTATUS NTAPI probeRead(HANDLE file, HANDLE event, PIO_APC_ROUTINE apc, PVOID context,
     PIO_STATUS_BLOCK io, PVOID buffer, ULONG size, PLARGE_INTEGER offset, PULONG key) {
-  Scope scope(file); auto status = realRead(file, event, apc, context, io, buffer, size, offset, key);
-  scope.finish(Kind::read, status, size); return status;
+  Scope scope(file);
+  FileIdentity before(scope.trace && debuggerOwned ? file : nullptr);
+  uint64_t position = UINT64_MAX; // Never inspect an invalid/rejected native pointer.
+  SetLastError(scope.incoming);
+  auto status = realRead(file,event,apc,context,io,buffer,size,offset,key);
+  const DWORD outgoing = GetLastError();
+  auto observed = scope.finish(Kind::read,status,size,nullptr,false);
+  if (scope.trace && debuggerOwned) try {
+    if (status == 0 && offset && offset->QuadPart >= 0) position = static_cast<uint64_t>(offset->QuadPart);
+    DWORD flags = before.known ? 0 : identityUnavailable;
+    if (position == UINT64_MAX) flags |= offsetUnavailable;
+    DWORD count = 0;
+    // Never wait, alter APC/event delivery, or read an incomplete async buffer.
+    if (status == 0x103) flags |= pendingRead | bytesUnavailable;
+    else if (status == 0 && io && io->Status == 0 && io->Information <= size &&
+             (buffer || !io->Information)) count = static_cast<DWORD>(io->Information);
+    else flags |= bytesUnavailable;
+    FileIdentity after(file);
+    if (!after.known) flags |= identityUnavailable;
+    else if (before.known && !before.equals(after)) flags |= identityChanged;
+    returnedBytes.emit(InputKind::readReturn,static_cast<DWORD>(status),flags,GetCurrentProcessId(),
+      file,before,scope.name,scope.begin,executionCreated,position,buffer,count,observed);
+  } catch (...) { InterlockedExchange(&failed,1); }
+  if (scope.trace) inside = false;
+  SetLastError(outgoing); return status;
 }
 static NTSTATUS NTAPI probeSection(PHANDLE section, ACCESS_MASK access, POBJECT_ATTRIBUTES attrs,
     PLARGE_INTEGER size, ULONG protection, ULONG allocation, HANDLE file) {
   Scope scope(file); auto status = realSection(section, access, attrs, size, protection, allocation, file);
-  scope.finish(Kind::section, status, allocation); return status;
+  const DWORD outgoing = GetLastError();
+  auto observed = scope.finish(Kind::section,status,allocation,nullptr,false);
+  if (scope.trace && debuggerOwned) try {
+    FileIdentity id(file);
+    returnedBytes.emit(InputKind::sectionBoundary,static_cast<DWORD>(status),
+      mappingUnobserved | offsetUnavailable | (id.known ? 0 : identityUnavailable),
+      GetCurrentProcessId(),file,id,scope.name,scope.begin,executionCreated,UINT64_MAX,nullptr,0,observed);
+  } catch (...) { InterlockedExchange(&failed,1); }
+  if (scope.trace) inside = false;
+  SetLastError(outgoing); return status;
 }
 
 // MSVC caches complete directory listings, so an absent __has_include name may
@@ -210,6 +250,7 @@ static NTSTATUS NTAPI probeInformation(HANDLE file, PIO_STATUS_BLOCK io, PVOID b
 // instrumented compiler creates; the launcher's kill-on-close job contains them.
 template<class Call> static BOOL child(Call call, DWORD flags, LPPROCESS_INFORMATION process) {
   if (inside) return call(false);
+  if (debuggerOwned) return call(false); // Create events inject exactly once, including OS-created children.
   inside = true;
   const uint64_t begin = ticks();
   const BOOL success = call(true);
@@ -257,7 +298,17 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
   if (reason == DLL_PROCESS_ATTACH) {
     if (!DetourRestoreAfterWith()) return FALSE;
     wchar_t path[32768];
-    DWORD size = GetEnvironmentVariableW(L"VORPAL_NATIVE_AUDIT_TRACE", path, ARRAYSIZE(path));
+    DWORD payloadSize = 0;
+    auto payload = static_cast<const AuditPayload*>(DetourFindPayloadEx(auditPayloadGuid, &payloadSize));
+    DWORD size = 0;
+    if (payload) {
+      if (payloadSize != sizeof(AuditPayload) || payload->version != 1 ||
+          !payload->units || payload->units >= ARRAYSIZE(path) - 40 ||
+          payload->prefix[payload->units] != 0) return FALSE;
+      size = payload->units;
+      memcpy(path, payload->prefix, (size + 1) * sizeof(wchar_t));
+      debuggerOwned = true;
+    } else size = GetEnvironmentVariableW(L"VORPAL_NATIVE_AUDIT_TRACE", path, ARRAYSIZE(path));
     if (!size || size >= ARRAYSIZE(path) - 20) return FALSE;
     std::wstring tracePath = std::wstring(path, size) + L"." + std::to_wstring(GetCurrentProcessId()) + L".bin";
     size = GetModuleFileNameA(instance, dllPath, ARRAYSIZE(dllPath));
@@ -266,6 +317,8 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
                          nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (logFile == INVALID_HANDLE_VALUE || !writeBytes(magic, sizeof(magic) - 1)) return FALSE;
     traceBytes = sizeof(magic) - 1;
+    executionCreated = InputBytes::creation(GetCurrentProcess());
+    if (debuggerOwned && (!executionCreated || !returnedBytes.open(tracePath.substr(0,tracePath.size()-4) + L".bytes.bin"))) return FALSE;
     HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
     LONG error = DetourTransactionBegin();
     if (error == NO_ERROR) error = DetourUpdateThread(GetCurrentThread());
@@ -290,6 +343,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
     emit(Kind::start, error, 11, ticks(), {});
     if (error != NO_ERROR) { CloseHandle(logFile); return FALSE; }
   } else if (reason == DLL_PROCESS_DETACH && logFile != INVALID_HANDLE_VALUE) {
+    if (!returnedBytes.close()) InterlockedExchange(&failed,1);
     emit(Kind::end, 0, 0, ticks(), {});
     FlushFileBuffers(logFile);
     CloseHandle(logFile);

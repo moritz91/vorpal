@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 from cpp_macro_native_lifecycle import read_lifecycle, reconcile_traces
+from cpp_macro_native_input_bytes import capture_inputs
 
 MAGIC = b"VORPAL-NATIVE-AUDIT-1\n"
 RECORD = struct.Struct("<7I3Q")
@@ -92,8 +93,12 @@ def parse_capture(prefix):
     if kind != 12 or status or flags or names or resolved or sequence or begin or end or not 1 <= processes <= 128:
         raise ValueError("native job did not complete within bounds")
     captures, total = {}, 0
+    input_sidecars = []
     for path in prefix.parent.glob(prefix.name + ".*.bin"):
         pid = path.name[len(prefix.name) + 1:-4]
+        if pid == "loader" or pid.endswith(".bytes"):
+            input_sidecars.append(path)
+            continue
         if pid in ("job", "life"):
             continue
         if not pid.isdecimal() or len(captures) >= 128:
@@ -122,11 +127,23 @@ def parse_capture(prefix):
                 visit(record["access"])
 
     visit(root)
+    life_path = Path(str(prefix) + '.life.bin')
+    lifecycle = read_lifecycle(prefix) if life_path.exists() else None
+    if lifecycle and lifecycle.get('stoppedProcessAttachments'):
+        observed = {p['pid']: p for p in lifecycle['processes']}
+        if set(lifecycle['stoppedProcessAttachments']) != set(captures) or set(captures) != set(observed):
+            raise ValueError('stopped-process injections and independent executions/traces disagree')
+        for pid in sorted(set(captures) - visited):
+            if pid not in observed:
+                raise ValueError('trace outside independently observed process tree')
+            visit(pid)
+    if input_sidecars and not (lifecycle and lifecycle.get('stoppedProcessAttachments')):
+        raise ValueError('input sidecar outside explicit stopped-process audit')
     if visited != set(captures):
         raise ValueError("process traces are not rooted in the launched compiler")
     life_path = Path(str(prefix) + '.life.bin')
     if life_path.exists():
-        lifecycle = read_lifecycle(prefix)
+        lifecycle = lifecycle or read_lifecycle(prefix)
         if lifecycle['rootPid'] != root or lifecycle['jobAssociations'] != processes:
             raise ValueError('independent lifecycle/job envelope mismatch')
         coverage = reconcile_traces(lifecycle, captures)
@@ -274,6 +291,8 @@ def context_identity(compiler, plan, cwd, inputs, environment):
 
 def run(command, cwd, environment, directory, label, timeout):
     output, error = directory / (label + ".i"), directory / (label + ".stderr")
+    whole_tree = len(command) > 3 and command[3] == '--whole-tree'
+    additional_bytes = 512 * 1024 * 1024 if whole_tree else 0
     with output.open("xb") as out, error.open("xb") as err:
         process = subprocess.Popen(command, cwd=cwd, env=environment, stdout=out,
                                    stderr=err, stdin=subprocess.DEVNULL)
@@ -282,8 +301,8 @@ def run(command, cwd, environment, directory, label, timeout):
             prefix = Path(environment['VORPAL_NATIVE_AUDIT_TRACE'])
             trace_files = list(prefix.parent.glob(prefix.name + '.*.bin'))
             if (time.monotonic() > deadline or output.stat().st_size > 128 * 1024 * 1024
-                    or error.stat().st_size > 32 * 1024 * 1024 or len(trace_files) > 130
-                    or sum(p.stat().st_size for p in trace_files) > MAX_TRACE + 16 * 1024 * 1024):
+                    or error.stat().st_size > 32 * 1024 * 1024 or len(trace_files) > (260 if whole_tree else 130)
+                    or sum(p.stat().st_size for p in trace_files) > MAX_TRACE + 16 * 1024 * 1024 + additional_bytes):
                 process.kill()  # Closing the launcher closes only its own descendant job.
                 process.wait()
                 raise ValueError("native audit timed out or exceeded output bound")
@@ -317,6 +336,7 @@ def audit(args):
         raise ValueError("load the Visual Studio developer environment first")
     compiler = Path(compiler).resolve()
     launcher, dll = Path(args.launcher).resolve(), Path(args.dll).resolve()
+    debugger = Path(args.debugger).resolve() if getattr(args,'debugger',None) else None
     report = Path(args.report).resolve()
     if report == source or report == unit or report.is_relative_to(cwd.resolve()):
         raise ValueError("audit artifacts must live outside the source project")
@@ -327,6 +347,8 @@ def audit(args):
     inputs = list(dict.fromkeys(str(p) for p in
         [compiler, launcher, dll, plan, source, unit, Path(__file__).resolve(),
          Path(__file__).with_name('cpp_macro_native_lifecycle.py').resolve(),
+         Path(__file__).with_name('cpp_macro_native_input_bytes.py').resolve(),
+         *([debugger] if debugger else []),
          *[Path(p).resolve() for p in args.identity_input]]))
     if any(not Path(p).is_file() for p in inputs):
         raise ValueError("explicit identity inputs must be physical readable files")
@@ -358,6 +380,21 @@ def audit(args):
     new_paths = [p for p in confirmed_paths if p not in before]
     after = snapshot(list(dict.fromkeys(paths + confirmed_paths)))
     plain_after = plain("plain-after")
+    whole_tree_report = None
+    if debugger:
+        prefix = directory / 'separate-debugger'
+        env = dict(environment,VORPAL_NATIVE_AUDIT_TRACE=str(prefix))
+        native = run([str(debugger),str(dll),str(args.timeout*1000),'--whole-tree','--',str(compiler),*arguments],
+                     cwd,env,directory,'separate-debugger',args.timeout)
+        independent_life = read_lifecycle(prefix)
+        whole_records, independent_coverage = parse_capture(prefix)
+        per_process = {p['pid']: parse_trace(Path(str(prefix)+f".{p['pid']}.bin").read_bytes())
+                       for p in independent_life['processes']}
+        inputs_report = capture_inputs(prefix,independent_life,per_process)
+        whole_tree_report = {'nativeOutputMatchesOrdinary': native == plain_after,
+            'processCoverage': independent_coverage, 'inputs': inputs_report,
+            'processLifecycle': independent_life, 'orderedProbes': ordered_probes(whole_records),
+            'replayEligible': False}
     final = snapshot(list(after))
     after_context = context_identity(compiler, plan.read_bytes(), cwd, inputs, environment)
     probes = ordered_probes(confirmed)
@@ -376,6 +413,7 @@ def audit(args):
         "nativeOutputEqual": output_equal, "nativeOutputSha256": plain_after,
         "traceIntegrity": "framed-start-end-eleven-hooks-per-observed-process",
         "processCoverage": coverage,
+        "separateDebuggerInputAudit": whole_tree_report,
         "processLifecycle": lifecycle,
         "processCoverageStable": discovery_coverage == coverage,
         "probeOrderEqual": ordered_probes(discovery) == probes,
@@ -402,6 +440,7 @@ def main():
     for name in ("plan", "source", "launcher", "dll", "report"):
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--compiler", default="cl.exe")
+    parser.add_argument("--debugger", help="optional separate whole-process-tree byte audit; never ordinary-run proof")
     parser.add_argument("--identity-input", action="append", default=[])
     parser.add_argument("--timeout", type=int, default=60)
     args = parser.parse_args()

@@ -6,7 +6,7 @@ import struct
 MAGIC = b'VORPAL-NATIVE-LIFECYCLE-1\n'
 RECORD = struct.Struct('<6I3Q')
 KINDS = {1: 'start', 2: 'root', 3: 'jobSample', 4: 'jobAdd', 5: 'jobExit',
-         6: 'debugCreate', 7: 'debugExit', 8: 'image', 9: 'end'}
+         6: 'debugCreate', 7: 'debugExit', 8: 'image', 9: 'end', 10: 'probeAttach'}
 MAX_BYTES = 16 * 1024 * 1024
 
 
@@ -54,10 +54,15 @@ def parse_lifecycle(data):
             or not 1 <= samples[-1]['parent'] <= 128):
         raise ValueError('lifecycle root or terminal accounting invalid')
     processes = {}
+    attachments = {}
     debug = records[0]['status'] == 1
     for record in records:
         kind, pid = record['kind'], record['pid']
-        if kind in ('root', 'jobAdd', 'debugCreate'):
+        if kind == 'probeAttach':
+            if not debug or not pid or pid in attachments or record['status'] or record['flags']:
+                raise ValueError('failed, duplicate or unexpected stopped-process injection')
+            attachments[pid] = record['sequence']
+        elif kind in ('root', 'jobAdd', 'debugCreate'):
             if not pid:
                 raise ValueError('zero process identifier')
             if pid not in processes:
@@ -105,6 +110,9 @@ def parse_lifecycle(data):
         elif kind == 'image' and (not debug or pid not in processes
                                  or not processes[pid]['debugStarts'] or processes[pid]['debugExits']):
             raise ValueError('image outside debug process lifetime')
+    if any(pid not in processes or not processes[pid]['debugStarts'] or
+           sequence >= processes[pid]['debugStarts'][0] for pid, sequence in attachments.items()):
+        raise ValueError('injection outside independent process start')
     if any(p['parent'] not in processes and p['pid'] != root['pid'] for p in processes.values()):
         rooted = False
     else:
@@ -125,7 +133,8 @@ def parse_lifecycle(data):
             'jobAssociations': samples[-1]['parent'], 'observedJobAssociations': job_starts,
             'uniqueProcesses': len(processes), 'lifetimesReconciled': bool(complete),
             'processes': list(processes.values()), 'records': records,
-            'debuggerMayChangeBehavior': debug, 'replayEligible': False}
+            'debuggerMayChangeBehavior': debug,
+            'stoppedProcessAttachments': sorted(attachments), 'replayEligible': False}
 
 
 def read_lifecycle(prefix):

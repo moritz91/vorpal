@@ -158,6 +158,81 @@ mutation case must report unequal native output/unstable snapshots. The successf
 Python framing/snapshot controls also run on Windows and Linux. The Windows CI
 job builds pinned Detours and our `/W4 /WX` helper before running the native cases.
 
+## Separate whole-process-tree input audit
+
+An optional `--debugger C:/audit/native-dependency-build/vorpal_native_process_audit.exe`
+argument adds a **separate execution** to the dependency audit. The ordinary
+run's probes/coverage and bracket remain unchanged. Its JSON report places the
+new observations only in `separateDebuggerInputAudit`; neither ledger authorizes
+proof/product/graph reuse. Native output is compared with the ordinary run.
+
+The debug helper's explicit `--whole-tree` mode receives each
+[process-create event before user-mode execution](https://learn.microsoft.com/en-us/windows/win32/debug/debugging-events).
+It checks membership in its own new job before updating that stopped process's
+imports with the pinned Detours implementation. A bounded private
+[Detours payload](https://github.com/microsoft/Detours/wiki/DetourCopyPayloadToProcess)
+carries only the local trace prefix and version. This also covers OS-created
+console hosts whose environment does not inherit the prefix. The DLL's ordinary
+CreateProcess propagation is disabled in this mode to avoid double injection.
+No running process is attached to, disk executable is modified, administrator
+token requested, or machine-wide collector installed. An injection failure
+terminates the new job and declines the capture.
+
+Each independently observed execution must have one attachment event, a framed
+filesystem trace and a byte sidecar. PID plus process creation time links each
+sidecar to its execution. Completed `NtReadFile` buffers are copied inside the
+hook before its calling thread resumes and tied to the exact probe sequence,
+thread, native status, requested length, lexical/resolved path, original handle,
+volume serial number and 128-bit file ID. Explicit nonnegative offsets are
+recorded; shared current-position requests remain `offsetUnavailable`.
+A raw handle number is never substituted for physical file identity. Synchronous
+failure, missing identity, changed identity, byte limits and asynchronous
+`STATUS_PENDING` remain visible. The observer neither waits for asynchronous
+completion nor reads its unfinished buffer. Other threads can still mutate a
+shared buffer; this user-mode copy is observational, not an atomic kernel-read
+or application-consumption contract.
+
+CREATE_PROCESS and LOAD_DLL file handles are snapshotted before the debug event
+continues. Full bounded file bytes, physical IDs, process identities and image
+bases are retained; size/change metadata is rechecked on that same handle.
+**These are loader-file snapshots, not the bytes of loaded memory/pages.** Earlier
+failed loader searches, KnownDll/resource policies and every future mapped-page
+access are not certified by these snapshots. Successful file-section creation
+is recorded as `sectionBoundary`, with no invented read bytes. The independent
+loader/create event inventory must match the snapshot inventory.
+
+Raw `.loader.bin` and `.PID.bytes.bin` sidecars may contain private file bytes
+and paths. They are new local artifacts, bounded to 64 MiB per payload and 512 MiB
+per complete input capture. Framing, sizes, identities, missing/extra sidecars and
+probe references are checked; corruption/logger loss declines. CI uploads only
+the small `controls.json` summaries, never these buffers or full input reports.
+
+`scripts/cpp_native_input_control.py --launcher ... --debugger ... --dll ...
+--fixture ... --input-fixture ... --directory ... [--plan ... --source ...]`
+creates private external fixture files and runs five complete process-tree
+controls (wide/ANSI/CRT launch, eight simultaneous short-lived children, and an
+outliving child), plus ten input cases: ordinary/explicit-offset reads, rejected native pointers, pending
+asynchronous I/O, mapped access, coordinated change-and-restore through reads
+and through mapped memory, sustained change, failed missing access, and two
+handles/hardlink names for one physical file. The genuine native plan adds a
+sixteenth control. Source/TU bytes never change in that control.
+
+The ABA controls coordinate a real writer thread, reader and restoration using
+Windows events. Before/after bytes and LastWriteTime are equal, while native
+output contains the transient changed bytes. The read-buffer sidecar observes
+those transient bytes; the mapping case intentionally retains no fabricated
+mapped/read-page payload. This demonstrates the before/after-snapshot blind
+spot; it **does not** exclude concurrent mutation or enable replay.
+
+Native Windows/MSVC 19.44 validation in the genuine Hades Catch2 context yields
+identical ordinary/debug/whole-tree native output and unchanged original source.
+The separate whole-tree execution has two framed traces (`cl.exe`, `conhost.exe`),
+671 completed read observations with 12,335,459 captured bytes, and 51 loader-file
+snapshots with 62,200,008 bytes. These are per-execution observations, not a tool
+closure or production-MCP input proof. `actualMappedPagesCaptured`,
+`ordinaryExecutionInputProof`, `changeAndRestoreExcluded` and `replayEligible`
+remain false. Default audit/MCP operation stays unchanged.
+
 ## Remaining requirements before replay
 
 Local Windows/MSVC 19.44 controls pass all eleven cases. The unchanged genuine
@@ -166,8 +241,9 @@ explicit context hashes: 4,814 observations, 457 candidate paths, 21 missing OS
 probes and 689 successful read/map observations. These are observation counts,
 not unique headers or parser diagnoses. Hades and the installed `.5` MCP remain
 unchanged. Independent follow-up observations now identify the second process
-as the console host, with its filesystem trace still absent; the report retains
-false process coverage. Some compiler-internal missing names also change between
+as the console host. Its ordinary-run filesystem trace remains absent; that
+report retains false process coverage. The explicit separate debugger input
+audit now captures framed probes from both executions, as described below. Some compiler-internal missing names also change between
 discovery and confirmation, so the complete candidate bracket is not stable.
 Neither discrepancy is suppressed to manufacture an eligible snapshot.
 

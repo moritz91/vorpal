@@ -5,13 +5,21 @@
 #include "format.h"
 #include "lifecycle.h"
 #include "command_line.h"
+#include "payload.h"
+#include "input_bytes.h"
 
 // Windows CRT quoting, including backslashes before quotes and before the final
 // quote. No shell is involved and the command line is never written to the log.
 int wmain(int argc, wchar_t** argv) {
   if (argc < 5) return 120;
   // Usage: launcher DLL TIMEOUT_MS -- ABSOLUTE_COMPILER [arguments...]
-  if (std::wstring(argv[3]) != L"--") return 120;
+  const bool wholeTree = std::wstring(argv[3]) == L"--whole-tree";
+  const int delimiter = wholeTree ? 4 : 3;
+  if (argc <= delimiter + 1 || std::wstring(argv[delimiter]) != L"--") return 120;
+  const int executable = delimiter + 1;
+#ifndef VORPAL_PROCESS_DEBUGGER
+  if (wholeTree) return 120;
+#endif
   wchar_t* end;
   unsigned long timeout = wcstoul(argv[2], &end, 10);
   if (*end || timeout < 1 || timeout > 300000) return 120;
@@ -21,7 +29,7 @@ int wmain(int argc, wchar_t** argv) {
     dll += static_cast<char>(*p);
   }
   std::wstring command;
-  for (int i = 4; i < argc; ++i) { if (i > 4) command += L' '; command += quoteArgument(argv[i]); }
+  for (int i = executable; i < argc; ++i) { if (i > executable) command += L' '; command += quoteArgument(argv[i]); }
   std::vector<wchar_t> mutableCommand(command.begin(), command.end());
   mutableCommand.push_back(0);
   HANDLE job = CreateJobObjectW(nullptr, nullptr);
@@ -36,6 +44,14 @@ int wmain(int argc, wchar_t** argv) {
 #else
   constexpr bool debug = false;
 #endif
+  AuditPayload payload;
+  if (wholeTree) {
+    if (dll == "-") return 120;
+    payload.units = GetEnvironmentVariableW(L"VORPAL_NATIVE_AUDIT_TRACE", payload.prefix, ARRAYSIZE(payload.prefix));
+    if (!payload.units || payload.units >= ARRAYSIZE(payload.prefix) - 40) return 120;
+  }
+  InputBytes loaderBytes;
+  if (wholeTree && !loaderBytes.open(std::wstring(payload.prefix,payload.units) + L".loader.bin")) return 128;
   Lifecycle lifecycle(debug);
   if (!lifecycle.attach(job)) { CloseHandle(job); return 128; }
   const DWORD creationFlags = CREATE_SUSPENDED | CREATE_NO_WINDOW | (debug ? DEBUG_PROCESS : 0);
@@ -47,10 +63,10 @@ int wmain(int argc, wchar_t** argv) {
   startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
   PROCESS_INFORMATION process{};
   LPCSTR dlls[] = {dll.c_str()};
-  const BOOL created = dll == "-"
-    ? CreateProcessW(argv[4], mutableCommand.data(), nullptr, nullptr, TRUE,
+  const BOOL created = (dll == "-" || wholeTree)
+    ? CreateProcessW(argv[executable], mutableCommand.data(), nullptr, nullptr, TRUE,
         creationFlags, nullptr, nullptr, &startup, &process)
-    : DetourCreateProcessWithDllsW(argv[4], mutableCommand.data(), nullptr, nullptr,
+    : DetourCreateProcessWithDllsW(argv[executable], mutableCommand.data(), nullptr, nullptr,
         TRUE, creationFlags, nullptr, nullptr, &startup, &process,
         1, dlls, nullptr);
   if (!created) { CloseHandle(job); return 122; }
@@ -71,6 +87,52 @@ int wmain(int argc, wchar_t** argv) {
     if (debug) {
       DEBUG_EVENT event{};
       if (WaitForDebugEvent(&event, 20)) {
+        auto abortEvent = [&]() {
+          TerminateJobObject(job,129);
+          if (event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT && event.u.CreateProcessInfo.hFile)
+            CloseHandle(event.u.CreateProcessInfo.hFile);
+          if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT && event.u.LoadDll.hFile)
+            CloseHandle(event.u.LoadDll.hFile);
+          ContinueDebugEvent(event.dwProcessId,event.dwThreadId,DBG_CONTINUE);
+          result = 129;
+        };
+        if (wholeTree && (event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT ||
+                          event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT)) {
+          BOOL belongs = FALSE;
+          HANDLE owner = event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT
+            ? event.u.CreateProcessInfo.hProcess : OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,event.dwProcessId);
+          if (!owner || !IsProcessInJob(owner,job,&belongs) || !belongs) {
+            if (owner && event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT) CloseHandle(owner);
+            abortEvent(); break;
+          }
+          try {
+            loaderBytes.loader(event.dwProcessId,owner,
+              event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT ? event.u.CreateProcessInfo.hFile : event.u.LoadDll.hFile,
+              reinterpret_cast<uint64_t>(event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT
+                ? event.u.CreateProcessInfo.lpBaseOfImage : event.u.LoadDll.lpBaseOfDll));
+          } catch (...) {
+            if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT) CloseHandle(owner);
+            abortEvent(); break;
+          }
+          if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT) CloseHandle(owner);
+        }
+        // The create event precedes user-mode execution. Never attach to an
+        // already running process; job membership and execution identity gate it.
+        if (wholeTree && event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT) {
+          HANDLE child = event.u.CreateProcessInfo.hProcess;
+          BOOL belongs = FALSE;
+          DWORD error = ERROR_ACCESS_DENIED;
+          if (child && IsProcessInJob(child, job, &belongs) && belongs) {
+            if (DetourUpdateProcessWithDll(child, dlls, 1) &&
+                DetourCopyPayloadToProcess(child, auditPayloadGuid, &payload, sizeof(payload))) error = 0;
+            else { error = GetLastError(); if (!error) error = ERROR_GEN_FAILURE; }
+          }
+          lifecycle.emit(LifeKind::probeAttach, event.dwProcessId, 0, error, 0, 0);
+          if (error) {
+            // The owned job is terminated below; partial injection never resumes.
+            abortEvent(); break;
+          }
+        }
         if (!lifecycle.debugEvent(event, result, process.dwProcessId)) { result = 128; break; }
         if (event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT && event.dwProcessId == process.dwProcessId) rootExited = true;
       } else if (GetLastError() != ERROR_SEM_TIMEOUT) { result = 128; break; }
@@ -80,7 +142,8 @@ int wmain(int argc, wchar_t** argv) {
     lifecycle.pump();
     if (rootExited && (!debug || lifecycle.liveDebug.empty())) break;
   } while (GetTickCount64() < deadline);
-  if (!rootExited) result = 124;
+  if (!rootExited && result != 128 && result != 129) result = 124;
+  if (result == 128 || result == 129) TerminateJobObject(job,result);
   JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
   // A frontend may outlive its parent briefly. Wait for this job's descendants,
   // then close only this job; no unrelated processes or persistent tracing service.
@@ -95,6 +158,7 @@ int wmain(int argc, wchar_t** argv) {
   if (!QueryInformationJobObject(job, JobObjectBasicAccountingInformation,
                                 &accounting, sizeof(accounting), nullptr)) result = 125;
   if (accounting.ActiveProcesses) result = 126;
+  if (!loaderBytes.close()) result = 129;
   if (!lifecycle.finish(process.dwProcessId, result, accounting.TotalProcesses)) result = 128;
   TerminateJobObject(job, 126); // Only descendants of this new compiler, never other processes.
   CloseHandle(process.hThread); CloseHandle(process.hProcess); CloseHandle(job);

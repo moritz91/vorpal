@@ -57,6 +57,19 @@ class NativeLifecycleTests(unittest.TestCase):
         rows = [r for r in stream(debug=True) if not (r[0] == 7 and r[1] == 8)]
         self.assertFalse(parse_lifecycle(encode(rows))['lifetimesReconciled'])
 
+    def test_stopped_process_injection_requires_debug_start_without_name_exemptions(self):
+        rows=stream(debug=True)
+        inserts=[(10,5,0,0,0,0,''),(10,8,0,0,0,0,'')]
+        rows.insert(next(i for i,r in enumerate(rows) if r[0]==6 and r[1]==8),inserts[1])
+        rows.insert(next(i for i,r in enumerate(rows) if r[0]==6 and r[1]==5),inserts[0])
+        life=parse_lifecycle(encode(rows))
+        self.assertEqual(life['stoppedProcessAttachments'],[5,8])
+        self.assertFalse(life['replayEligible'])
+        bad=list(rows);bad.insert(1,(10,5,0,0,0,0,''))
+        with self.assertRaises(ValueError):parse_lifecycle(encode(bad))
+        bad=stream(debug=True);bad.append((10,99,0,0,0,0,''))
+        with self.assertRaises(ValueError):parse_lifecycle(encode(bad))
+
     def test_missing_advisory_notification_or_metadata_cannot_certify_coverage(self):
         rows = [r for r in stream() if not (r[0] in (4, 5) and r[1] == 8)]
         self.assertFalse(parse_lifecycle(encode(rows))['lifetimesReconciled'])

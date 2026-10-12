@@ -10,7 +10,7 @@
 // Completion-port messages are advisory. Debug events belong to a separate
 // launch whose behavior must be compared with the ordinary compiler run.
 enum class LifeKind : uint32_t {
-  start = 1, root, jobSample, jobAdd, jobExit, debugCreate, debugExit, image, end
+  start = 1, root, jobSample, jobAdd, jobExit, debugCreate, debugExit, image, end, probeAttach
 };
 #pragma pack(push, 1)
 struct LifeRecord {
