@@ -5,6 +5,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from cpp_macro_native_projection import project_root, validated_hash_offsets, observed_literal_once_lines
+from profile_cpp_native_provider import summarize
 
 
 class NativeProjection(unittest.TestCase):
@@ -107,6 +108,77 @@ class NativeProjection(unittest.TestCase):
         data = b'#line 1 "root.cc"\n \t\v\f#pragma external_header(push)\n#line 1 "sdk.h"\n\t#pragma external_header(pop)\n#line 2 "root.cc"\nint after;\n'
         offsets = {data.index(b'#', start) for start in [0, data.index(b' \t'), data.index(b'#line 1 "sdk'), data.index(b'\t#pragma'), data.index(b'#line 2')]}
         self.assertEqual(self.project(data, offsets), b'int after;\n')
+
+    def test_sparse_sdk_regions_preserve_original_root_bytes_and_unknown_directives(self):
+        for nl in [b'\n', b'\r\n']:
+            payload = 'const char *s = u8R"tag(α\n#line 1 "sdk.h"\n#pragma external_header(pop)\n)tag";'.encode()
+            payload = payload.replace(b'\n', nl)
+            sdk = (b'int sdk_only;'+nl) * 12000
+            data = (b'#line 1 "root.cc"'+nl+b'int before;'+nl
+                    +b'#pragma external_header(push)'+nl+b'#line 1 "sdk.h"'+nl+sdk
+                    +b'#pragma unknown_sdk'+nl+b'#pragma external_header(pop)'+nl
+                    +b'#line 2 "root.cc"'+nl+payload+nl+b'#pragma unknown_root'+nl+b'int after;')
+            fake_start = data.index(b'const char')
+            fake_end = data.index(b')tag";')
+            offsets, at = set(), 0
+            for line in data.split(b'\n'):
+                if line.startswith(b'#') and not fake_start < at < fake_end:
+                    offsets.add(at)
+                at += len(line) + 1
+            self.assertEqual(self.project(data, offsets),
+                             b'int before;'+nl+payload+nl+b'#pragma unknown_root'+nl+b'int after;')
+
+    def test_sparse_once_line_tracking_counts_payload_and_directive_gaps(self):
+        for nl in [b'\n', b'\r\n']:
+            data = nl.join([b'#line 20 "root.cc"', b'// ordinary', b'', b'#pragma unknown',
+                            b'int before;', b'#pragma once', b'int after;', b''])
+            self.assertEqual(project_root(data, {data.index(b'#line'), data.index(b'#pragma unknown'),
+                                                data.index(b'#pragma once')}, 'root.cc', str,
+                                          literal_once_lines={24}),
+                             nl.join([b'// ordinary', b'', b'#pragma unknown', b'int before;', b'int after;', b'']))
+            self.assertIn(b'#pragma once', project_root(data,
+                {data.index(b'#line'), data.index(b'#pragma unknown'), data.index(b'#pragma once')},
+                'root.cc', str, literal_once_lines={23}))
+
+    def test_sparse_frame_lookahead_keeps_exact_blank_line_bound(self):
+        for nl in [b'\n', b'\r\n']:
+            prefix = b'#line 1 "root.cc"'+nl+b'#pragma external_header(push)'+nl
+            suffix = (b'#line 1 "sdk.h"'+nl+b'#pragma external_header(pop)'+nl
+                      +b'#line 2 "root.cc"'+nl+b'int after;'+nl)
+            for blanks in [0, 1, 63, 64]:
+                self.assertEqual(self.project(prefix+nl*blanks+suffix), nl*blanks+b'int after;'+nl)
+            with self.assertRaises(ValueError): self.project(prefix+nl*65+suffix)
+
+    def test_sparse_markers_recheck_physical_paths_in_both_passes_and_new_calls(self):
+        data = b'#line 1 "root.cc"\nint original;\n#line 1 "sdk.h"\nint sdk;\n'
+        calls, redirects = [], {}
+        def physical(path):
+            calls.append(path)
+            return redirects.get(path, path)
+        self.assertEqual(project_root(data, {0, data.index(b'#line 1 "sdk')}, 'root.cc', physical),
+                         b'int original;\n')
+        self.assertGreaterEqual(calls.count('sdk.h'), 2)
+        redirects['sdk.h'] = 'root.cc'
+        self.assertEqual(project_root(data, {0, data.index(b'#line 1 "sdk')}, 'root.cc', physical),
+                         b'int original;\nint sdk;\n')
+
+    def test_midline_hashes_and_unlexed_markers_remain_captured_payload(self):
+        data = b'#line 1 "root.cc"\na #line 1 "sdk.h"\n#line 50 "fake.h"\nint original;\n'
+        offsets = {0, data.index(b'#line 1 "sdk')}
+        self.assertEqual(self.project(data, offsets), data.split(b'\n', 1)[1])
+
+    def test_profile_summary_is_bounded_and_does_not_emit_absolute_paths(self):
+        stats = {(f'C:\\private\\folder\\module{i}.py', i, 'context'):
+                 (1, 2, .1, float(i), {}) for i in range(120)}
+        stats[('/private/unix/provider.py', 1, 'main')] = (1, 1, .2, 150., {})
+        rows = summarize(stats)
+        self.assertEqual(len(rows), 90)
+        self.assertEqual(rows[0]['file'], 'provider.py')
+        self.assertEqual(rows[0]['inclusiveSeconds'], 150.)
+        self.assertNotIn('private', str(rows))
+        self.assertNotIn('folder', str(rows))
+        self.assertEqual(set(rows[0]), {'file', 'line', 'function', 'calls',
+                                       'selfSeconds', 'inclusiveSeconds'})
 
     def test_native_hash_packet_requires_exact_buffer_identity_and_bounded_offsets(self):
         data = b'#line 1 "root.cc"\n'

@@ -83,73 +83,75 @@ def observed_literal_once_lines(original, rows, source, physical):
 
 def project_root(data, directive_offsets, source, physical, authored_external_header=False,
                  forced_inputs=(), translation_unit=None, literal_once_lines=()):
-    parts = data.split(b'\n')
-    lines = [part + b'\n' for part in parts[:-1]]
-    if parts[-1]:
-        lines.append(parts[-1])
-    # Classify physical hashes once. Both projection passes consult the same
-    # immutable buffer; quoted payload hashes are absent from lexer offsets.
-    directive_lines, offset = set(), 0
-    for index, line in enumerate(lines):
-        prefix = len(line) - len(line.lstrip(b' \t\v\f\r'))
-        if offset + prefix in directive_offsets:
-            directive_lines.add(index)
-        offset += len(line)
+    # Visit only token-proven physical directive lines. Byte slices keep all
+    # other lines, including raw-literal payload and CRLF, exactly as captured.
+    # Decode marker syntax once; physical() still runs in each projection pass
+    # and each administrative lookahead. No resolved path survives this call.
+    events, markers = [], {}
+    for offset in sorted(directive_offsets):
+        if not 0 <= offset < len(data):
+            continue
+        start = data.rfind(b'\n', 0, offset) + 1
+        if data[start:offset].strip(b' \t\v\f\r'):
+            continue
+        stop = data.find(b'\n', offset)
+        stop = len(data) if stop < 0 else stop + 1
+        line = data[start:stop]
+        match = re.fullmatch(rb'#(?:line)?\s+(\d+)\s+(".*?")\s*', line.strip(b' \t\v\f\r\n'))
+        if match:
+            markers[start] = (int(match[1]), json.loads(match[2]))
+        events.append((start, stop, line))
 
-    def directive(index):
-        return index in directive_lines
+    def marker(start):
+        value = markers.get(start)
+        return physical(value[1]) if value is not None else None
 
-    def marker(index):
-        if not directive(index):
-            return None
-        match = re.fullmatch(rb'#(?:line)?\s+\d+\s+(".*?")\s*', lines[index].strip(b' \t\v\f\r\n'))
-        return physical(json.loads(match[1])) if match else None
-
-    def frame_target(index):
-        # Native /FI precompiled-header inputs can emit blank physical lines
-        # between the administrative pragma and #line transition. Permit only
-        # bounded ASCII-whitespace lines, never tokens, directives or payload.
-        next_index = index + 1
-        limit = min(len(lines), next_index + 65)
-        while next_index < limit and not lines[next_index].strip(b' \t\v\f\r\n'):
-            next_index += 1
-        return marker(next_index) if next_index < limit else None
+    def frame_target(stop):
+        # The original frame admits at most 64 intervening blank physical
+        # lines. Tokens, unknown directives and literal payload stop lookahead.
+        for _ in range(65):
+            if stop >= len(data):
+                return None
+            end = data.find(b'\n', stop)
+            end = len(data) if end < 0 else end + 1
+            if data[stop:end].strip(b' \t\v\f\r\n'):
+                return marker(stop)
+            stop = end
+        return None
 
     forced = {physical(path) for path in forced_inputs}
     native_root = physical(translation_unit) if translation_unit is not None else None
     current, stack, administrative = None, [], set()
-    physical_line = 0
+    physical_line, cursor = 0, 0
     omitted_once = set()
     first_frame = True
-    for index, line in enumerate(lines):
-        path = marker(index)
+    for start, stop, line in events:
+        physical_line += data.count(b'\n', cursor, start) + 1
+        cursor = stop
+        path = marker(start)
         if path is not None:
             current = path
-            physical_line = int(re.match(rb'#(?:line)?\s+(\d+)', line.lstrip(b' \t\v\f\r'))[1]) - 1
+            physical_line = markers[start][0] - 1
             continue
-        physical_line += 1
-        if (directive(index) and current == physical(source)
+        if (current == physical(source)
                 and line.strip(b' \t\v\f\r\n') == b'#pragma once'
                 and physical_line in literal_once_lines):
             if physical_line in omitted_once:
                 raise ValueError('literal once line was projected more than once')
             omitted_once.add(physical_line)
-            administrative.add(index)
+            administrative.add(start)
             continue
-        if not directive(index) or authored_external_header:
+        if authored_external_header:
             continue
         control = line.strip(b' \t\v\f\r\n')
         if control not in [b'#pragma external_header(push)', b'#pragma external_header(pop)']:
             continue
-        target = frame_target(index)
+        target = frame_target(stop)
         if target is None or current is None or target == current:
             raise ValueError('external-header frame is not a file transition')
         if control.endswith(b'(push)'):
             if target == physical(source):
                 raise ValueError('external-header frame cannot enter the source root')
-            # /FI's first administrative frame begins in the generated wrapper,
-            # enters its header, returns to the wrapper, then restores the actual
-            # TU. Admit that shape only with an explicit trusted forced input.
             forced_frame = first_frame and not stack and current in forced
             stack.append((current, target, forced_frame))
         else:
@@ -161,16 +163,21 @@ def project_root(data, directive_offsets, source, physical, authored_external_he
                              and target == native_root and native_root is not None)
             if not ordinary and not forced_return:
                 raise ValueError('external-header frame restoration differs')
-        administrative.add(index)
+        administrative.add(start)
         first_frame = False
     if stack:
         raise ValueError('external-header frames are incomplete')
 
-    active, root = False, []
-    for index, line in enumerate(lines):
-        path = marker(index)
+    active, root, cursor = False, [], 0
+    for start, stop, _ in events:
+        if active:
+            root.append(data[cursor:start])
+        path = marker(start)
         if path is not None:
             active = path == physical(source)
-        elif active and index not in administrative:
-            root.append(line)
+        elif active and start not in administrative:
+            root.append(data[start:stop])
+        cursor = stop
+    if active:
+        root.append(data[cursor:])
     return b''.join(root)
