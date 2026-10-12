@@ -35,7 +35,9 @@ not claimed as a total call order across threads. Per-process traces and job
 accounting must agree before process coverage can even be claimed; missing
 coverage remains an explicit report field. Framing, consecutive sequence numbers,
 eleven installed hooks, normal start/end, bounded paths, logger failures and
-process-tree relationships are checked. Corrupt/incomplete traces decline the
+process-tree relationships are checked. An independent lifecycle ledger now
+records normal job messages before the root resumes; a separate debugger launch
+supplies process create/exit and loader-image events. Corrupt/incomplete traces decline the
 audit instead of silently dropping events.
 
 **MSVC 19.44 caches include-directory listings.** In the absent `__has_include`
@@ -99,6 +101,52 @@ path must be ASCII. Reports/artifacts must be new and outside the source cwd.
 Output, input bytes, trace/path counts and time are bounded. The audit is a
 trusted-command research tool, not a filesystem-write sandbox.
 
+## Independent process lifetimes
+
+The two-process/one-trace discrepancy has been identified on native Windows/MSVC
+19.44, including the genuine Hades Catch2 context: `cl.exe` creates a
+`C:/Windows/System32/conhost.exe` child. The ordinary job ledger and the separate
+debugger capture both identify its executable, parent, creation time and exit.
+This is a real untraced process, not a counter normalization to fix by subtracting
+one. **Console-host names never exempt a process from dependency coverage.**
+
+The ordinary launcher associates its job with a completion port while the job is
+empty, retains live handles and checks job membership before recording process
+metadata. PID plus creation time identifies an execution; handles are held until
+reconciliation to prevent PID reuse. Windows documents that
+[job completion messages are advisory and can be missed](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_associate_completion_port).
+Missing notifications/metadata remain incomplete observations even when final
+process counts happen to match. [TotalProcesses](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_accounting_information)
+is retained as raw accounting; it is not substituted for observed lifetimes.
+
+`vorpal_native_process_audit.exe` is the same scoped launcher built with
+[DEBUG_PROCESS](https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags)
+for a **separate explicit control execution**. It handles independent Windows
+create/exit events while the affected process is stopped, records initial loader
+image paths, and closes OS image handles. The lifecycle collector does not
+inspect command lines, debug strings, environment or process memory; optional
+Detours injection remains the separate in-memory import instrumentation described
+above. Only each process's first loader
+breakpoint is consumed; other exceptions pass back to Windows. The root and its
+descendants stay in the owned kill-on-close job. No already running process is
+attached to and no elevated token or persistent debugger is installed.
+
+Debugging can affect timing/behavior, and Windows allows a child to establish a
+new debug chain. Debug observations are therefore never merged into an ordinary
+run as if they belonged to that same capture. Output must match ordinary native
+output; agreeing outputs do not certify complete inputs. Job/debug create/exit,
+parent identities and final accounting are independently reconciled within each
+launch. Unknown identities and missing lifetimes retain false coverage. Early
+image paths are evidence, not mapped-byte or SDK-closure proofs.
+
+`scripts/cpp_native_process_control.py --launcher ... --debugger ... --dll ...
+--fixture ... --directory ... [--plan ... --source ...]` exercises native
+`CreateProcessW`, `CreateProcessA`, CRT `_wspawnv`, eight short-lived parallel
+children and a child outliving its parent in ordinary, debug and injected-debug
+launches. A timeout must be declined. With the genuine plan it also compares all
+three native compiler outputs and unchanged physical source/TU bytes. The Windows
+CI job runs these controls in addition to the eleven dependency transitions.
+
 `scripts/cpp_native_dependency_control.py --launcher ... --dll ... --directory ...`
 creates a fresh isolated fixture and runs eleven real MSVC cases: absent/native-only
 created optional header, same-mtime edit, removal, later-root hit, local shadow
@@ -117,9 +165,9 @@ Hades Catch2 context yields equal normal/instrumented native output and stable
 explicit context hashes: 4,814 observations, 457 candidate paths, 21 missing OS
 probes and 689 successful read/map observations. These are observation counts,
 not unique headers or parser diagnoses. Hades and the installed `.5` MCP remain
-unchanged. In this host's captures the job reports two associated processes while
-one rooted process trace is available; the report conservatively retains false
-process coverage. Some compiler-internal missing names also change between
+unchanged. Independent follow-up observations now identify the second process
+as the console host, with its filesystem trace still absent; the report retains
+false process coverage. Some compiler-internal missing names also change between
 discovery and confirmation, so the complete candidate bracket is not stable.
 Neither discrepancy is suppressed to manufacture an eligible snapshot.
 

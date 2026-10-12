@@ -82,7 +82,8 @@ class NativeDependencyAuditTests(unittest.TestCase):
             pathlib.Path(str(prefix) + '.8.bin').write_bytes(trace(record(4, 2, '\\??\\C:\\child.h')))
             pathlib.Path(str(prefix) + '.job.bin').write_bytes(RECORD.pack(12, 0, 0, 2, 5, 0, 0, 0, 0, 0))
             rows, coverage = parse_capture(prefix)
-            self.assertTrue(coverage['allJobProcessesTraced'])
+            self.assertTrue(coverage['traceCountMatchesJob'])
+            self.assertFalse(coverage['allJobProcessesTraced'])
             self.assertEqual(ordered_probes(rows)[0]['access'], 0)
             pathlib.Path(str(prefix) + '.9.bin').write_bytes(trace())
             with self.assertRaises(ValueError):

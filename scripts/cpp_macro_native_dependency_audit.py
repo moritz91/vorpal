@@ -16,6 +16,7 @@ import struct
 import subprocess
 import sys
 import time
+from cpp_macro_native_lifecycle import read_lifecycle, reconcile_traces
 
 MAGIC = b"VORPAL-NATIVE-AUDIT-1\n"
 RECORD = struct.Struct("<7I3Q")
@@ -93,10 +94,12 @@ def parse_capture(prefix):
     captures, total = {}, 0
     for path in prefix.parent.glob(prefix.name + ".*.bin"):
         pid = path.name[len(prefix.name) + 1:-4]
-        if pid == "job":
+        if pid in ("job", "life"):
             continue
         if not pid.isdecimal() or len(captures) >= 128:
             raise ValueError("unknown or excessive process traces")
+        if str(int(pid)) != pid or int(pid) in captures or not int(pid):
+            raise ValueError("ambiguous process trace identifier")
         data = path.read_bytes()
         total += len(data)
         if total > MAX_TRACE:
@@ -121,8 +124,19 @@ def parse_capture(prefix):
     visit(root)
     if visited != set(captures):
         raise ValueError("process traces are not rooted in the launched compiler")
-    return ordered, {"jobProcesses": processes, "tracedProcesses": len(captures),
-                     "allJobProcessesTraced": processes == len(captures)}
+    life_path = Path(str(prefix) + '.life.bin')
+    if life_path.exists():
+        lifecycle = read_lifecycle(prefix)
+        if lifecycle['rootPid'] != root or lifecycle['jobAssociations'] != processes:
+            raise ValueError('independent lifecycle/job envelope mismatch')
+        coverage = reconcile_traces(lifecycle, captures)
+    else:
+        # Historical artifacts are readable, but count equality is not evidence
+        # that every execution was independently observed.
+        coverage = {'jobProcesses': processes, 'tracedProcesses': len(captures),
+                    'traceCountMatchesJob': processes == len(captures),
+                    'allJobProcessesTraced': False, 'lifecycleReconciled': False}
+    return ordered, coverage
 
 
 def filesystem_path(name):
@@ -268,8 +282,8 @@ def run(command, cwd, environment, directory, label, timeout):
             prefix = Path(environment['VORPAL_NATIVE_AUDIT_TRACE'])
             trace_files = list(prefix.parent.glob(prefix.name + '.*.bin'))
             if (time.monotonic() > deadline or output.stat().st_size > 128 * 1024 * 1024
-                    or error.stat().st_size > 32 * 1024 * 1024 or len(trace_files) > 129
-                    or sum(p.stat().st_size for p in trace_files) > MAX_TRACE):
+                    or error.stat().st_size > 32 * 1024 * 1024 or len(trace_files) > 130
+                    or sum(p.stat().st_size for p in trace_files) > MAX_TRACE + 16 * 1024 * 1024):
                 process.kill()  # Closing the launcher closes only its own descendant job.
                 process.wait()
                 raise ValueError("native audit timed out or exceeded output bound")
@@ -312,6 +326,7 @@ def audit(args):
     directory.mkdir(parents=True, exist_ok=False)
     inputs = list(dict.fromkeys(str(p) for p in
         [compiler, launcher, dll, plan, source, unit, Path(__file__).resolve(),
+         Path(__file__).with_name('cpp_macro_native_lifecycle.py').resolve(),
          *[Path(p).resolve() for p in args.identity_input]]))
     if any(not Path(p).is_file() for p in inputs):
         raise ValueError("explicit identity inputs must be physical readable files")
@@ -338,6 +353,7 @@ def audit(args):
     paths = candidates(discovery)
     before = snapshot(paths)
     confirmed_output, confirmed, coverage = traced("confirmed")
+    lifecycle = read_lifecycle(directory / 'confirmed')
     confirmed_paths = candidates(confirmed)
     new_paths = [p for p in confirmed_paths if p not in before]
     after = snapshot(list(dict.fromkeys(paths + confirmed_paths)))
@@ -360,6 +376,7 @@ def audit(args):
         "nativeOutputEqual": output_equal, "nativeOutputSha256": plain_after,
         "traceIntegrity": "framed-start-end-eleven-hooks-per-observed-process",
         "processCoverage": coverage,
+        "processLifecycle": lifecycle,
         "processCoverageStable": discovery_coverage == coverage,
         "probeOrderEqual": ordered_probes(discovery) == probes,
         "snapshotStable": not changes and not new_paths and not unobservable,

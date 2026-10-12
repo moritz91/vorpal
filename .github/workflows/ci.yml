@@ -106,12 +106,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/cpp_native_dependency_control.py --launcher "$build/vorpal_native_audit.exe" --dll "$build/vorpal_native_probe64.dll" --directory "$env:RUNNER_TEMP/native-dependency-controls"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/cpp_native_process_control.py --launcher "$build/vorpal_native_audit.exe" --debugger "$build/vorpal_native_process_audit.exe" --dll "$build/vorpal_native_probe64.dll" --fixture "$build/vorpal_native_process_control.exe" --directory "$env:RUNNER_TEMP/native-process-controls" --plan "$env:RUNNER_TEMP/native-dependency-controls/plan.json" --source "$env:RUNNER_TEMP/native-dependency-controls/src/probe.cc"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve report-only control summary
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: native-dependency-audit-controls
-          path: ${{ runner.temp }}/native-dependency-controls/controls.json
+          path: |
+            ${{ runner.temp }}/native-dependency-controls/controls.json
+            ${{ runner.temp }}/native-process-controls/controls.json
           if-no-files-found: ignore
 
   # The encoder's x86 GEMM rungs (crates/ann/src/encoder/{gemm_x86,gemm_i8}.rs) can
