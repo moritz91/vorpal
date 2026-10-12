@@ -243,8 +243,9 @@ not unique headers or parser diagnoses. Hades and the installed `.5` MCP remain
 unchanged. Independent follow-up observations now identify the second process
 as the console host. Its ordinary-run filesystem trace remains absent; that
 report retains false process coverage. The explicit separate debugger input
-audit now captures framed probes from both executions, as described below. Some compiler-internal missing names also change between
-discovery and confirmation, so the complete candidate bracket is not stable.
+audit now captures framed probes from both executions, as described above. Some
+compiler-internal missing names also change between discovery and confirmation,
+so the complete candidate bracket is not stable.
 Neither discrepancy is suppressed to manufacture an eligible snapshot.
 
 This audit exposes these boundaries; passing controls does not remove them:
@@ -255,10 +256,12 @@ This audit exposes these boundaries; passing controls does not remove them:
 - Initial loader inputs before attachment, registry/device/network inputs,
   unsupported directory formats, metadata and complete tool/resource trees are
   not comprehensively covered.
-- Actual mapped/read bytes are not retained. Before/after snapshots detect a
-  sustained change but cannot exclude a change-and-restore while the compiler runs.
-  Read identity and race exclusion need an authoritative contract before serving
-  or banking reused proof/graphs.
+- Ordinary read bytes and actual mapped-page consumption are not certified. The
+  separate debug audit retains completed read-buffer copies and loader-file
+  snapshots, with the limits described above. Before/after snapshots cannot
+  exclude a change-and-restore while the compiler runs. Read identity and race
+  exclusion need an authoritative contract before serving or banking reused
+  proof/graphs.
 - All relevant failed searches, enumeration membership, redirects and tool inputs
   must be cheaply revalidated between requests; unknown cases still recapture.
 
@@ -266,3 +269,9 @@ The next cache work must close those boundaries and demonstrate equality against
 fresh complete graphs/spans/diagnoses, including native-only optional headers and
 genuine split-source contexts. Production remains on mandatory fresh native
 captures. See [the latency measurements](CPP_NATIVE_MCP_LATENCY.md).
+
+[The native stability canaries](CPP_NATIVE_STABILITY_AUDIT.md) now test range
+locks, read pins and directory R oplocks against pre-existing writers/mappings,
+async I/O, hardlinks, replacements and namespace changes. Their optional fresh
+compiler/graph comparison covers only known private fixture files and leaves
+production replay disabled.
