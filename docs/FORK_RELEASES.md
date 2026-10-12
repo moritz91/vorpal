@@ -65,3 +65,24 @@ chmod +x vorpal-linux-x64
 On Windows, compare `Get-FileHash .\vorpal-windows-x64.exe -Algorithm SHA256`
 with its line in `SHA256SUMS`. After replacing an installed binary, restart
 existing MCP processes so they load the new build.
+
+
+## Native provider package (moritz.6 and later)
+
+Releases also attach `vorpal-native-provider.zip`, covered by the same published
+`SHA256SUMS`. Its manifest binds the exact release commit/version and SHA-256 of
+every packaged file. The packager reads committed Git objects, uses a fixed file
+inventory and deterministic ZIP metadata, and refuses to overwrite an output.
+It includes the three provider Python modules, the Windows MCP launcher, matching
+LLVM 19 observer sources/build file, license and setup/latency documentation.
+Local compiler/SDK/LLVM binaries, private configuration, source files and reports
+are excluded. The existing explicit native tool prerequisites remain required.
+
+Update the provider scripts as well as the CLI to obtain provider optimizations.
+Extract into a new versioned directory, verify the outer checksum and individual
+member digests, preserve the existing tool pins and preprocessing plan, and
+write a separate configuration pointing to the packaged provider. Validate a
+fresh external index and normal MCP queries before switching the active entrypoint.
+Keep the prior binary/provider/configuration/index and tunnel profile for rollback.
+Neither this package nor its manifest certifies complete native dependencies or
+authorizes reuse of compiler captures between queries.

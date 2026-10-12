@@ -108,6 +108,20 @@ jobs:
           cargo test --locked -p vorpal-ingest --no-default-features --lib bundled_rule_buckets_are_independent_of_line_endings
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+  native-provider:
+    name: Committed native provider sources
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Package versioned provider and observer sources
+        run: python3 scripts/pack_cpp_native_provider.py --revision "$GITHUB_SHA" --output vorpal-native-provider.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vorpal-native-provider
+          path: vorpal-native-provider.zip
+          if-no-files-found: error
+
   build:
     name: Build ${{ matrix.target }}
     needs: guard
@@ -286,7 +300,7 @@ jobs:
   release:
     name: GitHub Release
     if: github.repository == 'moritz91/vorpal' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [guard, build, agent-bundle, test, windows-regressions]
+    needs: [guard, build, agent-bundle, test, windows-regressions, native-provider]
     runs-on: ubuntu-latest
     permissions:
       contents: write
