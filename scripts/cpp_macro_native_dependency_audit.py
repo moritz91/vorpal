@@ -191,7 +191,12 @@ def candidates(records):
     return result
 
 
-def snapshot(paths):
+def snapshot(paths,file_limit=None,total_limit=None):
+    file_limit=MAX_FILE if file_limit is None else file_limit
+    total_limit=MAX_TOTAL if total_limit is None else total_limit
+    if (type(file_limit) is not int or type(total_limit) is not int
+            or not 1<=file_limit<=256*1024*1024 or not 1<=total_limit<=512*1024*1024):
+        raise ValueError('snapshot byte bounds invalid')
     result, total = {}, 0
     for spelling in paths:
         path = Path(spelling)
@@ -213,13 +218,13 @@ def snapshot(paths):
             before = path.stat()
             value["fileId"] = [before.st_dev, before.st_ino]
             if path.is_file():
-                if before.st_size > MAX_FILE or total + before.st_size > MAX_TOTAL:
+                if before.st_size > file_limit or total + before.st_size > total_limit:
                     value["state"] = "over-limit"
                 else:
                     with path.open("rb") as stream:
-                        content = stream.read(MAX_FILE + 1)
+                        content = stream.read(file_limit + 1)
                     total += len(content)
-                    if len(content) > MAX_FILE or total > MAX_TOTAL:
+                    if len(content) > file_limit or total > total_limit:
                         value["state"] = "over-limit"
                     else:
                         value.update(state="file", size=len(content), sha256=digest(content))

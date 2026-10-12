@@ -124,3 +124,7 @@ capture/publication protocol before any reuse could be justified. Production
 continues to require fresh native captures. See
 [the process/read-buffer audit](CPP_NATIVE_DEPENDENCY_AUDIT.md) and
 [the latency measurements](CPP_NATIVE_MCP_LATENCY.md).
+
+[The guarded genuine capture prototype](CPP_GUARDED_NATIVE_CAPTURE.md) applies
+these mechanisms to the configured Hades/MSVC contexts and retains rejected
+whole-job discoveries and private staging/publication-gap controls.

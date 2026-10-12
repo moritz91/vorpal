@@ -112,6 +112,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/cpp_native_stability_control.py --launcher "$build/vorpal_native_audit.exe" --actor "$build/vorpal_native_stability_actor.exe" --directory "$env:RUNNER_TEMP/native-stability-controls"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/cpp_native_capture_control.py --launcher "$build/vorpal_native_audit.exe" --actor "$build/vorpal_native_stability_actor.exe" --directory "$env:RUNNER_TEMP/native-capture-controls"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve report-only control summary
         if: always()
         uses: actions/upload-artifact@v7
@@ -122,6 +124,7 @@ jobs:
             ${{ runner.temp }}/native-process-controls/controls.json
             ${{ runner.temp }}/native-input-controls/controls.json
             ${{ runner.temp }}/native-stability-controls/controls.json
+            ${{ runner.temp }}/native-capture-controls/controls.json
           if-no-files-found: ignore
 
   # The encoder's x86 GEMM rungs (crates/ann/src/encoder/{gemm_x86,gemm_i8}.rs) can
