@@ -77,6 +77,38 @@ pipeline again even when source files and timestamps have not changed. An
 authorized source root is required; a frozen external index cannot claim freshness.
 This costs native preprocessing on every such query and can be slow on large SDKs.
 
+### Capture failures and index publication
+
+Configured native recovery distinguishes operational failures from proof declines.
+A provider that cannot start, an unavailable compiler/LLVM dependency, failed
+native preprocessing, timeout, scratch/resource failure, crash or invalid/missing
+response aborts the index build. No raw replacement product is emitted. The failure
+is sticky for the extraction session, including parallel workers; retry with a new
+extractor. Standalone callers of the optional product APIs must check
+`check_cpp_context_freshness()` before using/publishing their session's products
+(or inspect the typed `check_cpp_compiler_failure()` result).
+
+The existing pre-publication gates reject that session before returning a live
+graph/deferred commit or replacing `CURRENT`. Normal MCP returns `isError: true`
+with `code: index-unavailable` for affected requests, including graph navigation
+and source spans. It retains the previous committed bytes for recovery, but does
+not serve them as a newly validated answer. Restoration reruns the same fresh
+native pipeline; no failed session or old capture can authorize reuse.
+
+The provider exit contract reserves **65** for an explicit bounded projection
+proof decline and **69** for unavailable tools. All other nonzero exits are
+operational failures, including unrecognized third-party/older provider failures.
+Exit 0 still requires a well-formed response bound to this request/source. A
+completed capture with unsupported macro evidence, divergent tokens, inactive
+branches or unproven sites retains the existing raw syntax diagnostics; genuine
+missing semicolons/invalid arguments are never hidden. A nonzero native compiler
+invocation cannot by itself establish that a raw graph is a safe substitute.
+
+Protocol errors and operational diagnostics expose only fixed reasons, never
+arguments, environment, private paths, exception details or compiler stderr.
+The provider and profiling launcher share this sanitized exit contract. Process
+tree containment/cleanup and fresh per-request capture remain mandatory.
+
 The [native dependency audit](CPP_NATIVE_DEPENDENCY_AUDIT.md) is a separate,
 report-only Windows research tool. It observes actual MSVC filesystem operations
 and directory-cache inputs; it is not enabled by this provider or the MCP config.

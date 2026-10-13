@@ -2,6 +2,17 @@
 
 ## Current compiler-backed production path
 
+Configured native capture now separates operational failures from proof declines.
+Missing tools, startup/process failures, timeouts and invalid protocol responses
+produce no raw replacement product and poison the extraction session. Existing
+pre-publication checks reject the full build before returning a live KG/pending
+commit or changing CURRENT. MCP reports index-unavailable, retains the last
+committed artifact bytes, and requires a fresh successful capture before answering.
+Completed unproven captures still retain raw syntax errors and conservative edges.
+Provider exit 65 explicitly declines a projection proof; exit 69 reports missing
+tools, and other nonzero exits fail the build. Diagnostics are fixed and sanitized.
+See [the capture failure contract](CPP_NATIVE_PROVIDER.md#capture-failures-and-index-publication).
+
 The current generator follow-up is documented in
 [CPP_NATIVE_PROVIDER.md](CPP_NATIVE_PROVIDER.md). Fresh native proofs cover
 statement lists, function prefixes, complete function/declaration lists,

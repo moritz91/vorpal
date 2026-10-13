@@ -19,10 +19,13 @@ fn require_macos() {
   panic!("Foundation controls require a real macOS host");
 }
 
-fn call_response(server: &mut Server, id: u64, name: &str, arguments: Value) -> Value {
+fn response(server: &mut Server, id: u64, name: &str, arguments: Value) -> Value {
   let request = json!({"jsonrpc":"2.0", "id":id, "method":"tools/call", "params":{"name":name, "arguments":arguments}});
-  let response: Value =
-    serde_json::from_str(&server.handle_line(&request.to_string()).unwrap()).unwrap();
+  serde_json::from_str(&server.handle_line(&request.to_string()).unwrap()).unwrap()
+}
+
+fn call_response(server: &mut Server, id: u64, name: &str, arguments: Value) -> Value {
+  let response = response(server, id, name, arguments);
   assert_eq!(response["result"]["isError"], false, "{response}");
   response
 }
@@ -90,8 +93,26 @@ fn genuine_foundation_mcp_recaptures_external_headers_without_source_hints() {
     )
     .unwrap();
     assert!(call(&mut server, 3, "health", json!({})).contains("carry ERROR/MISSING nodes"));
+    let prior = fs::read(index.join("CURRENT")).unwrap();
+    let graph_bytes = fs::read(vorpal_kg::resolve_index_dir(&index).join("graph.bin")).unwrap();
     fs::remove_file(&case.header_path).unwrap();
-    assert!(call(&mut server, 4, "health", json!({})).contains("carry ERROR/MISSING nodes"));
+    let failed = response(&mut server, 4, "health", json!({}));
+    assert_eq!(failed["result"]["isError"], true, "{failed}");
+    assert_eq!(
+      failed["result"]["structuredContent"]["code"],
+      "index-unavailable"
+    );
+    assert!(
+      failed["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("native C++ compiler recovery failed")
+    );
+    assert_eq!(fs::read(index.join("CURRENT")).unwrap(), prior);
+    assert_eq!(
+      fs::read(vorpal_kg::resolve_index_dir(&index).join("graph.bin")).unwrap(),
+      graph_bytes
+    );
     fs::write(&case.header_path, header).unwrap();
     assert!(call(&mut server, 5, "health", json!({})).contains("parse health: clean"));
     assert_eq!(fs::read(index.join("CURRENT")).unwrap(), generation);

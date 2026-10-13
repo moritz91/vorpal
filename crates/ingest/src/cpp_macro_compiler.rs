@@ -28,6 +28,40 @@ fn default_timeout() -> u64 {
   60
 }
 
+/// Operational failure of a configured native capture. Messages deliberately
+/// exclude executable paths, arguments, environment and compiler stderr.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompilerFailure {
+  Configuration,
+  ScratchIo,
+  Start,
+  Containment,
+  Timeout,
+  ResourceLimit,
+  ToolUnavailable,
+  Provider,
+  Protocol,
+}
+
+impl std::fmt::Display for CompilerFailure {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let reason = match self {
+      Self::Configuration => "invalid configured capture command",
+      Self::ScratchIo => "capture scratch I/O failed",
+      Self::Start => "provider could not be started; check the configured executable and working directory",
+      Self::Containment => "provider process containment failed",
+      Self::Timeout => "capture timed out",
+      Self::ResourceLimit => "capture exceeded resource limits",
+      Self::ToolUnavailable => "required compiler/LLVM tool is unavailable; load the configured native toolchain environment",
+      Self::Provider => "native preprocessing/provider failed; check the configured tools, SDK and environment",
+      Self::Protocol => "provider returned an invalid or missing capture response",
+    };
+    write!(f, "native C++ compiler recovery failed: {reason}")
+  }
+}
+
+impl std::error::Error for CompilerFailure {}
+
 impl CompilerCommand {
   pub fn validate(&self) -> Result<(), String> {
     if !cfg!(feature = "builtin-parser") {
@@ -280,16 +314,17 @@ mod native {
       })
   }
 
-  fn capture(config: &CompilerCommand, path: &Path, source: &str) -> Option<(Packet, u64)> {
-    config.validate().ok()?;
+  fn capture(config: &CompilerCommand, path: &Path, source: &str) -> Result<Option<(Packet, u64)>, CompilerFailure> {
+    use CompilerFailure as Failure;
+    config.validate().map_err(|_| Failure::Configuration)?;
     if source.len() > 4 * 1024 * 1024 || !current(path, source) {
-      return None;
+      return Ok(None);
     }
     let scratch = tempfile::Builder::new()
       .prefix("vorpal-cpp-compiler-")
       .tempdir()
-      .ok()?;
-    let request_id = scratch.path().file_name()?.to_str()?;
+      .map_err(|_| Failure::ScratchIo)?;
+    let request_id = scratch.path().file_name().and_then(|s| s.to_str()).ok_or(Failure::ScratchIo)?;
     let request = scratch.path().join("request.json");
     let response = scratch.path().join("response.json");
     let errors = scratch.path().join("stderr.log");
@@ -302,9 +337,9 @@ mod native {
         path,
         source,
       })
-      .ok()?,
+      .map_err(|_| Failure::Protocol)?,
     )
-    .ok()?;
+    .map_err(|_| Failure::ScratchIo)?;
     let mut command = Command::new(&config.program);
     command
       .args(&config.arguments)
@@ -314,7 +349,7 @@ mod native {
       .current_dir(&config.directory)
       .stdin(Stdio::null())
       .stdout(Stdio::null())
-      .stderr(Stdio::from(fs::File::create(&errors).ok()?));
+      .stderr(Stdio::from(fs::File::create(&errors).map_err(|_| Failure::ScratchIo)?));
     #[cfg(windows)]
     {
       use std::os::windows::process::CommandExt;
@@ -325,11 +360,11 @@ mod native {
       use std::os::unix::process::CommandExt;
       command.process_group(0);
     }
-    let mut child = command.spawn().ok()?;
+    let mut child = command.spawn().map_err(|_| Failure::Start)?;
     let Some(tree) = super::process_tree::ProcessTree::attach(&child) else {
       let _ = child.kill();
       let _ = child.wait();
-      return None;
+      return Err(Failure::Containment);
     };
     // Providers wait for this before starting preprocessing children. The job/
     // process group owns them before any compiler is allowed to start.
@@ -337,41 +372,55 @@ mod native {
       drop(tree);
       let _ = child.kill();
       let _ = child.wait();
-      return None;
+      return Err(Failure::ScratchIo);
     }
     let deadline = Instant::now() + Duration::from_secs(config.timeout_seconds);
     let status = loop {
       match child.try_wait() {
-        Ok(Some(status)) => break Some(status),
-        Ok(None) if Instant::now() < deadline && scratch_within_limits(scratch.path()) => {
+        Ok(Some(status)) => break Ok(status),
+        Ok(None) => {
+          if Instant::now() >= deadline { break Err(Failure::Timeout); }
+          if !scratch_within_limits(scratch.path()) { break Err(Failure::ResourceLimit); }
           std::thread::sleep(Duration::from_millis(20));
         }
-        _ => {
-          let _ = child.kill();
-          let _ = child.wait();
-          break None;
-        }
+        Err(_) => break Err(Failure::Provider),
       }
-    }?;
+    };
     drop(tree);
-    if !status.success() || !scratch_within_limits(scratch.path()) {
-      return None;
+    let status = match status {
+      Ok(status) => status,
+      Err(failure) => {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(failure);
+      }
+    };
+    if !scratch_within_limits(scratch.path()) { return Err(Failure::ResourceLimit); }
+    // Reserved provider exits: only an explicit proof decline may take the raw
+    // parser path. Crashes, unrecognized exits and absent tools abort the build.
+    match status.code() {
+      Some(65) => return Ok(None),
+      Some(69) => return Err(Failure::ToolUnavailable),
+      _ if !status.success() => return Err(Failure::Provider),
+      _ => (),
     }
     let mut bytes = Vec::new();
     fs::File::open(response)
-      .ok()?
+      .map_err(|_| Failure::Protocol)?
       .take(LIMIT + 1)
       .read_to_end(&mut bytes)
-      .ok()?;
-    if bytes.len() as u64 > LIMIT || !current(path, source) {
-      return None;
+      .map_err(|_| Failure::Protocol)?;
+    if bytes.len() as u64 > LIMIT { return Err(Failure::ResourceLimit); }
+    if !current(path, source) {
+      return Ok(None);
     }
-    let packet: Packet = serde_json::from_slice(&bytes).ok()?;
+    let packet: Packet = serde_json::from_slice(&bytes).map_err(|_| Failure::Protocol)?;
     if packet.version != 1
       || packet.request_id != request_id
       || packet.path != path
       || packet.source != source
-      || !packet.complete
+    { return Err(Failure::Protocol); }
+    if !packet.complete
       || packet.volatile_inputs
       || !validated_native_pragmas(&packet, source)
       || packet.native_context_before.is_empty()
@@ -381,29 +430,32 @@ mod native {
       || packet.native_before.len() > 1_000_000
       || packet.observed_tokens.len() > 1_000_000
     {
-      return None;
+      return Ok(None);
     }
     let native: Vec<_> = packet.native_before.iter().map(String::as_str).collect();
     let observed: Vec<_> = packet.observed_tokens.iter().map(String::as_str).collect();
     if compare_token_spellings(&native, &observed) == TokenAgreement::Different {
-      return None;
+      return Ok(None);
     }
     // This identifies this exact capture, not reusable dependency completeness.
     let mut hash = xxhash_rust::xxh3::Xxh3::new();
     hash.update(b"vorpal-fresh-cpp-compiler-v1\0");
-    hash.update(&serde_json::to_vec(config).ok()?);
-    let mut stable: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    stable.as_object_mut()?.remove("requestId");
-    hash.update(&serde_json::to_vec(&stable).ok()?);
-    Some((packet, hash.digest()))
+    hash.update(&serde_json::to_vec(config).map_err(|_| Failure::Protocol)?);
+    let mut stable: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| Failure::Protocol)?;
+    stable.as_object_mut().ok_or(Failure::Protocol)?.remove("requestId");
+    hash.update(&serde_json::to_vec(&stable).map_err(|_| Failure::Protocol)?);
+    Ok(Some((packet, hash.digest())))
   }
 
   pub(crate) fn parse(
     config: &CompilerCommand,
     path: &Path,
     source: &str,
-  ) -> Option<CompilerParse> {
-    vorpal_language::with_cpp_statement_macros(&[], || parse_without_context(config, path, source))
+  ) -> Result<Option<CompilerParse>, CompilerFailure> {
+    vorpal_language::with_cpp_statement_macros(&[], || {
+      let Some((packet, dependency)) = capture(config, path, source)? else { return Ok(None); };
+      Ok(parse_without_context(path, source, packet, dependency))
+    })
   }
 
   fn add_native_generators(
@@ -1528,11 +1580,11 @@ mod native {
   }
 
   fn parse_without_context(
-    config: &CompilerCommand,
     path: &Path,
     source: &str,
+    packet: Packet,
+    dependency: u64,
   ) -> Option<CompilerParse> {
-    let (packet, dependency) = proof_stage(capture(config, path, source), "capture")?;
     let buffers: Vec<_> = packet
       .definitions
       .iter()
