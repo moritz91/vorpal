@@ -1,6 +1,6 @@
 {
   "name": "@hyper-light/vorpal-node-linux-arm64-musl",
-  "version": "0.10.2+moritz.8",
+  "version": "0.10.2+moritz.9",
   "os": [
     "linux"
   ],
