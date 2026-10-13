@@ -19,7 +19,7 @@ statement lists, function prefixes, complete function/declaration lists,
 case/loop prefixes, numeric object macros inside statement arguments and native
 object-like inline specifiers and exact native try/catch handler prefixes.
 The isolated Hades index with explicit genuine textual include contexts is
-1 error-bearing file / 2 diagnostics / 13 diagnostic bytes; productive `.4`
+1 error-bearing file / 2 diagnostics / 13 diagnostic bytes; productive `.8`
 uses the same validated configuration and has the same health. All 41 state-storage definitions and 41 declarations are
 clean using physical-file projection in their genuine CMake Unity context.
 Missing/repeated visits and unsupported native pragmas remain conservative boundaries;

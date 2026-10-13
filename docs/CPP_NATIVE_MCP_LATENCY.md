@@ -37,6 +37,88 @@ Compare the complete stored node families, graph edges/confidences, source
 contexts, names and dataflow with the freshly built baseline. A provider/config
 change legitimately changes proof identities and generation IDs.
 
+## Native compiler dispatch, 2026-10-13
+
+The `.8` timeline identifies delayed dispatch rather than an insufficient worker
+count. In the two repeated profiled requests, the twenty native contexts start
+across 7.81-7.88 seconds; `ui_tests.cc` starts after about seven seconds and is
+the last capture to finish. Each capture still executes both native passes and
+the independent observer. Registry/UI/Lua and state contexts dominate processing.
+The profiler now records monotonic capture/subprocess start clocks and Python
+CPU time, using only hashed source identities and the existing bounded function
+summary. Failed captures emit no report. Profiling adds overhead; these clocks
+are diagnostic evidence rather than ordinary response latency.
+
+The spilled index stream gives already-admitted, explicitly configured native
+compiler files a separate bounded priority work lane. Canonical entry admission,
+source-byte reservations, sequence numbers, in-shard application and shard
+absorption order stay unchanged. Only dispatch among admitted entries changes.
+This avoids starving an unadmitted canonical prefix under a small byte budget:
+workers can still drain ordinary admitted work when the priority lane is empty.
+Default extraction keeps its existing FIFO lane, and small trees retain their
+serial path. The hint is neither a cost estimate nor a freshness/replay proof.
+
+All twenty contexts start within 0.50-0.53 seconds in repeated candidate profiles,
+with all twenty providers overlapping. The tail moves to Registry; individual
+native subprocesses sometimes take longer under the increased concurrency.
+An unprofiled worker sweep confirms that merely reducing the global worker count
+does not help on this 64-logical-CPU host: the eight-worker tool requests take
+27-28 seconds, sixteen workers take 19-20 seconds, and four take 44-45 seconds,
+against approximately 17 seconds with the unchanged default. These are local
+measurements, not a portable choice of worker count. No worker override or
+provider/SDK configuration change is installed.
+
+Three alternating unprofiled pairs per tool use published `.8` and the final
+locally built candidate, identical native provider/configuration and separate
+index copies. The first request is retained in the results:
+
+| Tool | Published `.8` median (range) | Candidate median (range) | Median paired saving |
+| --- | ---: | ---: | ---: |
+| Health | 15.444 s (15.118-17.152) | 15.200 s (12.564-19.856) | 1.952 s |
+| Graph | 17.063 s (14.576-17.543) | 12.693 s (12.401-14.519) | 2.544 s |
+| Snippet | 16.220 s (14.618-16.873) | 12.504 s (12.398-14.619) | 2.254 s |
+
+Paired savings are medians of individual differences, not differences of column
+medians. The first candidate health request is slower (19.856 s against 15.444 s),
+so this is a repeated-request improvement, not a startup-latency guarantee.
+Timing drift remains visible in both variants. All 106 semantic graph/span files,
+graph/snippet answers and original diagnostics match exactly; only an explicitly
+displayed extraction identity may differ with provenance. The same two inactive
+Catch2 diagnoses / 13 bytes remain visible. Native compiler proofs are still
+fresh on every request; none are reused to obtain these timings.
+
+An independent startup control launches a new MCP process and uses a fresh
+index copy for each measurement. Reversing baseline/candidate process order
+confirms the tradeoff: first health takes 15.917/16.217 seconds on `.8` against
+17.831/19.816 seconds on the candidate. The immediately repeated health takes
+16.741/16.825 seconds against 14.492/14.435 seconds. Answers remain identical.
+The extra 1.9-3.6 seconds on initial health must be considered before deployment;
+the candidate has not replaced the productive `.8` service.
+
+Tests compare priority/FIFO graph bytes across parsed/replayed/skipped entries,
+mixed/all/empty priority sets and deliberately starved one-byte admission. Both
+channel closure orders drain, and failures in either lane return no partial
+result. The compiler-outage regression now includes 120 ordinary files to exercise
+the parallel lanes rather than only the small-tree shortcut. Native optional
+header creation, same-timestamp edits/restoration and removal, plus missing
+compiler/observer/library/provider and timeout controls, preserve the existing
+failure/restoration contract. Both native passes, original input rereads, token
+agreement, process containment and product/tree-cache gates remain unchanged.
+
+Final-binary checks compare all 106 semantic files against the installed `.8`
+index, paired indices, a new verified cold build and the restored outage index.
+They match exactly. The isolated outage preserves all 124 committed
+graph/span/product artifacts and `CURRENT`; restoring the genuine compiler
+restores the original answers. Native Windows and Linux stream/compiler/replay
+regressions, the unchanged full grammar corpus, 76 Python controls, library
+Clippy on Windows, all-target Clippy on Linux and Actionlint pass. The connected
+productive MCP and tunnel also pass health checks with the same two original
+Catch2 spans, `201224..201229` and `203143..203151`.
+
+Private timeline, worker-sweep, paired benchmark and native fixture records are
+under `C:/Users/morit/.codex/tmp/vorpal-scheduling8`. The productive `.8` binary,
+provider, index and service stay unchanged; Hades is read-only.
+
 ## Capture-local lexical reuse
 
 The provider retains at most one full-output hash-offset result and one

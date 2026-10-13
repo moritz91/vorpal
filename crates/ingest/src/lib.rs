@@ -167,7 +167,7 @@ pub use pipeline::{
   PairingHandle, StreamWork, apply_products_sharded, link_writer, link_writer_spilled,
   link_writer_spilled_with_flows, release_freed_pages, retain_dirty_pages_for_batch_run,
   spawn_sig_pairing,
-  stream_apply, stream_apply_with_fresh, stream_apply_spilled,
+  stream_apply, stream_apply_with_fresh, stream_apply_spilled, stream_apply_spilled_with_priority,
 };
 pub use product::{
   BARE_FORM_TAG, CALL_REF_TAG, Cuts, MAX_PRODUCT_CUTS, RefRow, RefRows, peek_product_cuts, peek_product_refs, refform_tag, refkind_tag,

@@ -63,13 +63,16 @@ def main():
             native_runs += 1
         begin = time.perf_counter()
         result = original_run(command, *positional, **keywords)
-        subprocesses.append({"phase": phase, "seconds": time.perf_counter() - begin})
+        subprocesses.append({"phase": phase, "seconds": time.perf_counter() - begin,
+                            "startedPerfCounterNs": int(begin * 1e9)})
         return result
     profiler = cProfile.Profile()
     argv = sys.argv
     try:
         sys.argv = [str(provider), *args.arguments]
         subprocess.run = measured_run
+        started_ns = time.perf_counter_ns()
+        cpu_start = time.process_time()
         started = time.perf_counter()
         profiler.runcall(module.main)
         elapsed = time.perf_counter() - started
@@ -77,6 +80,9 @@ def main():
         sys.argv = argv
         subprocess.run = original_run
     report = {"schema": 1, "profiledSeconds": elapsed,
+              "startedPerfCounterNs": started_ns,
+              "finishedPerfCounterNs": time.perf_counter_ns(),
+              "pythonCpuSeconds": time.process_time() - cpu_start,
               "sourceContextSha256": hashlib.sha256(request["path"].encode()).hexdigest(),
               "subprocesses": subprocesses,
               "functions": summarize(pstats.Stats(profiler).stats)}
