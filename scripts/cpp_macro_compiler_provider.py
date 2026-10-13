@@ -33,6 +33,47 @@ def load(path):
     return json.loads(Path(path).read_bytes())
 
 
+def definition_buffer(header, observed_sha256, end_sha256, definitions, buffers):
+    """Fresh read on every invocation; reuse only a matching immutable byte identity.
+
+    The tables belong to one capture. No file read, resolution or final input
+    recheck is memoized. A changed read or observer identity aborts the capture.
+    """
+    data = header.read_bytes()
+    key = os.path.normcase(str(header))
+    previous = buffers.get(key)
+    if previous is None:
+        identity = digest(data)
+        number = len(definitions)
+    else:
+        number, original, identity = previous
+        assert data == original
+    assert observed_sha256.lower() == end_sha256.lower() == identity
+    if previous is None:
+        definitions.append({"path": str(header), "source": data.decode("utf-8")})
+        buffers[key] = (number, data, identity)
+    return number
+
+
+def root_token_inventory(tokens, lines, comment_kind, clang_mode=False):
+    """Read each foreign token spelling/location once; preserve directive roles."""
+    values, directives = [], set()
+    for token in tokens:
+        if token.kind == comment_kind:
+            continue
+        spelling = token.spelling
+        location = token.location
+        line = location.line
+        values.append((spelling, line))
+        if spelling == "#" and not lines[line-1][:location.column-1].strip():
+            directives.add(line)
+    if clang_mode:
+        directives = {line for line in directives
+                      if not clang_diagnostic_line(lines[line-1].strip())}
+    return ([spelling for spelling, line in values if line not in directives],
+            [lines[line-1].strip() for line in sorted(directives)])
+
+
 class ProofDeclined(Exception):
     """A completed capture cannot establish the bounded source projection."""
 
@@ -103,6 +144,7 @@ def main():
     source = Path(request["path"])
     original = source.read_bytes()
     assert original.decode("utf-8") == request["source"]
+    original_digest = digest(original)
     plan_bytes = Path(args.plan).read_bytes()
     entries = json.loads(plan_bytes)
     selected = [p for p in entries if physical(p["source"]) == physical(source)]
@@ -240,18 +282,9 @@ def main():
             index = cindex.Index.create()
             virtual = str(scratch / (label + "-root.cc"))
             tu = index.parse(virtual, args=["-std=c++20", "-fms-extensions"], unsaved_files=[(virtual, text)])
-            tokens = [t for t in tu.get_tokens(extent=tu.get_extent(virtual, (0, len(projected))))
-                      if t.kind != cindex.TokenKind.COMMENT]
-            lines = text.split('\n')
-            directives = {t.location.line for t in tokens if t.spelling == "#"
-                          and not lines[t.location.line-1][:t.location.column-1].strip()}
-            if args.driver_mode == "clang":
-                # Known diagnostics remain comparison tokens, independently emitted
-                # by real PP callbacks. Unknown directives still decline recovery.
-                directives = {line for line in directives
-                              if not clang_diagnostic_line(lines[line-1].strip())}
-            return ([t.spelling for t in tokens if t.location.line not in directives],
-                    [lines[line-1].strip() for line in sorted(directives)])
+            return root_token_inventory(
+                tu.get_tokens(extent=tu.get_extent(virtual, (0, len(projected)))),
+                text.split('\n'), cindex.TokenKind.COMMENT, args.driver_mode == "clang")
 
         spellings, directives = lex_memo.root_tokens(projected, lex_root)
         return spellings, directives, input_digests
@@ -297,7 +330,7 @@ def main():
         loc = row["location"]
         if loc.get("nested") is not False or physical(loc.get("path", "")) != physical(source):
             continue
-        assert loc["buffer_sha256"].lower() == digest(original)
+        assert loc["buffer_sha256"].lower() == original_digest
         offset = loc["offset"]
         assert type(offset) is int and 0 <= offset < len(original)
         start = original.rfind(b"\n", 0, offset) + 1
@@ -319,7 +352,7 @@ def main():
             continue
         if physical(begin["path"]) != physical(source) or physical(end["path"]) != physical(source):
             continue
-        assert begin["buffer_sha256"].lower() == end["buffer_sha256"].lower() == digest(original)
+        assert begin["buffer_sha256"].lower() == end["buffer_sha256"].lower() == original_digest
         start, stop = begin["offset"], end["offset"]
         assert 0 <= start < stop <= len(original)
         assert original[start:start+len(record["name"])].decode() == record["name"]
@@ -339,14 +372,9 @@ def main():
         if (record.get("function_like") or literal or specifier or control or annotation) and definition.get("path") and definition_end.get("path"):
             header = Path(definition["path"]).resolve()
             if header.is_file() and Path(definition_end["path"]).resolve() == header:
-                data = header.read_bytes()
-                assert definition["buffer_sha256"].lower() == definition_end["buffer_sha256"].lower() == digest(data)
-                key = os.path.normcase(str(header))
-                if key not in buffers:
-                    buffers[key] = len(definitions)
-                    definitions.append({"path": str(header), "source": data.decode("utf-8")})
-                assert definitions[buffers[key]]["source"].encode() == data
-                anchor = {"buffer": buffers[key], "nameOffset": definition["offset"],
+                number = definition_buffer(header, definition["buffer_sha256"],
+                                           definition_end["buffer_sha256"], definitions, buffers)
+                anchor = {"buffer": number, "nameOffset": definition["offset"],
                           "end": definition_end["offset"], "parameters": record["parameters"]}
         if literal and anchor is not None:
             literal_arguments.append({"name": record["name"], "start": start, "end": stop, "definition": anchor})
