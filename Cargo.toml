@@ -10,7 +10,7 @@ resolver = "2"
 lto = true
 
 [workspace.package]
-version = "0.10.2+moritz.6"
+version = "0.10.2+moritz.7"
 authors = ["Herrington Darkholme <2883231+HerringtonDarkholme@users.noreply.github.com>"]
 edition = "2024"
 license = "MIT"
@@ -21,27 +21,27 @@ rust-version = "1.98"
 readme = "README.md"
 
 [workspace.dependencies]
-vorpal-core = { path = "crates/core", version = "0.10.2+moritz.6", default-features = false }
-vorpal-ann = { path = "crates/ann", version = "0.10.2+moritz.6" }
-vorpal-canonical = { path = "crates/canonical", version = "0.10.2+moritz.6" }
-vorpal-config = { path = "crates/config", version = "0.10.2+moritz.6" }
-vorpal-dynamic = { path = "crates/dynamic", version = "0.10.2+moritz.6" }
-vorpal-graph = { path = "crates/graph", version = "0.10.2+moritz.6" }
-vorpal-index = { path = "crates/index", version = "0.10.2+moritz.6", default-features = false }
-vorpal-ingest = { path = "crates/ingest", version = "0.10.2+moritz.6" }
-vorpal-kg = { path = "crates/kg", version = "0.10.2+moritz.6" }
-vorpal-lang-registry = { path = "crates/lang-registry", version = "0.10.2+moritz.6" }
-vorpal-language = { path = "crates/language", version = "0.10.2+moritz.6" }
-vorpal-loader = { path = "crates/loader", version = "0.10.2+moritz.6" }
-vorpal-lsp = { path = "crates/lsp", version = "0.10.2+moritz.6" }
-vorpal-mcp = { path = "crates/mcp", version = "0.10.2+moritz.6" }
-vorpal-mem = { path = "crates/mem", version = "0.10.2+moritz.6" }
-vorpal-outline = { path = "crates/outline", version = "0.10.2+moritz.6" }
-vorpal-query = { path = "crates/query", version = "0.10.2+moritz.6" }
-vorpal-resolve = { path = "crates/resolve", version = "0.10.2+moritz.6" }
-vorpal-segment = { path = "crates/segment", version = "0.10.2+moritz.6" }
-vorpal-transport = { path = "crates/transport", version = "0.10.2+moritz.6" }
-vorpal-wire = { path = "crates/wire", version = "0.10.2+moritz.6" }
+vorpal-core = { path = "crates/core", version = "0.10.2+moritz.7", default-features = false }
+vorpal-ann = { path = "crates/ann", version = "0.10.2+moritz.7" }
+vorpal-canonical = { path = "crates/canonical", version = "0.10.2+moritz.7" }
+vorpal-config = { path = "crates/config", version = "0.10.2+moritz.7" }
+vorpal-dynamic = { path = "crates/dynamic", version = "0.10.2+moritz.7" }
+vorpal-graph = { path = "crates/graph", version = "0.10.2+moritz.7" }
+vorpal-index = { path = "crates/index", version = "0.10.2+moritz.7", default-features = false }
+vorpal-ingest = { path = "crates/ingest", version = "0.10.2+moritz.7" }
+vorpal-kg = { path = "crates/kg", version = "0.10.2+moritz.7" }
+vorpal-lang-registry = { path = "crates/lang-registry", version = "0.10.2+moritz.7" }
+vorpal-language = { path = "crates/language", version = "0.10.2+moritz.7" }
+vorpal-loader = { path = "crates/loader", version = "0.10.2+moritz.7" }
+vorpal-lsp = { path = "crates/lsp", version = "0.10.2+moritz.7" }
+vorpal-mcp = { path = "crates/mcp", version = "0.10.2+moritz.7" }
+vorpal-mem = { path = "crates/mem", version = "0.10.2+moritz.7" }
+vorpal-outline = { path = "crates/outline", version = "0.10.2+moritz.7" }
+vorpal-query = { path = "crates/query", version = "0.10.2+moritz.7" }
+vorpal-resolve = { path = "crates/resolve", version = "0.10.2+moritz.7" }
+vorpal-segment = { path = "crates/segment", version = "0.10.2+moritz.7" }
+vorpal-transport = { path = "crates/transport", version = "0.10.2+moritz.7" }
+vorpal-wire = { path = "crates/wire", version = "0.10.2+moritz.7" }
 
 bit-set = { version = "0.10.0" }
 blake3 = "1.8"
