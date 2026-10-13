@@ -87,7 +87,7 @@ def project_root(data, directive_offsets, source, physical, authored_external_he
     # other lines, including raw-literal payload and CRLF, exactly as captured.
     # Decode marker syntax once; physical() still runs in each projection pass
     # and each administrative lookahead. No resolved path survives this call.
-    events, markers = [], {}
+    events, markers, marker_paths = [], {}, {}
     for offset in sorted(directive_offsets):
         if not 0 <= offset < len(data):
             continue
@@ -99,7 +99,18 @@ def project_root(data, directive_offsets, source, physical, authored_external_he
         line = data[start:stop]
         match = re.fullmatch(rb'#(?:line)?\s+(\d+)\s+(".*?")\s*', line.strip(b' \t\v\f\r\n'))
         if match:
-            markers[start] = (int(match[1]), json.loads(match[2]))
+            # Native streams repeat the same quoted spelling thousands of times.
+            # Reuse only its pure JSON decoding inside this projection, never
+            # physical resolution. Exact quoted bytes (including escapes) key it;
+            # new spellings beyond the bound still decode and project normally.
+            quoted = match[2]
+            if quoted in marker_paths:
+                spelling = marker_paths[quoted]
+            else:
+                spelling = json.loads(quoted)
+                if len(marker_paths) < 2048:
+                    marker_paths[quoted] = spelling
+            markers[start] = (int(match[1]), spelling)
         events.append((start, stop, line))
 
     def marker(start):

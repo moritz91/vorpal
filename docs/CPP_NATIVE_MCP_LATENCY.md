@@ -72,6 +72,73 @@ dependency-aware replay must demonstrate the same definitions, original spans,
 graph edges and diagnoses as a fresh complete build, including the native-only
 optional-header and genuine split-source controls.
 
+## Capture-local buffer and token processing, 2026-10-13
+
+Profiling published `.7` across a verified cold build and three ordinary tools
+produces 80 successful captures of the same 20 genuine MSVC source contexts.
+Registry, UI, Lua and Unity contexts dominate. Repeated JSON decoding of native
+marker spellings, hashing the already immutable source/definition bytes and
+retrieving each LLVM token spelling twice add avoidable processing work.
+
+The candidate reuses decoded marker strings only inside one projection, keyed
+by their exact quoted bytes. Its 2,048-entry bound stops retaining new spellings
+without dropping or changing their projection. Every marker resolution and
+redirect check still runs. The source digest is computed once from the capture's
+immutable original bytes. Each definition site still resolves and reads its
+header anew: only a complete byte-equal read can reuse that capture's digest and
+decoded definition text. Changed bytes or observer identities abort; final
+source/header/plan/tool rechecks remain in place. A new capture starts empty.
+
+Root lexing retrieves each foreign spelling and location once, retaining the
+same comment exclusion, literal payload, directive lines and explicit Clang
+diagnostic treatment. Both complete native preprocessing runs, the independent
+observer and all physical input reads remain mandatory. No compiler observation,
+product, graph or filesystem answer is reused between requests.
+
+The two 80-capture profiles have exactly 76,328 file-read calls each. Digest
+calls drop from 96,972 to 53,932, JSON decode calls from 2,770,504 to 1,933,408,
+and LLVM spelling accesses from 2,991,240 to 1,484,913. Root lexer inclusive time
+drops from 37.81 to 30.80 seconds over these captures. Inclusive phases overlap;
+their savings must not be summed, and profiler results are not response times.
+
+An unprofiled paired run uses the installed `.7` binary, compiler, observer,
+SDK, plan and unchanged Hades sources. The two private configurations differ
+only in provider location/bytes. Both clients have external verified indices;
+each of the nine baseline/candidate pairs alternates which client runs first.
+
+| Operation | `.7` median (range) | Candidate median (range) | Median paired saving |
+| --- | ---: | ---: | ---: |
+| Health | 17.523 s (15.034–17.578) | 17.336 s (14.770–17.515) | 0.187 s |
+| Graph | 17.279 s (16.768–17.816) | 17.088 s (14.794–17.281) | 0.535 s |
+| Snippet | 17.417 s (17.342–17.562) | 17.059 s (15.550–17.244) | 0.503 s |
+
+Paired savings are medians of individual differences, not differences of the
+column medians. Ranges overlap and earlier consecutive blocks drifted by about
+a second; this is a small local improvement, not a large or cross-machine
+latency guarantee. Full fresh native validation still dominates requests.
+
+All 106 stored semantic artifacts (node/span families, edges, signatures,
+evidence, usage, names, dataflow, reach and physical source contexts) match the
+fresh `.7` baseline exactly. Graph/snippet payloads and original diagnostic
+spans match; only the displayed health extraction identity changes with provider
+provenance. The same two inactive Catch2 diagnoses / 13 bytes remain visible.
+The 74 Python controls pass on Windows/Linux, including same-timestamp header
+edits, missing headers, independent capture identities, bounded escaped marker
+decoding and raw-literal/directive roles. A private 5,000-stream LF/CRLF
+differential comparison retains exact output/declines and resolution call order.
+
+Five real MSVC/LLVM CLI/MCP failure controls retain the committed generation and
+all graph/span bytes through missing compiler, observer, library, provider and
+timeout cases, then restore exact answers. Native-only optional header creation,
+same-timestamp edit/restoration and removal invalidate recovery correctly.
+Coordinated header changes between native runs retain diagnostics; an inconsistent
+definition read during projection fails closed and keeps CURRENT. Restoration
+recovers the original generation. All 38 native LF/CRLF syntax/token controls pass.
+
+Reports and private paired/native harnesses are under
+`C:/Users/morit/.codex/tmp/vorpal-latency7-*`. The installed `.7` provider,
+configuration, index and productive tunnel are unchanged; Hades is read-only.
+
 ## Windows Hades measurement, 2026-10-11
 
 The next [report-only MSVC dependency audit](CPP_NATIVE_DEPENDENCY_AUDIT.md)

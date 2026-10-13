@@ -2,6 +2,7 @@ import pathlib
 import hashlib
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from cpp_macro_native_projection import project_root, validated_hash_offsets, observed_literal_once_lines
@@ -9,6 +10,56 @@ from profile_cpp_native_provider import summarize
 
 
 class NativeProjection(unittest.TestCase):
+    def test_repeated_marker_spelling_decodes_once_but_every_resolution_stays_fresh(self):
+        for nl in [b'\n', b'\r\n']:
+            data = nl.join([b'#line 1 "root.cc"', b'int first;',
+                            b'#line 2 "alias.h"', b'int alias;',
+                            b'#line 3 "root.cc"', b'int last;', b''])
+            offsets = {0, data.index(b'#line 2'), data.index(b'#line 3')}
+            visits = []
+
+            def physical(path):
+                visits.append(path)
+                # A redirect changes between the independent projection walks.
+                if path == 'alias.h':
+                    return 'sdk.h' if visits.count(path) == 1 else 'root.cc'
+                return str(path)
+
+            with patch('cpp_macro_native_projection.json.loads', wraps=__import__('json').loads) as decode:
+                self.assertEqual(project_root(data, offsets, 'root.cc', physical),
+                                 nl.join([b'int first;', b'int alias;', b'int last;', b'']))
+                self.assertEqual(decode.call_count, 2)
+            self.assertEqual(visits.count('alias.h'), 2)
+            # A new projection does not retain even the pure spelling memo.
+            with patch('cpp_macro_native_projection.json.loads', wraps=__import__('json').loads) as decode:
+                self.assertEqual(project_root(data, offsets, 'root.cc', str),
+                                 nl.join([b'int first;', b'int last;', b'']))
+                self.assertEqual(decode.call_count, 2)
+
+    def test_marker_decode_bound_keeps_uncached_spellings_and_exact_escaped_bytes(self):
+        import json
+        prefix = b''.join(b'#line 1 '+json.dumps(f'sdk{i}.h').encode()+b'\n' for i in range(2048))
+        # Equivalent JSON strings with distinct escape bytes are independently decoded.
+        tail = b'#line 1 "root.cc"\nint first;\n#line 2 "root\\u002ecc"\nint escaped;\n#line 3 "root.cc"\nint last;\n'
+        data = prefix + tail
+        offsets, at = set(), 0
+        for line in data.splitlines(keepends=True):
+            if line.startswith(b'#'):
+                offsets.add(at)
+            at += len(line)
+        with patch('cpp_macro_native_projection.json.loads', wraps=json.loads) as decode:
+            self.assertEqual(project_root(data, offsets, 'root.cc', str),
+                             b'int first;\nint escaped;\nint last;\n')
+            self.assertEqual(decode.call_count, 2051)
+        with patch('cpp_macro_native_projection.json.loads', wraps=json.loads) as decode:
+            self.assertEqual(project_root(tail, {0, tail.index(b'#line 2'), tail.index(b'#line 3')},
+                                          'root.cc', str), b'int first;\nint escaped;\nint last;\n')
+            self.assertEqual(decode.call_count, 2)
+        for invalid in [b'"root\\q.cc"', b'"root\x00.cc"']:
+            broken = b'#line 1 "root.cc"\nint first;\n#line 2 '+invalid+b'\nint invalid;\n'
+            with self.assertRaises(ValueError):
+                project_root(broken, {0, broken.index(b'#line 2')}, 'root.cc', str)
+
     def test_literal_once_requires_active_physical_callback_and_matching_native_line(self):
         for nl in [b'\n', b'\r\n']:
             original = nl.join([b'// header', b'#pragma once', b'int original;', b''])
