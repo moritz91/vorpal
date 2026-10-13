@@ -80,20 +80,48 @@ index copies. The first request is retained in the results:
 
 Paired savings are medians of individual differences, not differences of column
 medians. The first candidate health request is slower (19.856 s against 15.444 s),
-so this is a repeated-request improvement, not a startup-latency guarantee.
+but the cache-state investigation below finds a full product migration in that
+request. It does not isolate process-start latency.
 Timing drift remains visible in both variants. All 106 semantic graph/span files,
 graph/snippet answers and original diagnostics match exactly; only an explicitly
 displayed extraction identity may differ with provenance. The same two inactive
 Catch2 diagnoses / 13 bytes remain visible. Native compiler proofs are still
 fresh on every request; none are reused to obtain these timings.
 
-An independent startup control launches a new MCP process and uses a fresh
-index copy for each measurement. Reversing baseline/candidate process order
-confirms the tradeoff: first health takes 15.917/16.217 seconds on `.8` against
+The original startup control launches a new MCP process and copies the released
+index for each measurement. Reversing baseline/candidate process order gives
+first health of 15.917/16.217 seconds on `.8` against
 17.831/19.816 seconds on the candidate. The immediately repeated health takes
 16.741/16.825 seconds against 14.492/14.435 seconds. Answers remain identical.
-The extra 1.9-3.6 seconds on initial health must be considered before deployment;
-the candidate has not replaced the productive `.8` service.
+Those extra 1.9-3.6 seconds were initially attributed to startup. That attribution
+was incorrect: the released Windows binary embeds all 48 bundled YAML rule files
+with CRLF, while the local binary embeds LF. Product identity correctly hashes
+those exact bytes. The local candidate therefore migrates all 1,744 product
+identities, with unchanged source stamps; the baseline changes only twenty native
+or genuine include-context products. Stream extraction accounts for the extra
+time; graph load and the phases before/after extraction are comparable.
+
+Three corrected fresh-process pairs use an ordinary product cache prepared by
+the corresponding binary, with alternating process order. No native capture is
+reused, and the first response is retained:
+
+| Health response | Published `.8` median (range) | Candidate median (range) |
+| --- | ---: | ---: |
+| First in new process | 15.246 s (15.099-15.288) | 13.107 s (13.085-13.410) |
+| Immediately repeated | 15.177 s (15.110-15.466) | 12.982 s (12.938-13.531) |
+
+Matched first responses save a median 2.139 seconds per pair; repeated responses
+save 2.239 seconds. Answers and original spans are exact. This resolves the
+purported recurring startup regression, without weakening replay validation.
+A binary with genuinely different rule bytes still requires migration. Deployment
+builds the new external index with the exact released binary before switching MCP.
+
+`.gitattributes` now fixes bundled outline YAML to LF on every checkout; a native
+Windows/Linux unit test checks the actual embedded bytes, including the Windows
+release gate. Grammars keep their existing exact-byte policy, and custom rule
+bytes are not normalized or silently equated. The benchmark records whether its
+index was built by the measured binary and, when available, completed stream
+parse/replay counts from phase tracing. Older traces invent no counts.
 
 Tests compare priority/FIFO graph bytes across parsed/replayed/skipped entries,
 mixed/all/empty priority sets and deliberately starved one-byte admission. Both

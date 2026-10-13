@@ -26,18 +26,25 @@ def phase_summary(log):
     spans = {'extractionSeconds': ('stream: start', 'stream: absorb tail'),
              'graphLinkSeconds': ('link: table build start', 'link: seal done')}
     starts, samples = {}, {name: [] for name in spans}
+    work_counts = []
     for line in log.read_text(encoding='utf-8', errors='replace').splitlines():
         match = re.match(r'\[phase ([0-9.]+)s\] (.*)', line)
         if not match:
             continue
         stamp, label = float(match[1]), match[2]
+        counts = re.fullmatch(r'stream: products parsed=(\d+) replayed=(\d+)', label)
+        if counts:
+            work_counts.append({'parsed': int(counts[1]), 'replayed': int(counts[2])})
         for name, (begin, end) in spans.items():
             if label == begin:
                 starts[name] = stamp
             elif label == end and name in starts:
                 samples[name].append(stamp - starts.pop(name))
-    return {name: {'samples': len(values), 'median': statistics.median(values)}
-            for name, values in samples.items() if values}
+    result = {name: {'samples': len(values), 'median': statistics.median(values)}
+              for name, values in samples.items() if values}
+    if work_counts:
+        result['streamWorkCounts'] = work_counts
+    return result
 
 
 def main():
@@ -74,6 +81,8 @@ def main():
     result = {"schema": 1, "binarySha256": hashlib.sha256(args.binary.read_bytes()).hexdigest(),
               "source": str(source), "configSha256": hashlib.sha256(args.config.read_bytes()).hexdigest(),
               "symbol": args.symbol, "rounds": args.rounds, "requests": []}
+    result['cachePreparation'] = ('verifiedBuildWithMeasuredBinary' if args.build
+                                  else 'existingIndexNoPreparation')
     command = [str(args.binary), "index", str(source), "--out", str(index),
                "--config", str(args.config), "--verify"]
     if args.build:

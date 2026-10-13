@@ -1105,6 +1105,11 @@ fn build_index_inner(
       return Err(err.into());
     }
   };
+  if vorpal_kg::phase_trace_enabled() {
+    vorpal_kg::phase_stamp(&format!(
+      "stream: products parsed={} replayed={}", stream.parsed, stream.replayed,
+    ));
+  }
   if let Err(err) = extractor.check_cpp_context_freshness() {
     let _ = pack_thread.join();
     return Err(io::Error::other(err).into());

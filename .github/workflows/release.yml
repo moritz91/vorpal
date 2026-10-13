@@ -89,6 +89,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-ingest --lib native_operators
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p vorpal-outline --lib bundled_rule_bytes_use_canonical_line_endings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-ingest --lib work_priority_tests
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p vorpal-ingest --test streamed --test stream_priority
