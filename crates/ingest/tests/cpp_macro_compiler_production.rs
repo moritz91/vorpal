@@ -1400,7 +1400,6 @@ fn completed_unproven_captures_decline_without_hiding_errors() {
   for mode in [
     "context",
     "after",
-    "incomplete",
     "volatile",
     "directive",
     "anchor",
@@ -1464,6 +1463,10 @@ fn operational_failures_produce_no_owned_streaming_or_scan_product_and_poison_th
     ("json", CompilerFailure::Protocol),
     ("stale", CompilerFailure::Protocol),
     ("source", CompilerFailure::Protocol),
+    ("incomplete", CompilerFailure::Protocol),
+    ("empty-context", CompilerFailure::Protocol),
+    ("empty-native-after", CompilerFailure::Protocol),
+    ("token-limit", CompilerFailure::ResourceLimit),
     ("missing-response", CompilerFailure::Protocol),
   ] {
     for entry in 0..3 {

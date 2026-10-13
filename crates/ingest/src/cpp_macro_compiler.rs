@@ -54,7 +54,7 @@ impl std::fmt::Display for CompilerFailure {
       Self::ResourceLimit => "capture exceeded resource limits",
       Self::ToolUnavailable => "required compiler/LLVM tool is unavailable; load the configured native toolchain environment",
       Self::Provider => "native preprocessing/provider failed; check the configured tools, SDK and environment",
-      Self::Protocol => "provider returned an invalid or missing capture response",
+      Self::Protocol => "provider returned an invalid, incomplete or missing capture response",
     };
     write!(f, "native C++ compiler recovery failed: {reason}")
   }
@@ -419,16 +419,18 @@ mod native {
       || packet.request_id != request_id
       || packet.path != path
       || packet.source != source
-    { return Err(Failure::Protocol); }
-    if !packet.complete
-      || packet.volatile_inputs
-      || !validated_native_pragmas(&packet, source)
+      || !packet.complete
       || packet.native_context_before.is_empty()
+      || packet.native_context_after.is_empty()
       || packet.observed_context.is_empty()
+    { return Err(Failure::Protocol); }
+    if packet.native_before.len() > 1_000_000 || packet.observed_tokens.len() > 1_000_000 {
+      return Err(Failure::ResourceLimit);
+    }
+    if packet.volatile_inputs
+      || !validated_native_pragmas(&packet, source)
       || packet.native_context_before != packet.native_context_after
       || packet.native_before != packet.native_after
-      || packet.native_before.len() > 1_000_000
-      || packet.observed_tokens.len() > 1_000_000
     {
       return Ok(None);
     }

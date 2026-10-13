@@ -82,7 +82,8 @@ This costs native preprocessing on every such query and can be slow on large SDK
 Configured native recovery distinguishes operational failures from proof declines.
 A provider that cannot start, an unavailable compiler/LLVM dependency, failed
 native preprocessing, timeout, scratch/resource failure, crash or invalid/missing
-response aborts the index build. No raw replacement product is emitted. The failure
+response (including `complete: false` or empty capture contexts) aborts the index
+build. No raw replacement product is emitted. The failure
 is sticky for the extraction session, including parallel workers; retry with a new
 extractor. Standalone callers of the optional product APIs must check
 `check_cpp_context_freshness()` before using/publishing their session's products

@@ -39,6 +39,7 @@ fn compiler_outages_preserve_committed_artifacts_and_never_return_a_live_graph()
     "timeout",
     "json",
     "missing-response",
+    "incomplete",
     "missing-provider",
   ] {
     fs::write(sdk.join("mode"), mode).unwrap();

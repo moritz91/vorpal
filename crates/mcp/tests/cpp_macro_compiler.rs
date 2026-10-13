@@ -54,7 +54,7 @@ fn normal_mcp_reports_capture_outages_without_serving_or_publishing_a_fallback_g
     let initial = fs::read(index.join("CURRENT")).unwrap();
     let directory = vorpal_kg::resolve_index_dir(&index);
     let bytes = provider::artifact_snapshot(&directory);
-    for mode in ["unavailable", "exit", "timeout", "json", "missing-response"] {
+    for mode in ["unavailable", "exit", "timeout", "json", "missing-response", "incomplete"] {
       fs::write(sdk.join("mode"), mode).unwrap();
       for (tool, arguments) in [
         ("health", json!({})),
