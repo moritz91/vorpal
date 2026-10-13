@@ -166,6 +166,9 @@ pub struct OutlineExtractor {
   #[cfg(feature = "builtin-parser")]
   cpp_textual_contexts: Vec<PreparedIncludeContext>,
   cpp_macro_compiler: Option<crate::cpp_macro_compiler::CompilerCommand>,
+  // Sticky for this extraction session, including parallel workers. A failed
+  // capture cannot become a skipped/raw product and later publish a partial KG.
+  cpp_compiler_failure: OnceLock<crate::cpp_macro_compiler::CompilerFailure>,
   pub(crate) cpp_macro_freshness: Option<Arc<crate::cpp_macro_freshness::MacroFreshness>>,
 }
 
@@ -318,11 +321,22 @@ impl OutlineExtractor {
   fn textual_context_for(&self, _path: &str) -> Option<()> { None }
 
   pub fn check_cpp_context_freshness(&self) -> Result<(), String> {
+    self.check_cpp_compiler_failure().map_err(|failure| failure.to_string())?;
     #[cfg(feature = "builtin-parser")]
     if self.cpp_textual_contexts.iter().any(|context| !context.context.is_current()) {
       return Err("textual include inputs changed during indexing; retry the build".into());
     }
     Ok(())
+  }
+
+  /// Check before consuming/persisting products from this extraction session.
+  /// Operational capture failures produce no product and remain sticky. Retry
+  /// with a new extractor so a partial failed session cannot be published.
+  pub fn check_cpp_compiler_failure(&self) -> Result<(), crate::cpp_macro_compiler::CompilerFailure> {
+    match self.cpp_compiler_failure.get() {
+      Some(failure) => Err(*failure),
+      None => Ok(()),
+    }
   }
 
   /// Exact prepared inputs for the live build's deferred commit gate. No trees
@@ -366,6 +380,7 @@ impl OutlineExtractor {
       #[cfg(feature = "builtin-parser")]
       cpp_textual_contexts: Vec::new(),
       cpp_macro_compiler: None,
+      cpp_compiler_failure: OnceLock::new(),
       cpp_macro_freshness: None,
       dynamic_specs: HashMap::new(),
       rules_digest: xxhash_rust::xxh3::xxh3_64(DEFAULT_OUTLINE_RULES.as_bytes()),
@@ -380,6 +395,7 @@ impl OutlineExtractor {
       #[cfg(feature = "builtin-parser")]
       cpp_textual_contexts: Vec::new(),
       cpp_macro_compiler: None,
+      cpp_compiler_failure: OnceLock::new(),
       cpp_macro_freshness: None,
       dynamic_specs: HashMap::new(),
       rules_digest: xxhash_rust::xxh3::xxh3_64(rules_yaml.as_bytes()),
@@ -502,6 +518,7 @@ impl OutlineExtractor {
       #[cfg(feature = "builtin-parser")]
       cpp_textual_contexts: Vec::new(),
       cpp_macro_compiler: None,
+      cpp_compiler_failure: OnceLock::new(),
       cpp_macro_freshness: None,
       rules_digest: h.digest(),
     })
@@ -711,7 +728,10 @@ impl OutlineExtractor {
   /// the owning finish over the single extraction body ([`OutlineExtractor::extract_with`]) —
   /// batch ingest, tests, and single-file callers take it; the streaming pipeline uses
   /// [`OutlineExtractor::extract_product_encoded`] and never materializes the owned product.
+  /// Configured compiler failures also return `None`; callers must check
+  /// [`Self::check_cpp_context_freshness`] before consuming/publishing this session.
   pub fn extract_product(&self, path: &str, source: &str) -> Option<FileProduct> {
+    self.check_cpp_compiler_failure().ok()?;
     #[cfg(feature = "builtin-parser")]
     if let Some(context) = self.textual_context_for(path) {
       let _ = crate::tree_cache::take_reuse(path);
@@ -742,6 +762,7 @@ impl OutlineExtractor {
     source_mtime_ns: u64,
     buf: &mut Vec<u8>,
   ) -> Option<product::ProductStats> {
+    self.check_cpp_compiler_failure().ok()?;
     #[cfg(feature = "builtin-parser")]
     if self.textual_context_for(path).is_some() {
       let mut product = self.extract_product(path, source)?;
@@ -794,6 +815,7 @@ impl OutlineExtractor {
     observe_freshness: bool,
     finish: impl FnOnce(product::ExtractedParts<'_>) -> R,
   ) -> Option<R> {
+    self.check_cpp_compiler_failure().ok()?;
     #[cfg(not(feature = "builtin-parser"))]
     let _ = observe_freshness;
     let lang = SgLang::from_path(path)?;
@@ -810,10 +832,18 @@ impl OutlineExtractor {
       let _ = crate::tree_cache::take_reuse(path);
       if self.compiler_applies(path) {
         let command = self.cpp_macro_compiler.as_ref().unwrap();
-        if let Some(parsed) = crate::cpp_macro_compiler::parse(command, std::path::Path::new(path), source) {
-          return self.extract_from_grep(lang, path, source, &parsed.root, Some(MacroProofContext { dependency: parsed.dependency, errors: &parsed.diagnostics.errors, calls: &parsed.diagnostics.macro_calls, definition_sites: &parsed.definition_sites }), finish);
+        match crate::cpp_macro_compiler::parse(command, std::path::Path::new(path), source) {
+          Ok(Some(parsed)) => {
+            return self.extract_from_grep(lang, path, source, &parsed.root, Some(MacroProofContext { dependency: parsed.dependency, errors: &parsed.diagnostics.errors, calls: &parsed.diagnostics.macro_calls, definition_sites: &parsed.definition_sites }), finish);
+          }
+          Err(failure) => {
+            let _ = self.cpp_compiler_failure.set(failure);
+            return None;
+          }
+          Ok(None) => (),
         }
-        // Failure declines recovery. Raw syntax and diagnostics remain intact.
+        // A completed but unproven capture declines recovery. Raw syntax and
+        // diagnostics remain intact; operational failures cannot reach here.
         let grep = vorpal_language::with_cpp_statement_macros(&[], || lang.grep(source));
         return self.extract_from_grep(lang, path, source, &grep, None, finish);
       }
@@ -857,6 +887,7 @@ impl OutlineExtractor {
   /// text is the extraction input, so the product describes exactly the bytes that were
   /// parsed. The caller stamps the product with the stat those bytes came from.
   pub fn extract_product_from_root(&self, path: &str, root: &ParsedRoot) -> Option<FileProduct> {
+    self.check_cpp_compiler_failure().ok()?;
     let lang = SgLang::from_path(path)?;
     if *root.lang() != lang || !self.extracts(lang) {
       return None;

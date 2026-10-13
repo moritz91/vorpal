@@ -33,6 +33,51 @@ def load(path):
     return json.loads(Path(path).read_bytes())
 
 
+class ProofDeclined(Exception):
+    """A completed capture cannot establish the bounded source projection."""
+
+
+class ToolUnavailable(Exception):
+    """The configured native toolchain cannot be used."""
+
+
+def provider_exit(action):
+    """Sanitized exit contract shared by direct and profiling launchers.
+
+    65 is an explicit proof decline; 69 means required tools are unavailable.
+    Every other failure is operational. Never expose exception/command/stderr
+    payloads, which can contain source, arguments or environment secrets.
+    """
+    try:
+        action()
+        return 0
+    except ProofDeclined:
+        print("native C++ projection proof declined", file=sys.stderr)
+        return 65
+    except (ToolUnavailable, OSError, ImportError):
+        print("native C++ toolchain unavailable", file=sys.stderr)
+        return 69
+    except Exception:
+        print("native C++ capture failed", file=sys.stderr)
+        return 1
+
+
+def proven_projection(projector, *args, **kwargs):
+    try:
+        return projector(*args, **kwargs)
+    except ValueError:
+        raise ProofDeclined() from None
+
+
+def run_capture_command(command, output, error, cwd):
+    with output.open("wb") as out, error.open("wb") as err:
+        result = subprocess.run(command, cwd=cwd, stdout=out, stderr=err, check=False)
+    # A failed native invocation is not evidence that a raw-parser graph is a
+    # valid replacement (e.g. missing SDK/environment). Preserve the old index.
+    if result.returncode or output.stat().st_size > 128 * 1024 * 1024:
+        raise RuntimeError("native capture command failed or exceeded limit")
+
+
 def main():
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument("--plan", required=True)
@@ -94,7 +139,7 @@ def main():
     assert all(forced_inputs), "forced input paths must be explicit joined arguments"
     compiler = shutil.which(args.compiler)
     if not compiler:
-        raise RuntimeError("native compiler unavailable; load the VS environment")
+        raise ToolUnavailable()
     compiler = Path(compiler).resolve()
     sys.path.insert(0, str(Path(args.python_bindings).resolve()))
     from clang import cindex
@@ -124,10 +169,7 @@ def main():
         return digest(json.dumps(value, sort_keys=True).encode())
 
     def run(command, output, error):
-        with output.open("wb") as out, error.open("wb") as err:
-            result = subprocess.run(command, cwd=entry["cwd"], stdout=out, stderr=err, check=False)
-        if result.returncode or output.stat().st_size > 128 * 1024 * 1024:
-            raise RuntimeError("preprocess-only compiler run failed or exceeded limit")
+        run_capture_command(command, output, error, entry["cwd"])
 
     # Pure lexical work can repeat within the bracketed capture. This memo never
     # crosses a request and cannot certify include dependencies or product replay.
@@ -165,9 +207,9 @@ def main():
             return resolved
 
         if args.driver_mode == "clang":
-            projected = project_clang_root(data, directive_offsets, source, input_path)
+            projected = proven_projection(project_clang_root, data, directive_offsets, source, input_path)
         else:
-            projected = project_root(data, directive_offsets, source, input_path,
+            projected = proven_projection(project_root, data, directive_offsets, source, input_path,
                                      forced_inputs=forced_inputs, translation_unit=translation_unit,
                                      literal_once_lines=literal_once_lines)
         # A matching frame can also be authored in a header, or emitted through
@@ -190,7 +232,7 @@ def main():
         if any(physical(path) != resolved for path, resolved in resolved_paths.items()):
             raise RuntimeError("native input redirect changed during projection")
         if authored and args.driver_mode == "msvc":
-            projected = project_root(data, directive_offsets, source, physical, True,
+            projected = proven_projection(project_root, data, directive_offsets, source, physical, True,
                                      forced_inputs=forced_inputs, translation_unit=translation_unit,
                                      literal_once_lines=literal_once_lines)
         def lex_root():
@@ -359,10 +401,4 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception:
-        # Detailed compiler stderr remains in the capture scratch directory;
-        # do not expose arguments/environment or secrets in protocol diagnostics.
-        print("native C++ observation declined", file=sys.stderr)
-        raise SystemExit(1)
+    raise SystemExit(provider_exit(main))

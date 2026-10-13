@@ -1382,7 +1382,7 @@ fn fresh_compiler_products_keep_original_sites_and_never_authorize_replay() {
 }
 
 #[test]
-fn malformed_native_mismatched_stale_or_failed_runs_decline_without_hiding_errors() {
+fn completed_unproven_captures_decline_without_hiding_errors() {
   let dir = tempfile::tempdir().unwrap();
   let path = dir.path().join("main.cc");
   fs::write(&path, SOURCE).unwrap();
@@ -1398,26 +1398,21 @@ fn malformed_native_mismatched_stale_or_failed_runs_decline_without_hiding_error
     .with_cpp_macro_compiler(command)
     .unwrap();
   for mode in [
-    "stale",
-    "source",
     "context",
     "after",
-    "incomplete",
     "volatile",
     "directive",
     "anchor",
     "callee",
     "header",
-    "json",
-    "exit",
-    "timeout",
-    "volume",
+    "decline",
   ] {
     fs::write(dir.path().join("mode"), mode).unwrap();
     let product = extractor
       .extract_product(path.to_str().unwrap(), SOURCE)
       .unwrap();
     assert!(product.error_nodes > 0, "{mode}");
+    extractor.check_cpp_context_freshness().unwrap();
   }
   fs::write(dir.path().join("mode"), "").unwrap();
   for changed in [false, true, false] {
@@ -1432,13 +1427,121 @@ fn malformed_native_mismatched_stale_or_failed_runs_decline_without_hiding_error
     assert_eq!(product.error_nodes == 0, !changed);
   }
   fs::remove_file(dir.path().join("proof.h")).unwrap();
-  assert!(
-    extractor
-      .extract_product(path.to_str().unwrap(), SOURCE)
-      .unwrap()
-      .error_nodes
-      > 0
-  );
+  assert!(extractor.extract_product(path.to_str().unwrap(), SOURCE).is_none());
+  assert!(extractor.check_cpp_compiler_failure().is_err());
+  assert_eq!(fs::read_to_string(path).unwrap(), SOURCE);
+}
+
+#[test]
+fn operational_failures_produce_no_owned_streaming_or_scan_product_and_poison_the_session() {
+  use vorpal_core::tree_sitter::LanguageExt;
+  use vorpal_ingest::cpp_macro_compiler::CompilerFailure;
+  let dir = tempfile::tempdir().unwrap();
+  let path = dir.path().join("main.cc");
+  fs::write(&path, SOURCE).unwrap();
+  fs::write(
+    dir.path().join("proof.h"),
+    "#define CHECK(x) { sink(x); }\n",
+  )
+  .unwrap();
+  let command = provider::command(dir.path(), &path);
+  let baseline = OutlineExtractor::new()
+    .unwrap()
+    .with_cpp_macro_compiler(command.clone())
+    .unwrap()
+    .extract_product(path.to_str().unwrap(), SOURCE)
+    .unwrap();
+  let mut expected = Vec::new();
+  encode_product_into(&baseline, &mut expected);
+  let root = vorpal_lang_registry::SgLang::Builtin(vorpal_language::SupportLang::Cpp).grep(SOURCE);
+  for (mode, failure) in [
+    ("missing-provider", CompilerFailure::Start),
+    ("unavailable", CompilerFailure::ToolUnavailable),
+    ("exit", CompilerFailure::Provider),
+    ("timeout", CompilerFailure::Timeout),
+    ("volume", CompilerFailure::ResourceLimit),
+    ("json", CompilerFailure::Protocol),
+    ("stale", CompilerFailure::Protocol),
+    ("source", CompilerFailure::Protocol),
+    ("incomplete", CompilerFailure::Protocol),
+    ("empty-context", CompilerFailure::Protocol),
+    ("empty-native-after", CompilerFailure::Protocol),
+    ("token-limit", CompilerFailure::ResourceLimit),
+    ("missing-response", CompilerFailure::Protocol),
+  ] {
+    for entry in 0..3 {
+      fs::write(dir.path().join("mode"), mode).unwrap();
+      let mut command = command.clone();
+      command.timeout_seconds = 1;
+      if mode == "missing-provider" {
+        command.program = dir.path().join("private-secret-missing-program");
+      }
+      let extractor = OutlineExtractor::new()
+        .unwrap()
+        .with_cpp_macro_compiler(command)
+        .unwrap();
+      let mut encoded = Vec::new();
+      match entry {
+        0 => assert!(
+          extractor
+            .extract_product(path.to_str().unwrap(), SOURCE)
+            .is_none()
+        ),
+        1 => assert!(
+          extractor
+            .extract_product_encoded(
+              path.to_str().unwrap(),
+              SOURCE,
+              SOURCE.len() as u64,
+              0,
+              &mut encoded
+            )
+            .is_none()
+        ),
+        _ => assert!(
+          extractor
+            .extract_product_from_root(path.to_str().unwrap(), &root)
+            .is_none()
+        ),
+      }
+      assert!(encoded.is_empty());
+      assert_eq!(
+        extractor.check_cpp_compiler_failure(),
+        Err(failure),
+        "{mode}/{entry}"
+      );
+      let message = extractor.check_cpp_context_freshness().unwrap_err();
+      assert_eq!(message, failure.to_string());
+      for secret in [
+        "private-secret",
+        "private-provider-stderr-secret",
+        dir.path().to_str().unwrap(),
+        SOURCE,
+      ] {
+        assert!(!message.contains(secret));
+      }
+      // A repaired provider cannot turn this partial failed session into a KG.
+      fs::write(dir.path().join("mode"), "").unwrap();
+      assert!(
+        extractor
+          .extract_product(path.to_str().unwrap(), SOURCE)
+          .is_none()
+      );
+      let restored = OutlineExtractor::new()
+        .unwrap()
+        .with_cpp_macro_compiler(provider::command(dir.path(), &path))
+        .unwrap();
+      let product = restored
+        .extract_product(path.to_str().unwrap(), SOURCE)
+        .unwrap();
+      restored.check_cpp_context_freshness().unwrap();
+      encode_product_into(&product, &mut encoded);
+      assert_eq!(
+        encoded, expected,
+        "{mode}/{entry}: spans/graph facts changed after restoration"
+      );
+    }
+  }
   assert_eq!(fs::read_to_string(path).unwrap(), SOURCE);
 }
 
@@ -1542,13 +1645,8 @@ fn timed_out_provider_cannot_leave_preprocessing_descendants_running() {
     .unwrap()
     .with_cpp_macro_compiler(command)
     .unwrap();
-  assert!(
-    extractor
-      .extract_product(path.to_str().unwrap(), SOURCE)
-      .unwrap()
-      .error_nodes
-      > 0
-  );
+  assert!(extractor.extract_product(path.to_str().unwrap(), SOURCE).is_none());
+  assert_eq!(extractor.check_cpp_compiler_failure(), Err(vorpal_ingest::cpp_macro_compiler::CompilerFailure::Timeout));
   let pid: u32 = fs::read_to_string(dir.path().join("child.pid"))
     .unwrap()
     .parse()
@@ -1603,7 +1701,7 @@ fn selected_compiler_failures_never_fall_back_to_metadata_but_other_files_can() 
     "#define CHECK(x) { sink(x); }\n",
   )
   .unwrap();
-  fs::write(dir.path().join("mode"), "exit").unwrap();
+  fs::write(dir.path().join("mode"), "decline").unwrap();
   let extractor = OutlineExtractor::new()
     .unwrap()
     .with_cpp_macro_recovery(&[])

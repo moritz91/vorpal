@@ -24,6 +24,57 @@ pub fn command(
   }
 }
 
+// Shared index/MCP assertion over committed graph, spans and product bytes in
+// both flat and bucketed stores. Lazy ANN/search sidecars are outside this set.
+#[allow(dead_code)]
+pub fn artifact_snapshot(root: &Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+  fn visit(
+    root: &Path,
+    path: &Path,
+    files: &mut std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>,
+  ) {
+    for entry in fs::read_dir(path).unwrap() {
+      let path = entry.unwrap().path();
+      if path.is_dir() {
+        visit(root, &path, files);
+      } else {
+        files.insert(
+          path.strip_prefix(root).unwrap().to_owned(),
+          fs::read(path).unwrap(),
+        );
+      }
+    }
+  }
+  let mut files = std::collections::BTreeMap::new();
+  for name in ["nodes", "products", "edges", "evidence", "sigs", "usage"] {
+    let path = root.join(name);
+    if path.is_dir() {
+      visit(root, &path, &mut files);
+    }
+  }
+  for name in [
+    "dataflow.bin",
+    "graph.bin",
+    "manifest.bin",
+    "names.idx",
+    "reach.bin",
+    "nodes.vseg",
+    "evidence.bin",
+    "strings.heap",
+    "products.pack",
+    "products.idx",
+    "source_contexts.json",
+  ] {
+    let path = root.join(name);
+    if path.is_file() {
+      files.insert(name.into(), fs::read(path).unwrap());
+    }
+  }
+  assert!(files.contains_key(Path::new("graph.bin")));
+  assert!(files.contains_key(Path::new("manifest.bin")));
+  files
+}
+
 #[test]
 fn compiler_provider_process() {
   let Some(request) = std::env::var_os("VORPAL_CPP_COMPILER_REQUEST") else {
@@ -70,8 +121,12 @@ fn compiler_provider_process() {
     std::thread::sleep(Duration::from_secs(30));
   }
   if mode == "exit" {
+    eprintln!("private-provider-stderr-secret");
     process::exit(9);
   }
+  if mode == "unavailable" { process::exit(69); }
+  if mode == "decline" { process::exit(65); }
+  if mode == "missing-response" { return; }
   let response = std::env::var_os("VORPAL_CPP_COMPILER_RESPONSE").unwrap();
   if mode == "json" {
     fs::write(response, b"{broken").unwrap();
@@ -555,6 +610,9 @@ fn compiler_provider_process() {
     "context" => packet["nativeContextAfter"] = json!("different"),
     "after" => packet["nativeAfter"] = json!(["changed"]),
     "incomplete" => packet["complete"] = json!(false),
+    "empty-context" => packet["observedContext"] = json!(""),
+    "empty-native-after" => packet["nativeContextAfter"] = json!(""),
+    "token-limit" => packet["nativeBefore"] = json!(vec![""; 1_000_001]),
     "volatile" => packet["volatileInputs"] = json!(true),
     "directive" => packet["nativeDirectives"] = json!(["#pragma unknown"]),
     "anchor" => packet["expansions"][0]["definition"]["end"] = json!(1),

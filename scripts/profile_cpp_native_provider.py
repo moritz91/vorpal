@@ -86,8 +86,5 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception:
-        print("native provider profiling declined", file=sys.stderr)
-        raise SystemExit(1)
+    from cpp_macro_compiler_provider import provider_exit
+    raise SystemExit(provider_exit(main))

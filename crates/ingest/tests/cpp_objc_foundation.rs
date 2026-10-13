@@ -33,7 +33,7 @@ fn genuine_foundation_context_preserves_aliases_spans_and_freshness() {
   for case in cases {
     let extractor = OutlineExtractor::new()
       .unwrap()
-      .with_cpp_macro_compiler(case.command)
+      .with_cpp_macro_compiler(case.command.clone())
       .unwrap();
     let source = fs::read_to_string(&case.path).unwrap();
     let path = case.path.to_str().unwrap();
@@ -112,8 +112,15 @@ fn genuine_foundation_context_preserves_aliases_spans_and_freshness() {
     assert!(changed.error_nodes > 0);
     assert_ne!(changed.grammar_digest, clean.grammar_digest);
     fs::remove_file(&case.header_path).unwrap();
-    assert!(extractor.extract_product(path, &probe).unwrap().error_nodes > 0);
+    assert!(extractor.extract_product(path, &probe).is_none());
+    assert!(extractor.check_cpp_compiler_failure().is_err());
     fs::write(&case.header_path, header).unwrap();
+    // A failed capture session stays poisoned; only a fresh session may recover.
+    assert!(extractor.extract_product(path, &probe).is_none());
+    let extractor = OutlineExtractor::new()
+      .unwrap()
+      .with_cpp_macro_compiler(case.command)
+      .unwrap();
     assert_eq!(
       extractor.extract_product(path, &probe).unwrap().error_nodes,
       0
