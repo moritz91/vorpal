@@ -2193,6 +2193,43 @@ enum Slot<'i> {
   Skipped,
 }
 
+#[derive(Clone)]
+enum WorkReceiver<T> {
+  Fifo(crossbeam_channel::Receiver<T>),
+  Priority {
+    first: crossbeam_channel::Receiver<T>,
+    ordinary: crossbeam_channel::Receiver<T>,
+    first_closed: bool,
+    ordinary_closed: bool,
+  },
+}
+
+impl<T> WorkReceiver<T> {
+  fn recv(&mut self) -> Result<T, crossbeam_channel::RecvError> {
+    match self {
+      Self::Fifo(receiver) => receiver.recv(),
+      Self::Priority { first, ordinary, first_closed, ordinary_closed } => loop {
+        if *first_closed {
+          return ordinary.recv();
+        }
+        if *ordinary_closed {
+          return first.recv();
+        }
+        crossbeam_channel::select_biased! {
+          recv(first) -> item => match item {
+            Ok(item) => return Ok(item),
+            Err(_) => *first_closed = true,
+          },
+          recv(ordinary) -> item => match item {
+            Ok(item) => return Ok(item),
+            Err(_) => *ordinary_closed = true,
+          },
+        }
+      },
+    }
+  }
+}
+
 /// §7.5 **bounded streaming ingest**: `discover → admit (byte budget) → extract (scoped
 /// workers, per-worker scratch) → commit (single writer per shard, in-shard order)` joined by
 /// bounded channels, so peak transient memory is O(budget + queue capacities), independent of
@@ -2233,6 +2270,7 @@ where
     None,
     None,
     None,
+    None,
   )?;
   Ok((writer, references, stats))
 }
@@ -2261,6 +2299,7 @@ where
     None,
     None,
     Some(fresh),
+    None,
   )?;
   Ok((writer, references, stats))
 }
@@ -2285,6 +2324,30 @@ pub fn stream_apply_spilled<'i, F>(
   StreamStats,
   FlowSpill,
 )>
+where
+  F: Fn(&crate::FileStat, &mut ExtractScratch) -> io::Result<StreamWork> + Sync,
+{
+  stream_apply_spilled_with_priority(
+    interner, entries, budget_bytes, spill_path, heap_stream_path, pack, fresh, None, work,
+  )
+}
+
+/// The spilled stream with a separate priority work lane. Admission, byte-budget
+/// reservations and commit sequence numbers retain canonical entry order. Only
+/// already-admitted extraction work is preferred, so a small budget cannot strand
+/// an unadmitted canonical prefix behind completed later entries.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_apply_spilled_with_priority<'i, F>(
+  interner: &'i vorpal_resolve::Interner,
+  entries: &[crate::FileStat],
+  budget_bytes: u64,
+  spill_path: &std::path::Path,
+  heap_stream_path: Option<&std::path::Path>,
+  pack: Option<&crate::PackReader>,
+  fresh: Option<&(dyn Fn(String, Vec<u8>) -> io::Result<()> + Sync)>,
+  priority: Option<&(dyn Fn(&crate::FileStat) -> bool + Sync)>,
+  work: F,
+) -> io::Result<(KgWriter, vorpal_resolve::RefSpill<'i>, StreamStats, FlowSpill)>
 where
   F: Fn(&crate::FileStat, &mut ExtractScratch) -> io::Result<StreamWork> + Sync,
 {
@@ -2318,6 +2381,7 @@ where
     heap_stream_path,
     pack,
     fresh,
+    priority,
   )?;
   let flow_spill = FlowSpill {
     args: arg_writer.finish()?,
@@ -2348,6 +2412,7 @@ fn stream_apply_impl<'i, F>(
   heap_stream_path: Option<&std::path::Path>,
   pack: Option<&crate::PackReader>,
   fresh: Option<&(dyn Fn(String, Vec<u8>) -> io::Result<()> + Sync)>,
+  priority: Option<&(dyn Fn(&crate::FileStat) -> bool + Sync)>,
 ) -> io::Result<(KgWriter, StreamStats)>
 where
   F: Fn(&crate::FileStat, &mut ExtractScratch) -> io::Result<StreamWork> + Sync,
@@ -2445,6 +2510,18 @@ where
   // milliseconds whenever admission paused, starving every parser.
   let (work_tx, work_rx) =
     crossbeam_channel::bounded::<(usize, &crate::FileStat)>((threads * 64).clamp(64, 4096));
+  let (priority_tx, work_rx) = if priority.is_some() {
+    let (sender, first) =
+      crossbeam_channel::bounded::<(usize, &crate::FileStat)>((threads * 64).clamp(64, 4096));
+    (Some(sender), WorkReceiver::Priority {
+      first,
+      ordinary: work_rx,
+      first_closed: false,
+      ordinary_closed: false,
+    })
+  } else {
+    (None, WorkReceiver::Fifo(work_rx))
+  };
   // Workers → committers: one bounded channel per committer thread; shard k routes to
   // committer k % committers.
   let (slot_txs, slot_rxs): (Vec<_>, Vec<_>) = (0..committers)
@@ -2574,7 +2651,7 @@ where
     // across every file the worker touches.
     let worker_handles: Vec<_> = (0..threads)
       .map(|_| {
-        let work_rx = work_rx.clone();
+        let mut work_rx = work_rx.clone();
         // Each worker owns clones of the committer senders; when the last worker exits, the
         // channels close and committers drain to completion.
         let slot_txs: Vec<crossbeam_channel::Sender<(usize, Slot)>> = slot_txs.clone();
@@ -2758,7 +2835,12 @@ where
         break;
       }
       budget.reserve(entry.size.max(1));
-      if work_tx.send((sequence, entry)).is_err() {
+      let sender = if priority.is_some_and(|preferred| preferred(entry)) {
+        priority_tx.as_ref().expect("priority lane configured")
+      } else {
+        &work_tx
+      };
+      if sender.send((sequence, entry)).is_err() {
         break;
       }
       bytes_admitted += entry.size.max(1);
@@ -2766,6 +2848,7 @@ where
     }
     scaling.finish(bytes_admitted);
     drop(work_tx);
+    drop(priority_tx);
     // Drop the caller's sender so the absorber's drain ends when the committers exit.
     drop(done_tx);
     phase_trace("stream: admission done, draining completions");
@@ -2823,4 +2906,47 @@ where
       peak_in_flight_bytes: budget.peak(),
     },
   ))
+}
+
+#[cfg(test)]
+mod work_priority_tests {
+  use super::WorkReceiver;
+
+  #[test]
+  fn admitted_priority_work_precedes_waiting_ordinary_work() {
+    let (normal_tx, normal) = crossbeam_channel::bounded(4);
+    let (first_tx, first) = crossbeam_channel::bounded(4);
+    normal_tx.send(1).unwrap();
+    first_tx.send(2).unwrap();
+    let mut receiver = WorkReceiver::Priority {
+      first,
+      ordinary: normal,
+      first_closed: false,
+      ordinary_closed: false,
+    };
+    assert_eq!(receiver.recv().unwrap(), 2);
+    assert_eq!(receiver.recv().unwrap(), 1);
+    drop(first_tx);
+    normal_tx.send(3).unwrap();
+    drop(normal_tx);
+    assert_eq!(receiver.recv().unwrap(), 3);
+    assert!(receiver.recv().is_err());
+  }
+
+  #[test]
+  fn closed_ordinary_lane_does_not_discard_priority_tail() {
+    let (normal_tx, normal) = crossbeam_channel::bounded::<usize>(4);
+    let (first_tx, first) = crossbeam_channel::bounded(4);
+    drop(normal_tx);
+    let mut receiver = WorkReceiver::Priority {
+      first,
+      ordinary: normal,
+      first_closed: false,
+      ordinary_closed: false,
+    };
+    first_tx.send(9).unwrap();
+    drop(first_tx);
+    assert_eq!(receiver.recv().unwrap(), 9);
+    assert!(receiver.recv().is_err());
+  }
 }

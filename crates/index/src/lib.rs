@@ -46,7 +46,7 @@ use vorpal_ann::{AnnIndex, Embedder, LexicalEmbedder, ModelProvenance, tokenize}
 use vorpal_ingest::{
   ExtractScratch, Manifest, OutlineExtractor, PackMsg, PackReader, PackWriter, Resolver,
   StreamWork, cache_file_name, decode_product,
-  load_product, peek_product_stamps, save_product, stream_apply_spilled,
+  load_product, peek_product_stamps, save_product, stream_apply_spilled_with_priority,
   validate_product,
 };
 // `Kg` is imported once and re-exported for downstream surfaces (CLI) that route all graph
@@ -957,7 +957,11 @@ fn build_index_inner(
       .send(PackMsg { path, body })
       .map_err(|_| io::Error::other("pack sink closed"))
   };
-  let stream_result = stream_apply_spilled(
+  let compiler_priority = |entry: &vorpal_ingest::FileStat| extractor.cpp_compiler_applies(&entry.path);
+  let priority = extractor.cpp_macro_compiler_enabled().then_some(
+    &compiler_priority as &(dyn Fn(&vorpal_ingest::FileStat) -> bool + Sync),
+  );
+  let stream_result = stream_apply_spilled_with_priority(
     &interner,
     stream_entries,
     stream_budget_bytes(),
@@ -965,6 +969,7 @@ fn build_index_inner(
     Some(&heap_stream),
     pack_reader.as_deref(),
     Some(&fresh_sink),
+    priority,
     |entry, scratch: &mut ExtractScratch| {
       let cache_name = cache_file_name(&entry.path);
       if loose.contains(&OsString::from(&cache_name)) {
@@ -1100,6 +1105,11 @@ fn build_index_inner(
       return Err(err.into());
     }
   };
+  if vorpal_kg::phase_trace_enabled() {
+    vorpal_kg::phase_stamp(&format!(
+      "stream: products parsed={} replayed={}", stream.parsed, stream.replayed,
+    ));
+  }
   if let Err(err) = extractor.check_cpp_context_freshness() {
     let _ = pack_thread.join();
     return Err(io::Error::other(err).into());

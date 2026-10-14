@@ -111,6 +111,14 @@ mod tests {
   use vorpal_core::tree_sitter::LanguageExt;
   use vorpal_language::SupportLang;
 
+  #[test]
+  fn bundled_rule_bytes_use_canonical_line_endings() {
+    assert!(
+      !DEFAULT_OUTLINE_RULES.contains('\r'),
+      "bundled YAML must retain canonical LF bytes on every checkout; its exact bytes key product replay"
+    );
+  }
+
   fn rust_combined() -> CombinedExtractors<SupportLang> {
     let rules = parse_outline_rules::<SupportLang>(DEFAULT_OUTLINE_RULES)
       .expect("builtin outline rules should deserialize")

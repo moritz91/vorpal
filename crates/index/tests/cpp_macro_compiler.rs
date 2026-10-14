@@ -18,6 +18,13 @@ fn compiler_outages_preserve_committed_artifacts_and_never_return_a_live_graph()
   fs::write(&path, source).unwrap();
   // Other workers may have already built products when this capture fails.
   fs::write(src.join("ordinary.cc"), "void independent() {}\n").unwrap();
+  // Exercise both dispatch lanes rather than the small-tree serial shortcut.
+  for i in 0..120 {
+    fs::write(
+      src.join(format!("ordinary_{i:03}.cc")),
+      format!("void independent_{i}() {{}}\n"),
+    ).unwrap();
+  }
   fs::write(sdk.join("proof.h"), "#define CHECK(x) { sink(x); }\n").unwrap();
   let mut command = provider::command(&sdk, &path);
   command.timeout_seconds = 1;

@@ -597,11 +597,17 @@ impl OutlineExtractor {
     self.cpp_macro_roots.is_some() || self.cpp_macro_compiler.is_some() || self.cpp_textual_contexts_enabled()
   }
 
-  fn compiler_applies(&self, path: &str) -> bool {
+  /// Scheduling hint for explicitly configured native compiler files. It does
+  /// not prove freshness or authorize reuse of a compiler observation/product.
+  pub fn cpp_compiler_applies(&self, path: &str) -> bool {
     self.cpp_macro_compiler.as_ref().is_some_and(|c| {
       let physical = std::fs::canonicalize(path).ok();
       c.translation_units.iter().any(|p| p == std::path::Path::new(path) || physical.as_ref() == Some(p))
     })
+  }
+
+  pub fn cpp_macro_compiler_enabled(&self) -> bool {
+    self.cpp_macro_compiler.is_some()
   }
 
   /// Replay identity from current source/include bytes, including missing
@@ -610,7 +616,7 @@ impl OutlineExtractor {
     if self.textual_context_for(path).is_some() { return None; }
     // Native observers do not yet certify every native dependency. An identity
     // from a previous capture must never authorize product replay.
-    if self.compiler_applies(path)
+    if self.cpp_compiler_applies(path)
       && SgLang::from_path(path) == Some(SgLang::Builtin(vorpal_language::SupportLang::Cpp)) {
       return None;
     }
@@ -827,10 +833,10 @@ impl OutlineExtractor {
     // product before it drops. Reference extraction runs even without outline rules (the file
     // node is the only definition span).
     #[cfg(feature = "builtin-parser")]
-    if (self.cpp_macro_roots.is_some() || self.compiler_applies(path)) && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
+    if (self.cpp_macro_roots.is_some() || self.cpp_compiler_applies(path)) && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
       // Recovery always reparses: cached trees/walk snapshots have no proof identity.
       let _ = crate::tree_cache::take_reuse(path);
-      if self.compiler_applies(path) {
+      if self.cpp_compiler_applies(path) {
         let command = self.cpp_macro_compiler.as_ref().unwrap();
         match crate::cpp_macro_compiler::parse(command, std::path::Path::new(path), source) {
           Ok(Some(parsed)) => {
@@ -892,7 +898,7 @@ impl OutlineExtractor {
     if *root.lang() != lang || !self.extracts(lang) {
       return None;
     }
-    if (self.cpp_macro_roots.is_some() || self.compiler_applies(path) || self.cpp_textual_contexts_enabled()) && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
+    if (self.cpp_macro_roots.is_some() || self.cpp_compiler_applies(path) || self.cpp_textual_contexts_enabled()) && lang == SgLang::Builtin(vorpal_language::SupportLang::Cpp) {
       return self.extract_product(path, root.source());
     }
     self.extract_from_grep(lang, path, root.source(), root, None, product_from_parts)

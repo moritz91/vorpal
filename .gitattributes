@@ -1,3 +1,7 @@
 # Provenance hashes the exact vendored bytes, including upstream line endings.
 # Prevent Windows core.autocrlf from rewriting grammar sources during checkout.
 /grammars/** -text
+
+# These exact YAML bytes are embedded and hashed into every product identity.
+# A Windows checkout must not turn an unchanged ruleset into a full-cache migration.
+/crates/outline/src/default_rules/*.yml text eol=lf
