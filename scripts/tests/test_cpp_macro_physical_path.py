@@ -38,9 +38,19 @@ class PhysicalPath(unittest.TestCase):
                          directory / '..' / directory.name / source.name,
                          directory / 'missing.cc', directory / 'missing.',
                          directory / 'missing ', directory / 'missing.cc:stream',
-                         os.path.relpath(source), root]:
+                         root]:
                 self.assertEqual(physical(path), ordinary(path))
                 self.assertEqual(resolved_path(path), Path(path).resolve())
+            # Runner checkouts and their Temp directory can be on different
+            # Windows drives. A relative spelling needs a genuine same-drive cwd.
+            previous = Path.cwd()
+            try:
+                os.chdir(root)
+                relative = os.path.relpath(source)
+                self.assertEqual(physical(relative), ordinary(source))
+                self.assertEqual(resolved_path(relative), source.resolve())
+            finally:
+                os.chdir(previous)
 
     @unittest.skipUnless(os.name == 'nt', 'Windows native path-resolution control')
     def test_plain_existing_path_uses_one_fresh_native_resolution_per_call(self):
