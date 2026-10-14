@@ -37,6 +37,76 @@ Compare the complete stored node families, graph edges/confidences, source
 contexts, names and dataflow with the freshly built baseline. A provider/config
 change legitimately changes proof identities and generation IDs.
 
+## Fresh Windows path-resolution cost, 2026-10-14
+
+Profiling the published `.9` provider produces sixty successful captures for
+the same twenty MSVC contexts across health/graph/snippet. They execute 240 native
+subprocesses: two preprocessing runs, the observer and full-stream hash lexer per
+capture. Python performs 214,740 `Path.resolve` calls and 377,733 Windows
+`_getfinalpathname` calls. The latter consume 367.627 aggregate profiled seconds
+across concurrently running providers. These overlapping, instrumented totals
+identify work; they are not end-to-end latency or additive phase durations.
+
+The candidate resolves unambiguous existing Windows drive paths through an
+explicit verbatim lookup, then checks the resolved components and performs the
+ordinary filesystem check. CPython can avoid the additional native lookup used
+to verify removal of the verbatim prefix. Every call still resolves afresh;
+physical marker lookahead, independent before/after walks, header reads and
+redirect validation are retained. Definition endpoints use the same resolver.
+Ambiguous names/targets, UNC/device namespaces, missing/inaccessible paths and
+long paths fall back to the original resolver. POSIX resolution is unchanged.
+No observation, file read, proof or path result is memoized by this optimization.
+
+The native Windows controls compare original results for relative/absolute,
+Unicode, slash/dot, missing and stream spellings. Symlink retargeting, removal,
+recreation, loops and a real verbatim trailing-dot target retain the old behavior.
+The ordinary post-resolution error check and uncertain targets fall back.
+An actual native lookup counter proves one fresh lookup per qualifying call,
+including repeated calls; this is not a mock of the OS path resolution.
+
+Unprofiled alternating pairs use the same published `.9` Windows executable,
+compiler, observer, plan and unchanged Hades source. The candidate changes only
+the private provider location/bytes. Each configuration uses its matching ordinary
+product cache; native products still cannot replay. Changing the command path
+legitimately changes the rules/configuration identity for all products. The first
+candidate request migrates 1,744 products (45.696 s), so it is retained separately
+and excluded from the warm timings below. All subsequent requests in both variants
+parse 27 products and replay 1,717; each still takes twenty fresh native captures.
+
+| Tool | Pairs | Published `.9` median (range) | Candidate median (range) | Median paired saving |
+| --- | ---: | ---: | ---: | ---: |
+| Health, after migration | 2 | 30.935 s (30.733-31.136) | 29.368 s (29.305-29.432) | 1.566 s |
+| Graph | 3 | 31.165 s (30.911-31.360) | 29.478 s (29.255-29.490) | 1.871 s |
+| Snippet | 3 | 30.825 s (30.585-30.835) | 29.313 s (29.165-29.340) | 1.495 s |
+
+These local medians improve by approximately 5%; paired savings are medians of
+the individual differences. They do not promise cross-machine rates. Graph and
+snippet responses and all 106 semantic graph/span artifacts are byte-identical.
+Health retains the exact two inactive Catch2 diagnoses / 13 bytes in 1,744 files;
+only its displayed extraction identity differs with provider provenance.
+
+Two additional reversed-order, fresh-process health pairs copy the corresponding
+completed cache for each configuration. They parse 27/replay 1,717 products on
+the first request, including twenty fresh native captures. Baseline first health
+is 29.708/30.081 s; candidate is 28.273/28.390 s, saving a median 1.563 s per pair.
+This separates ordinary process start from the command-identity migration.
+
+A real MSVC-only optional-header control preserves source bytes and restores
+directory/header timestamps across creation, same-size edit/restoration and
+removal. Unproven expression replacements remain diagnosed; removal restores the
+original clean generation. No directory or source timestamp authorizes proof reuse.
+
+The isolated unavailable-MSVC check returns `index-unavailable` for health, graph
+and snippet without changing CURRENT or any of 124 committed graph/span/product
+files. Restoring the developer environment reproduces the original candidate
+generation, response digests and all 106 semantic files. All 85 Python controls
+pass on Windows and Linux; four Windows-specific controls are skipped on Linux.
+Grammar, schema, provenance and native replay/publication gates are unchanged.
+
+Private profiles, paired timings, phase traces and isolated validation fixtures
+are under `C:/Users/morit/.codex/tmp/vorpal-profile10`. The productive `.9` binary,
+provider/configuration/index and tunnel remain unchanged; Hades is read-only.
+
 ## Native compiler dispatch, 2026-10-13
 
 The `.8` timeline identifies delayed dispatch rather than an insufficient worker
