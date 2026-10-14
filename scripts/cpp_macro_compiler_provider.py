@@ -25,8 +25,58 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+_WINDOWS_COMPONENT_SPECIAL = re.compile(r'[<>:"/|?*\x00-\x1f]')
+
+
+def plain_windows_path(path):
+    """An absolute drive path whose components have no DOS/verbatim ambiguity.
+
+    UNC/device namespaces, drive-relative paths, dot components, stream names,
+    DOS devices and trailing dots/spaces must keep pathlib's ordinary resolver.
+    The same check applies to the result: a reparse point can target one of those
+    names even when its input spelling is plain.
+    """
+    if (not 3 < len(path) < 240 or path[1:3] != ':\\'
+            or not ('A' <= path[0] <= 'Z' or 'a' <= path[0] <= 'z')):
+        return False
+    for component in path[3:].split('\\'):
+        if (not component or component in ('.', '..') or component[0] == ' '
+                or component[-1] in ' .'
+                or _WINDOWS_COMPONENT_SPECIAL.search(component)):
+            return False
+        stem = component.split('.', 1)[0].rstrip(' ').upper()
+        if (stem in ('CON', 'PRN', 'AUX', 'NUL', 'CONIN$', 'CONOUT$')
+                or (len(stem) == 4 and stem[:3] in ('COM', 'LPT')
+                    and stem[3] in '123456789¹²³')):
+            return False
+    return True
+
+
+def resolved_path(path):
+    file = Path(path)
+    spelling = str(file)
+    if os.name == 'nt' and plain_windows_path(spelling):
+        # CPython's ordinary Windows realpath resolves once, then resolves again
+        # to check whether stripping \\?\ changes DOS interpretation. For this
+        # narrow domain an explicitly verbatim lookup needs only one fresh OS
+        # resolution. No resolved path is cached, even within one capture.
+        # Missing/inaccessible inputs and ambiguous reparse targets fall back.
+        try:
+            resolved = str(Path('\\\\?\\' + spelling).resolve(strict=True))
+            plain = resolved.removeprefix('\\\\?\\')
+            if plain_windows_path(plain):
+                result = Path(plain)
+                # Keep the ordinary resolver's post-resolution filesystem check.
+                # Any uncertainty returns to that resolver's full error behavior.
+                result.stat()
+                return result
+        except (OSError, RuntimeError):
+            pass
+    return file.resolve()
+
+
 def physical(path):
-    return os.path.normcase(str(Path(path).resolve())).removeprefix("\\\\?\\")
+    return os.path.normcase(str(resolved_path(path))).removeprefix("\\\\?\\")
 
 
 def load(path):
@@ -370,8 +420,8 @@ def main():
                       [[], ["__pragma", "(", "warning", "(", "push", ")", ")"],
                        ["__pragma", "(", "warning", "(", "pop", ")", ")"]])
         if (record.get("function_like") or literal or specifier or control or annotation) and definition.get("path") and definition_end.get("path"):
-            header = Path(definition["path"]).resolve()
-            if header.is_file() and Path(definition_end["path"]).resolve() == header:
+            header = resolved_path(definition["path"])
+            if header.is_file() and resolved_path(definition_end["path"]) == header:
                 number = definition_buffer(header, definition["buffer_sha256"],
                                            definition_end["buffer_sha256"], definitions, buffers)
                 anchor = {"buffer": number, "nameOffset": definition["offset"],

@@ -120,6 +120,18 @@ Pure lexer results may be reused for exactly equal buffers within one bracketed
 capture. Native runs, physical projection, header reads and redirect checks are
 still repeated; no proof or dependency snapshot is reused between requests.
 
+On Windows, physical source/definition path resolution uses a bounded verbatim
+lookup for existing, unambiguous absolute drive paths shorter than 240 characters.
+Each call still performs a fresh OS resolution and the ordinary post-resolution
+filesystem check. Both input and resolved target must pass the same component
+checks. UNC/device paths, DOS names, streams, dot components, trailing dots/spaces,
+long paths, unavailable inputs and uncertain reparse targets use the original
+`Path.resolve` behavior. Other platforms keep that resolver unchanged.
+This avoids CPython's second OS lookup solely for checking whether stripping the
+verbatim prefix changes legacy DOS interpretation. It stores no resolution,
+header bytes, observation or compiler proof for reuse. Native preprocessing,
+physical reads, redirect rechecks and publication/failure gates are unchanged.
+
 ```yaml
 ruleDirs: []
 cppMacroCompiler:

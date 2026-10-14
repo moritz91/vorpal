@@ -65,6 +65,14 @@ macOS/Foundation control researches and validates Objective-C alias support in
 Vorpal; its observations do not activate Windows branches or authorize Windows
 product replay. The productive Windows MCP keeps its own explicit compiler
 configuration, and the two inactive aliases remain diagnosed there.
+
+The fresh Windows provider path-resolution follow-up keeps both native passes,
+the observer, physical reads and redirect checks. It removes only a redundant
+DOS/verbatim namespace check for bounded, unambiguous existing drive paths;
+every lookup remains fresh and uncertain paths use the original resolver.
+See [the measured boundaries and controls](CPP_NATIVE_MCP_LATENCY.md#fresh-windows-path-resolution-cost-2026-10-14).
+No grammar/schema/provenance or replay gate changes accompany this optimization.
+The productive `.9` deployment and Hades source remain unchanged during review.
 Empty object/function macro definitions with trailing horizontal whitespace now
 end on their own LF/CRLF line, preserving following directives and declarations.
 Native numeric replacement endpoints include original leading whitespace before
